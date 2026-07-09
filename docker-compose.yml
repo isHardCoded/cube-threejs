@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: cube2077-postgres
+    environment:
+      POSTGRES_USER: cube
+      POSTGRES_PASSWORD: cube2077
+      POSTGRES_DB: cube2077
+    ports:
+      # 5434 on the host: 5432 is taken by a native PostgreSQL, 5433 by another project
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cube -d cube2077"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

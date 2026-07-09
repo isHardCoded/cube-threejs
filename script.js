@@ -26,6 +26,7 @@ if (tg) {
 }
 
 const haptic = () => tg?.HapticFeedback?.impactOccurred?.('light')
+const hapticError = () => tg?.HapticFeedback?.notificationOccurred?.('error')
 
 // ---------------------------------------------------------------------------
 // Renderer / scene
@@ -53,9 +54,9 @@ const composer = new EffectComposer(renderer)
 composer.addPass(new RenderPass(scene, camera))
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.85, // strength
-  0.5,  // radius
-  0.3   // threshold
+  0.42, // strength: subtle halo, not a blinding glow
+  0.35, // radius
+  0.6   // threshold: only truly bright things bloom
 )
 composer.addPass(bloom)
 composer.addPass(new OutputPass())
@@ -65,7 +66,7 @@ composer.addPass(new OutputPass())
 // ---------------------------------------------------------------------------
 scene.add(new THREE.HemisphereLight('#2a1a4a', '#0a0614', 0.7))
 
-const moon = new THREE.DirectionalLight('#7aa6ff', 1.0)
+const moon = new THREE.DirectionalLight('#7aa6ff', 1.5)
 moon.position.set(8, 14, 6)
 moon.castShadow = true
 moon.shadow.mapSize.set(2048, 2048)
@@ -78,16 +79,16 @@ moon.shadow.camera.far = 40
 moon.shadow.bias = -0.0005
 scene.add(moon)
 
-const magentaLight = new THREE.PointLight(NEON_MAGENTA, 45, 25)
+const magentaLight = new THREE.PointLight(NEON_MAGENTA, 22, 25)
 magentaLight.position.set(-7, 4, -7)
 scene.add(magentaLight)
 
-const cyanLight = new THREE.PointLight(NEON_CYAN, 45, 25)
+const cyanLight = new THREE.PointLight(NEON_CYAN, 22, 25)
 cyanLight.position.set(7, 4, 7)
 scene.add(cyanLight)
 
 // magenta underglow so the platform floats over pink haze
-const underGlow = new THREE.PointLight(NEON_MAGENTA, 60, 20)
+const underGlow = new THREE.PointLight(NEON_MAGENTA, 28, 20)
 underGlow.position.set(0, -4, 0)
 scene.add(underGlow)
 
@@ -95,7 +96,6 @@ scene.add(underGlow)
 // Floating platform: dark tech tiles + neon grid
 // ---------------------------------------------------------------------------
 const HALF = 4                       // platform spans cells [-HALF..HALF]
-const blocked = new Set()            // cells the cube cannot enter
 const cellKey = (x, z) => `${x},${z}`
 
 const island = new THREE.Group()
@@ -114,10 +114,7 @@ const holes = new Set([
 
 for (let x = -HALF; x <= HALF; x++) {
   for (let z = -HALF; z <= HALF; z++) {
-    if (holes.has(cellKey(x, z))) {
-      blocked.add(cellKey(x, z))
-      continue
-    }
+    if (holes.has(cellKey(x, z))) continue
     const tile = new THREE.Mesh(tileGeo, (x + z) % 2 === 0 ? tileMatA : tileMatB)
     tile.position.set(x, -0.15, z)
     tile.receiveShadow = true
@@ -144,7 +141,7 @@ island.add(grid)
 // glowing yellow frame around the platform
 const barGeo = new THREE.BoxGeometry(9.14, 0.05, 0.05)
 const barMat = new THREE.MeshStandardMaterial({
-  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 2,
+  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 1.1,
 })
 for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0, 1]]) {
   const bar = new THREE.Mesh(barGeo, barMat)
@@ -154,13 +151,13 @@ for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0,
 }
 
 // ---------------------------------------------------------------------------
-// Obstacles: neon pylons and tech crates (their cells are blocked)
+// Obstacles: neon pylons and tech crates (blocking is enforced server-side)
 // ---------------------------------------------------------------------------
 const darkMetal = new THREE.MeshStandardMaterial({ color: '#12121c', roughness: 0.35, metalness: 0.7 })
 const blinkers = []   // emissive meshes that pulse over time
 const holos = []      // rotating holographic shapes
 
-function neonMat(color, intensity = 2) {
+function neonMat(color, intensity = 1.3) {
   return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity })
 }
 
@@ -171,7 +168,7 @@ function addPylon(x, z, color, scale = 1, withHolo = false) {
   pole.castShadow = true
   g.add(pole)
 
-  const ringMat = neonMat(color, 2.5)
+  const ringMat = neonMat(color, 1.5)
   for (const y of [0.35, 0.75, 1.15]) {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.022, 8, 24), ringMat)
     ring.rotation.x = Math.PI / 2
@@ -179,7 +176,7 @@ function addPylon(x, z, color, scale = 1, withHolo = false) {
     g.add(ring)
   }
 
-  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), neonMat(NEON_MAGENTA, 3))
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), neonMat(NEON_MAGENTA, 1.8))
   tip.position.y = 1.48
   g.add(tip)
   blinkers.push({ mesh: tip, phase: Math.random() * Math.PI * 2, speed: 2 + Math.random() * 3 })
@@ -200,7 +197,6 @@ function addPylon(x, z, color, scale = 1, withHolo = false) {
   g.position.set(x, 0, z)
   g.scale.setScalar(scale)
   island.add(g)
-  blocked.add(cellKey(x, z))
 }
 
 function addCrate(x, z, color, scale = 1) {
@@ -211,7 +207,7 @@ function addCrate(x, z, color, scale = 1) {
   box.receiveShadow = true
   g.add(box)
 
-  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.57, 0.035, 0.57), neonMat(color, 2.2))
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.57, 0.035, 0.57), neonMat(color, 1.4))
   strip.position.y = 0.42
   g.add(strip)
 
@@ -219,7 +215,6 @@ function addCrate(x, z, color, scale = 1) {
   g.scale.setScalar(scale)
   g.rotation.y = (Math.random() - 0.5) * 0.6
   island.add(g)
-  blocked.add(cellKey(x, z))
 }
 
 addPylon(-HALF, 0, NEON_CYAN, 1.2, true)
@@ -271,7 +266,7 @@ for (let i = 0; i < 42; i++) {
 
   const tex = windowTextures[i % windowTextures.length]
   const sideMat = new THREE.MeshStandardMaterial({
-    map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: 1.1,
+    map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: 0.85,
     color: '#ffffff', roughness: 0.9,
   })
   const tower = new THREE.Mesh(
@@ -284,7 +279,7 @@ for (let i = 0; i < 42; i++) {
 
   // red beacon on the tallest towers
   if (h > 26) {
-    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), neonMat('#ff2222', 3))
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), neonMat('#ff2222', 1.8))
     beacon.position.set(tower.position.x, -22 + h + 0.15, tower.position.z)
     scene.add(beacon)
     blinkers.push({ mesh: beacon, phase: Math.random() * Math.PI * 2, speed: 3 })
@@ -294,7 +289,7 @@ for (let i = 0; i < 42; i++) {
   if (i % 5 === 0) {
     const color = [NEON_YELLOW, NEON_CYAN, NEON_MAGENTA][i % 3]
     const sign = new THREE.Mesh(signGeo, new THREE.MeshStandardMaterial({
-      color, emissive: color, emissiveIntensity: 2.4, side: THREE.DoubleSide,
+      color, emissive: color, emissiveIntensity: 1.5, side: THREE.DoubleSide,
     }))
     sign.position.set(tower.position.x, -22 + h * (0.55 + Math.random() * 0.3), tower.position.z)
     sign.lookAt(0, sign.position.y, 0)
@@ -311,10 +306,10 @@ for (let i = 0; i < 7; i++) {
   const car = new THREE.Group()
   const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.2), darkMetal)
   car.add(bodyMesh)
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.18), neonMat('#eaffff', 3))
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.18), neonMat('#eaffff', 2))
   head.position.x = 0.26
   car.add(head)
-  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.18), neonMat(NEON_MAGENTA, 3))
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.18), neonMat(NEON_MAGENTA, 2))
   tail.position.x = -0.26
   car.add(tail)
 
@@ -349,27 +344,10 @@ const rain = new THREE.Points(rainGeo, new THREE.PointsMaterial({
 scene.add(rain)
 
 // ---------------------------------------------------------------------------
-// The die: black chrome with glowing yellow pips (opposite faces sum to 7)
+// Die factory: black chrome cube with glowing pips (opposite faces sum to 7)
 // ---------------------------------------------------------------------------
-const cube = new THREE.Group()
-scene.add(cube)
-
-const body = new THREE.Mesh(
-  new RoundedBoxGeometry(1, 1, 1, 4, 0.09),
-  new THREE.MeshStandardMaterial({ color: '#0d0d13', roughness: 0.22, metalness: 0.85 })
-)
-body.castShadow = true
-body.receiveShadow = true
-cube.add(body)
-
-// soft glow that travels with the cube
-const cubeGlow = new THREE.PointLight(NEON_YELLOW, 7, 5)
-cube.add(cubeGlow)
-
+const dieGeo = new RoundedBoxGeometry(1, 1, 1, 4, 0.09)
 const pipGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.04, 20)
-const pipMat = new THREE.MeshStandardMaterial({
-  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 2.4, roughness: 0.3,
-})
 const O = 0.24
 const pipLayouts = {
   1: [[0, 0]],
@@ -379,7 +357,8 @@ const pipLayouts = {
   5: [[-O, -O], [-O, O], [0, 0], [O, -O], [O, O]],
   6: [[-O, -O], [-O, 0], [-O, O], [O, -O], [O, 0], [O, O]],
 }
-const faces = [
+// initial mesh orientation: top=1, east(+x)=3, south(+z)=2 — must match the server
+const faceDefs = [
   { value: 1, normal: new THREE.Vector3(0, 1, 0) },
   { value: 6, normal: new THREE.Vector3(0, -1, 0) },
   { value: 2, normal: new THREE.Vector3(0, 0, 1) },
@@ -388,78 +367,415 @@ const faces = [
   { value: 4, normal: new THREE.Vector3(-1, 0, 0) },
 ]
 const yAxis = new THREE.Vector3(0, 1, 0)
-for (const { value, normal } of faces) {
-  const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, normal)
-  for (const [u, v] of pipLayouts[value]) {
-    const pip = new THREE.Mesh(pipGeo, pipMat)
-    // place on the local XZ plane facing up, then rotate onto the face
-    pip.position.set(u, 0.495, v).applyQuaternion(quat)
-    pip.quaternion.copy(quat)
-    cube.add(pip)
+
+const OTHER_COLORS = [NEON_CYAN, NEON_MAGENTA, '#39ff14', '#ff9f1c', '#b26bff', '#ff5555']
+const colorForId = (id) => {
+  let hash = 0
+  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
+  return OTHER_COLORS[hash % OTHER_COLORS.length]
+}
+
+function createDie(pipColor) {
+  const group = new THREE.Group()
+  const bodyMat = new THREE.MeshStandardMaterial({ color: '#0d0d13', roughness: 0.22, metalness: 0.85 })
+  const body = new THREE.Mesh(dieGeo, bodyMat)
+  body.castShadow = true
+  body.receiveShadow = true
+  group.add(body)
+
+  const pipMat = new THREE.MeshStandardMaterial({
+    color: pipColor, emissive: pipColor, emissiveIntensity: 1.5, roughness: 0.3,
+  })
+  for (const { value, normal } of faceDefs) {
+    const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, normal)
+    for (const [u, v] of pipLayouts[value]) {
+      const pip = new THREE.Mesh(pipGeo, pipMat)
+      pip.position.set(u, 0.495, v).applyQuaternion(quat)
+      pip.quaternion.copy(quat)
+      group.add(pip)
+    }
+  }
+  return { group, bodyMat }
+}
+
+// ---------------------------------------------------------------------------
+// Orientation lookup: (top, east, south) -> quaternion, all 24 rotations
+// ---------------------------------------------------------------------------
+const orientTable = new Map()
+{
+  const n = new THREE.Vector3()
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) {
+    const q = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(i * Math.PI / 2, j * Math.PI / 2, k * Math.PI / 2))
+    let top, east, south
+    for (const { value, normal } of faceDefs) {
+      n.copy(normal).applyQuaternion(q)
+      if (n.y > 0.9) top = value
+      if (n.x > 0.9) east = value
+      if (n.z > 0.9) south = value
+    }
+    const key = `${top},${east},${south}`
+    if (!orientTable.has(key)) orientTable.set(key, q)
+  }
+}
+const quatForOrient = (o) => orientTable.get(`${o.top},${o.east},${o.south}`)
+
+// ---------------------------------------------------------------------------
+// HP bar sprites
+// ---------------------------------------------------------------------------
+function createHpBar() {
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 20
+  const tex = new THREE.CanvasTexture(c)
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthWrite: false,
+  }))
+  sprite.scale.set(1.0, 0.16, 1)
+  scene.add(sprite)
+  return { sprite, ctx: c.getContext('2d'), tex }
+}
+
+function drawHpBar(bar, hp) {
+  const { ctx, tex } = bar
+  const w = 128, h = 20
+  ctx.clearRect(0, 0, w, h)
+  ctx.fillStyle = 'rgba(5,5,12,.8)'
+  ctx.fillRect(0, 4, w, h - 8)
+  const frac = Math.max(0, hp / 100)
+  ctx.fillStyle = frac > 0.5 ? '#39ff14' : frac > 0.25 ? '#fcee0a' : '#ff2a6d'
+  ctx.fillRect(2, 6, (w - 4) * frac, h - 12)
+  ctx.strokeStyle = 'rgba(0,240,255,.7)'
+  ctx.lineWidth = 2
+  ctx.strokeRect(1, 5, w - 2, h - 10)
+  tex.needsUpdate = true
+}
+
+// ---------------------------------------------------------------------------
+// Damage popups
+// ---------------------------------------------------------------------------
+const popups = []
+function spawnPopup(text, color, worldPos) {
+  const c = document.createElement('canvas')
+  c.width = 128
+  c.height = 64
+  const ctx = c.getContext('2d')
+  ctx.font = 'bold 44px Verdana'
+  ctx.textAlign = 'center'
+  ctx.fillStyle = color
+  ctx.shadowColor = color
+  ctx.shadowBlur = 12
+  ctx.fillText(text, 64, 48)
+  const tex = new THREE.CanvasTexture(c)
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthWrite: false,
+  }))
+  sprite.scale.set(0.9, 0.45, 1)
+  sprite.position.copy(worldPos)
+  scene.add(sprite)
+  popups.push({ sprite, life: 1 })
+}
+
+// ---------------------------------------------------------------------------
+// Players
+// ---------------------------------------------------------------------------
+const players = new Map()   // id -> player object
+let myId = null
+
+const hint = document.getElementById('hint')
+const statusEl = document.getElementById('status')
+const hpFill = document.getElementById('hpfill')
+const hpText = document.getElementById('hptext')
+const dashFill = document.getElementById('dashfill')
+let moved = false
+
+let dashCooldownMs = 5000
+let dashReadyAt = 0
+let shake = 0               // camera shake amount
+
+function addPlayer(data) {
+  if (players.has(data.id)) return players.get(data.id)
+  const isMe = data.id === myId
+  const { group, bodyMat } = createDie(isMe ? NEON_YELLOW : colorForId(data.id))
+  if (isMe) {
+    const glow = new THREE.PointLight(NEON_YELLOW, 3, 4)
+    group.add(glow)
+  }
+  group.position.set(data.x, 0.5, data.z)
+  const q = quatForOrient(data)
+  if (q) group.quaternion.copy(q)
+  scene.add(group)
+
+  const bar = createHpBar()
+  drawHpBar(bar, data.hp)
+
+  const p = {
+    id: data.id, group, bodyMat, bar,
+    cell: { x: data.x, z: data.z },
+    hp: data.hp, dead: data.dead || false,
+    queue: [], anim: null,
+    flash: 0, deathAnim: null, spawnAnim: null,
+  }
+  if (p.dead) group.visible = false
+  players.set(data.id, p)
+  updateMyHud()
+  return p
+}
+
+function removePlayer(id) {
+  const p = players.get(id)
+  if (!p) return
+  scene.remove(p.group)
+  scene.remove(p.bar.sprite)
+  players.delete(id)
+}
+
+function updateMyHud() {
+  const me = players.get(myId)
+  if (!me) return
+  const frac = Math.max(0, me.hp) / 100
+  hpFill.style.width = `${frac * 100}%`
+  hpFill.style.background = frac > 0.5 ? '#39ff14' : frac > 0.25 ? '#fcee0a' : '#ff2a6d'
+  hpText.textContent = `HP ${Math.max(0, me.hp)}`
+}
+
+// ---------------------------------------------------------------------------
+// Movement animation (server events drive everything)
+// ---------------------------------------------------------------------------
+const ROLL_TIME = 0.24
+const DASH_TIME = 0.16
+const smoothstep = t => t * t * (3 - 2 * t)
+
+function enqueueMove(p, data) {
+  p.queue.push(data)
+  // if animations fall behind the server, fast-forward everything but the last
+  while (p.queue.length > 2) applyMoveInstantly(p, p.queue.shift())
+}
+
+function applyMoveInstantly(p, m) {
+  p.anim = null
+  p.cell = { x: m.p.x, z: m.p.z }
+  p.group.position.set(m.p.x, 0.5, m.p.z)
+  const q = quatForOrient(m.p)
+  if (q) p.group.quaternion.copy(q)
+}
+
+function startNextAnim(p) {
+  if (p.anim || p.queue.length === 0) return
+  const m = p.queue.shift()
+  const dx = Math.sign(m.p.x - p.cell.x)
+  const dz = Math.sign(m.p.z - p.cell.z)
+  const dist = Math.abs(m.p.x - p.cell.x) + Math.abs(m.p.z - p.cell.z)
+
+  if (m.dash || dist > 1 || dist === 0) {
+    p.anim = {
+      type: 'dash', t: 0,
+      from: p.group.position.clone(),
+      to: new THREE.Vector3(m.p.x, 0.5, m.p.z),
+      dir: new THREE.Vector3(dx, 0, dz),
+      target: m.p,
+      time: DASH_TIME * Math.max(1, dist * 0.7),
+    }
+  } else {
+    p.anim = {
+      type: 'roll', t: 0,
+      axis: new THREE.Vector3().crossVectors(yAxis, new THREE.Vector3(dx, 0, dz)),
+      pivot: p.group.position.clone().add(new THREE.Vector3(dx * 0.5, -0.5, dz * 0.5)),
+      startPos: p.group.position.clone(),
+      startQuat: p.group.quaternion.clone(),
+      target: m.p,
+      time: ROLL_TIME,
+    }
+  }
+}
+
+function updatePlayerAnim(p, dt) {
+  startNextAnim(p)
+  const a = p.anim
+  if (!a) return
+  a.t = Math.min(a.t + dt / a.time, 1)
+  const e = smoothstep(a.t)
+
+  if (a.type === 'roll') {
+    const q = new THREE.Quaternion().setFromAxisAngle(a.axis, e * Math.PI / 2)
+    p.group.quaternion.copy(q).multiply(a.startQuat)
+    p.group.position.copy(a.startPos).sub(a.pivot).applyQuaternion(q).add(a.pivot)
+  } else {
+    p.group.position.lerpVectors(a.from, a.to, e)
+    // dash stretch: elongate along travel direction mid-dash
+    const s = 1 + Math.sin(a.t * Math.PI) * 0.25
+    const sq = 1 / Math.sqrt(s)
+    p.group.scale.set(
+      a.dir.x !== 0 ? s : sq,
+      sq,
+      a.dir.z !== 0 ? s : sq
+    )
+  }
+
+  if (a.t >= 1) {
+    p.cell = { x: a.target.x, z: a.target.z }
+    p.group.position.set(a.target.x, 0.5, a.target.z)
+    p.group.scale.set(1, 1, 1)
+    const q = quatForOrient(a.target)
+    if (q) p.group.quaternion.copy(q)
+    p.anim = null
+    if (p.id === myId) haptic()
+    startNextAnim(p)
   }
 }
 
 // ---------------------------------------------------------------------------
-// Rolling logic
+// Network
 // ---------------------------------------------------------------------------
-const cell = { x: 0, z: 0 }
-cube.position.set(cell.x, 0.5, cell.z)
+const WS_URL = import.meta.env.VITE_WS_URL
+  || (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    ? 'ws://localhost:8090/ws'
+    : `wss://${location.host}/ws`)
 
-const ROLL_TIME = 0.28
-let rolling = null      // { axis, pivot, startPos, startQuat, t, target }
-let queued = null       // queued direction while a roll is in progress
-const hint = document.getElementById('hint')
-let moved = false
+let ws = null
+let reconnectDelay = 500
 
-function tryRoll(dx, dz) {
-  if (rolling) { queued = [dx, dz]; return }
-  const nx = cell.x + dx
-  const nz = cell.z + dz
-  if (Math.abs(nx) > HALF || Math.abs(nz) > HALF || blocked.has(cellKey(nx, nz))) {
-    tg?.HapticFeedback?.notificationOccurred?.('error')
-    return
+function setStatus(text) {
+  statusEl.textContent = text
+  statusEl.classList.toggle('hidden', !text)
+}
+
+function connect() {
+  setStatus('ПОДКЛЮЧЕНИЕ...')
+  ws = new WebSocket(WS_URL)
+
+  ws.onopen = () => {
+    reconnectDelay = 500
+    setStatus('')
   }
-  const dir = new THREE.Vector3(dx, 0, dz)
-  rolling = {
-    axis: new THREE.Vector3().crossVectors(yAxis, dir), // up x dir = roll axis toward movement
-    pivot: cube.position.clone().add(new THREE.Vector3(dx * 0.5, -0.5, dz * 0.5)),
-    startPos: cube.position.clone(),
-    startQuat: cube.quaternion.clone(),
-    t: 0,
-    target: { x: nx, z: nz },
+
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data)
+    handleMessage(msg)
+  }
+
+  ws.onclose = () => {
+    // wipe everything; the server will resend the world on reconnect
+    for (const id of [...players.keys()]) removePlayer(id)
+    myId = null
+    setStatus('ПЕРЕПОДКЛЮЧЕНИЕ...')
+    setTimeout(connect, reconnectDelay)
+    reconnectDelay = Math.min(reconnectDelay * 2, 8000)
+  }
+}
+
+function send(obj) {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj))
+}
+
+function handleMessage(msg) {
+  switch (msg.t) {
+    case 'welcome': {
+      myId = msg.id
+      dashCooldownMs = msg.dashCooldownMs || 5000
+      for (const pd of msg.players) addPlayer(pd)
+      break
+    }
+    case 'join':
+      addPlayer(msg.p)
+      break
+    case 'leave':
+      removePlayer(msg.id)
+      break
+    case 'move': {
+      const p = players.get(msg.p.id)
+      if (!p) { addPlayer(msg.p); break }
+      enqueueMove(p, msg)
+      if (msg.p.id === myId && msg.dash) dashReadyAt = performance.now() + dashCooldownMs
+      break
+    }
+    case 'hit': {
+      const a = players.get(msg.a)
+      const d = players.get(msg.d)
+      if (a) {
+        a.hp = msg.hpA
+        a.flash = 1
+        drawHpBar(a.bar, a.hp)
+        spawnPopup(`-${msg.dmgToA}`, NEON_MAGENTA, a.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)))
+        // attacker lunges toward the defender
+        a.lunge = { dir: new THREE.Vector3(msg.dx, 0, msg.dz), t: 0 }
+      }
+      if (d) {
+        d.hp = msg.hpD
+        d.flash = 1
+        drawHpBar(d.bar, d.hp)
+        spawnPopup(`-${msg.dmgToD}`, NEON_MAGENTA, d.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)))
+      }
+      if (msg.a === myId || msg.d === myId) {
+        shake = 0.35
+        tg?.HapticFeedback?.impactOccurred?.('heavy')
+      }
+      updateMyHud()
+      break
+    }
+    case 'death': {
+      const p = players.get(msg.id)
+      if (!p) break
+      p.dead = true
+      p.queue = []
+      p.anim = null
+      p.deathAnim = { t: 0 }
+      if (msg.id === myId) setStatus('УНИЧТОЖЕН — РЕСПАУН...')
+      break
+    }
+    case 'respawn': {
+      const p = players.get(msg.p.id)
+      if (!p) { addPlayer(msg.p); break }
+      p.dead = false
+      p.hp = msg.p.hp
+      p.cell = { x: msg.p.x, z: msg.p.z }
+      p.queue = []
+      p.anim = null
+      p.deathAnim = null
+      p.group.visible = true
+      p.group.position.set(msg.p.x, 0.5, msg.p.z)
+      p.group.scale.set(1, 1, 1)
+      const q = quatForOrient(msg.p)
+      if (q) p.group.quaternion.copy(q)
+      p.spawnAnim = { t: 0 }
+      drawHpBar(p.bar, p.hp)
+      if (msg.p.id === myId) setStatus('')
+      updateMyHud()
+      break
+    }
+    case 'denied':
+      if (msg.reason === 'dash_cooldown') {
+        hapticError()
+        dashFill.parentElement.classList.add('denied')
+        setTimeout(() => dashFill.parentElement.classList.remove('denied'), 300)
+      }
+      break
+  }
+}
+
+connect()
+
+// ---------------------------------------------------------------------------
+// Input: keyboard + swipe, double-tap = dash
+// ---------------------------------------------------------------------------
+const DOUBLE_TAP_MS = 260
+let lastDir = null
+let lastDirAt = 0
+
+function inputDir(dx, dz) {
+  const now = performance.now()
+  const isDouble = lastDir && lastDir[0] === dx && lastDir[1] === dz && (now - lastDirAt) < DOUBLE_TAP_MS
+  lastDir = [dx, dz]
+  lastDirAt = now
+  if (isDouble && now >= dashReadyAt) {
+    send({ t: 'dash', dx, dz })
+    lastDir = null // don't chain triple-tap into two dashes
+  } else {
+    send({ t: 'move', dx, dz })
   }
   if (!moved) { moved = true; hint.classList.add('faded') }
 }
 
-// smooth start and stop, no jerk on either end
-const smoothstep = t => t * t * (3 - 2 * t)
-
-function updateRoll(dt) {
-  if (!rolling) return
-  rolling.t = Math.min(rolling.t + dt / ROLL_TIME, 1)
-  const angle = smoothstep(rolling.t) * (Math.PI / 2)
-
-  const q = new THREE.Quaternion().setFromAxisAngle(rolling.axis, angle)
-  cube.quaternion.copy(q).multiply(rolling.startQuat)
-  cube.position.copy(rolling.startPos).sub(rolling.pivot).applyQuaternion(q).add(rolling.pivot)
-
-  if (rolling.t >= 1) {
-    cell.x = rolling.target.x
-    cell.z = rolling.target.z
-    cube.position.set(cell.x, 0.5, cell.z)
-    // snap orientation to the nearest 90 degrees to kill drift
-    const e = new THREE.Euler().setFromQuaternion(cube.quaternion)
-    const snap = a => Math.round(a / (Math.PI / 2)) * (Math.PI / 2)
-    cube.quaternion.setFromEuler(new THREE.Euler(snap(e.x), snap(e.y), snap(e.z)))
-    rolling = null
-    haptic()
-    if (queued) { const [dx, dz] = queued; queued = null; tryRoll(dx, dz) }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Input: keyboard + swipe
-// ---------------------------------------------------------------------------
 const KEYS = {
   KeyW: [0, -1], ArrowUp: [0, -1],
   KeyS: [0, 1], ArrowDown: [0, 1],
@@ -467,8 +783,9 @@ const KEYS = {
   KeyD: [1, 0], ArrowRight: [1, 0],
 }
 window.addEventListener('keydown', (e) => {
+  if (e.repeat) return
   const dir = KEYS[e.code]
-  if (dir) { e.preventDefault(); tryRoll(dir[0], dir[1]) }
+  if (dir) { e.preventDefault(); inputDir(dir[0], dir[1]) }
 })
 
 let touchStart = null
@@ -479,8 +796,8 @@ window.addEventListener('pointerup', (e) => {
   const dy = e.clientY - touchStart.y
   touchStart = null
   if (Math.hypot(dx, dy) < 24) return
-  if (Math.abs(dx) > Math.abs(dy)) tryRoll(Math.sign(dx), 0)
-  else tryRoll(0, Math.sign(dy))
+  if (Math.abs(dx) > Math.abs(dy)) inputDir(Math.sign(dx), 0)
+  else inputDir(0, Math.sign(dy))
 })
 
 // ---------------------------------------------------------------------------
@@ -489,6 +806,7 @@ window.addEventListener('pointerup', (e) => {
 const camOffset = new THREE.Vector3(0, 8.5, 9.5)
 const camTarget = new THREE.Vector3()
 const lookTarget = new THREE.Vector3(0, 0.5, 0)
+const lookGoal = new THREE.Vector3()
 
 function resize() {
   camera.aspect = window.innerWidth / window.innerHeight
@@ -506,10 +824,70 @@ function tick() {
   const dt = Math.min(clock.getDelta(), 0.05)
   const t = clock.elapsedTime
 
-  updateRoll(dt)
-
   // gentle platform hover
   island.position.y = Math.sin(t * 0.6) * 0.05
+
+  // players: movement, flashes, death/spawn animations, hp bars
+  for (const p of players.values()) {
+    updatePlayerAnim(p, dt)
+
+    if (p.flash > 0) {
+      p.flash = Math.max(0, p.flash - dt * 4)
+      p.bodyMat.emissive.set('#ff2222')
+      p.bodyMat.emissiveIntensity = p.flash * 1.2
+    } else {
+      p.bodyMat.emissiveIntensity = 0
+    }
+
+    if (p.lunge) {
+      p.lunge.t += dt * 6
+      const k = Math.sin(Math.min(p.lunge.t, 1) * Math.PI) * 0.25
+      p.group.position.set(
+        p.cell.x + p.lunge.dir.x * k, 0.5, p.cell.z + p.lunge.dir.z * k)
+      if (p.lunge.t >= 1) {
+        p.group.position.set(p.cell.x, 0.5, p.cell.z)
+        p.lunge = null
+      }
+    }
+
+    if (p.deathAnim) {
+      p.deathAnim.t += dt * 1.6
+      const k = Math.min(p.deathAnim.t, 1)
+      p.group.scale.setScalar(1 - k * 0.999)
+      p.group.rotation.y += dt * 10
+      p.group.position.y = 0.5 + k * 1.2
+      if (k >= 1) { p.group.visible = false; p.deathAnim = null }
+    }
+
+    if (p.spawnAnim) {
+      p.spawnAnim.t += dt * 3
+      const k = Math.min(p.spawnAnim.t, 1)
+      p.group.scale.setScalar(smoothstep(k))
+      if (k >= 1) { p.group.scale.set(1, 1, 1); p.spawnAnim = null }
+    }
+
+    // hp bar floats above the die (hidden while dead)
+    p.bar.sprite.visible = !p.dead && p.group.visible
+    p.bar.sprite.position.set(p.group.position.x, p.group.position.y + 0.95, p.group.position.z)
+  }
+
+  // damage popups float up and fade
+  for (let i = popups.length - 1; i >= 0; i--) {
+    const pop = popups[i]
+    pop.life -= dt * 1.1
+    pop.sprite.position.y += dt * 1.2
+    pop.sprite.material.opacity = Math.max(0, pop.life)
+    if (pop.life <= 0) {
+      scene.remove(pop.sprite)
+      pop.sprite.material.map.dispose()
+      pop.sprite.material.dispose()
+      popups.splice(i, 1)
+    }
+  }
+
+  // dash cooldown HUD
+  const remain = Math.max(0, dashReadyAt - performance.now())
+  dashFill.style.width = `${(1 - remain / dashCooldownMs) * 100}%`
 
   // flying cars stream in circles, facing their direction of travel
   for (const c of cars) {
@@ -533,7 +911,7 @@ function tick() {
 
   // pulsing beacons and rotating holograms
   for (const b of blinkers) {
-    b.mesh.material.emissiveIntensity = 1.6 + Math.sin(t * b.speed + b.phase) * 1.4
+    b.mesh.material.emissiveIntensity = 1.1 + Math.sin(t * b.speed + b.phase) * 0.7
   }
   for (const h of holos) {
     h.rotation.y = t * 1.2
@@ -541,17 +919,26 @@ function tick() {
   }
 
   // neon accent lights breathe slightly
-  magentaLight.intensity = 45 + Math.sin(t * 1.7) * 8
-  cyanLight.intensity = 45 + Math.cos(t * 1.3) * 8
+  magentaLight.intensity = 22 + Math.sin(t * 1.7) * 4
+  cyanLight.intensity = 22 + Math.cos(t * 1.3) * 4
 
-  // camera smoothly follows the cube with a subtle sway
+  // camera smoothly follows my die with a subtle sway + hit shake
+  const me = players.get(myId)
+  const fx = me ? me.group.position.x : 0
+  const fz = me ? me.group.position.z : 0
   camTarget.set(
-    cube.position.x * 0.55 + Math.sin(t * 0.25) * 0.6,
+    fx * 0.55 + Math.sin(t * 0.25) * 0.6,
     0,
-    cube.position.z * 0.55
+    fz * 0.55
   ).add(camOffset)
   camera.position.lerp(camTarget, 1 - Math.pow(0.001, dt))
-  lookTarget.lerp(new THREE.Vector3(cube.position.x * 0.6, 0.5, cube.position.z * 0.6), 1 - Math.pow(0.001, dt))
+  if (shake > 0) {
+    shake = Math.max(0, shake - dt * 1.4)
+    camera.position.x += (Math.random() - 0.5) * shake * 0.3
+    camera.position.y += (Math.random() - 0.5) * shake * 0.3
+  }
+  lookGoal.set(fx * 0.6, 0.5, fz * 0.6)
+  lookTarget.lerp(lookGoal, 1 - Math.pow(0.001, dt))
   camera.lookAt(lookTarget)
 
   composer.render()

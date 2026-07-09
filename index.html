@@ -65,6 +65,55 @@
             transition: opacity 1.2s ease;
         }
         .hud--hint.faded { opacity: 0; }
+        .hud--status {
+            top: calc(58px + env(safe-area-inset-top));
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 3px;
+            color: #ff2a6d;
+            text-shadow: 0 0 10px rgba(255, 42, 109, .9);
+            animation: flicker 2s infinite;
+        }
+        .hud--status.hidden { display: none; }
+        .panel {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: calc(48px + env(safe-area-inset-bottom));
+            width: min(300px, 70vw);
+            pointer-events: none;
+            z-index: 10;
+        }
+        .bar {
+            position: relative;
+            height: 16px;
+            background: rgba(5, 5, 12, .75);
+            border: 1px solid rgba(0, 240, 255, .55);
+            box-shadow: 0 0 10px rgba(0, 240, 255, .25);
+            margin-bottom: 6px;
+            overflow: hidden;
+        }
+        .bar__fill {
+            height: 100%;
+            width: 100%;
+            background: #39ff14;
+            transition: width .18s ease, background .3s ease;
+        }
+        .bar__label {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #fff;
+            text-shadow: 0 0 4px #000, 0 0 4px #000;
+        }
+        .bar--dash { height: 8px; border-color: rgba(252, 238, 10, .55); box-shadow: 0 0 10px rgba(252, 238, 10, .2); }
+        .bar--dash .bar__fill { background: #fcee0a; transition: none; }
+        .bar--dash.denied { border-color: #ff2a6d; box-shadow: 0 0 14px rgba(255, 42, 109, .8); }
         @keyframes flicker {
             0%, 100% { opacity: 1; }
             92% { opacity: 1; }
@@ -78,7 +127,17 @@
 <body>
     <canvas class="webgl"></canvas>
     <div class="hud hud--title">CUBE&nbsp;<span>2077</span></div>
-    <div class="hud hud--hint" id="hint">WASD&nbsp;·&nbsp;стрелки&nbsp;·&nbsp;свайп</div>
+    <div class="hud hud--status hidden" id="status"></div>
+    <div class="hud hud--hint" id="hint">WASD&nbsp;·&nbsp;стрелки&nbsp;·&nbsp;свайп&nbsp;·&nbsp;двойное&nbsp;нажатие&nbsp;=&nbsp;рывок</div>
+    <div class="panel">
+        <div class="bar">
+            <div class="bar__fill" id="hpfill"></div>
+            <div class="bar__label" id="hptext">HP 100</div>
+        </div>
+        <div class="bar bar--dash">
+            <div class="bar__fill" id="dashfill"></div>
+        </div>
+    </div>
     <script type="module" src="script.js"></script>
 </body>
 </html>
