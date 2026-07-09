@@ -979,7 +979,7 @@ function updatePlayerAnim(p, dt) {
 const WS_URL = import.meta.env.VITE_WS_URL
   || (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
     ? 'ws://localhost:8090/ws'
-    : `wss://${location.host}/ws`)
+    : 'wss://104-171-132-140.sslip.io/ws') // production game server (VPS)
 
 let ws = null
 let reconnectDelay = 500
