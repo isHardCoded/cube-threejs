@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Cube Roll</title>
+    <title>CUBE 2077</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,8 +13,8 @@
             overflow: hidden;
             overscroll-behavior: none;
             touch-action: none;
-            background: #7eb6e8;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #07030f;
+            font-family: 'Segoe UI', Rajdhani, Verdana, sans-serif;
             -webkit-user-select: none;
             user-select: none;
             -webkit-tap-highlight-color: transparent;
@@ -32,30 +32,52 @@
             right: 0;
             text-align: center;
             pointer-events: none;
-            color: #fff;
-            text-shadow: 0 2px 8px rgba(30, 60, 100, .45);
             z-index: 10;
+            text-transform: uppercase;
         }
         .hud--title {
             top: calc(18px + env(safe-area-inset-top));
-            font-size: 26px;
+            font-size: 28px;
             font-weight: 800;
-            letter-spacing: 6px;
+            letter-spacing: 8px;
+            color: #fcee0a;
+            text-shadow:
+                0 0 6px rgba(252, 238, 10, .9),
+                0 0 24px rgba(252, 238, 10, .5),
+                2px 2px 0 rgba(255, 42, 109, .55);
+            animation: flicker 6s infinite;
+        }
+        .hud--title span {
+            color: #00f0ff;
+            text-shadow:
+                0 0 6px rgba(0, 240, 255, .9),
+                0 0 24px rgba(0, 240, 255, .5),
+                -2px 2px 0 rgba(255, 42, 109, .55);
         }
         .hud--hint {
             bottom: calc(22px + env(safe-area-inset-bottom));
-            font-size: 14px;
-            font-weight: 500;
-            letter-spacing: 1.5px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 2.5px;
+            color: #00f0ff;
+            text-shadow: 0 0 8px rgba(0, 240, 255, .8);
             opacity: .85;
             transition: opacity 1.2s ease;
         }
         .hud--hint.faded { opacity: 0; }
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            92% { opacity: 1; }
+            93% { opacity: .4; }
+            94% { opacity: 1; }
+            96% { opacity: .6; }
+            97% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
     <canvas class="webgl"></canvas>
-    <div class="hud hud--title">CUBE&nbsp;ROLL</div>
+    <div class="hud hud--title">CUBE&nbsp;<span>2077</span></div>
     <div class="hud hud--hint" id="hint">WASD&nbsp;·&nbsp;стрелки&nbsp;·&nbsp;свайп</div>
     <script type="module" src="script.js"></script>
 </body>

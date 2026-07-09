@@ -1,5 +1,17 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+
+// ---------------------------------------------------------------------------
+// Cyberpunk palette
+// ---------------------------------------------------------------------------
+const NEON_YELLOW = '#fcee0a'
+const NEON_CYAN = '#00f0ff'
+const NEON_MAGENTA = '#ff2a6d'
+const NIGHT = '#07030f'
 
 // ---------------------------------------------------------------------------
 // Telegram Mini App
@@ -9,8 +21,8 @@ if (tg) {
   tg.ready()
   tg.expand()
   tg.disableVerticalSwipes?.()
-  tg.setHeaderColor?.('#7eb6e8')
-  tg.setBackgroundColor?.('#7eb6e8')
+  tg.setHeaderColor?.(NIGHT)
+  tg.setBackgroundColor?.(NIGHT)
 }
 
 const haptic = () => tg?.HapticFeedback?.impactOccurred?.('light')
@@ -25,38 +37,64 @@ renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 1.1
+renderer.toneMappingExposure = 1.0
 
-const SKY = new THREE.Color('#7eb6e8')
 const scene = new THREE.Scene()
-scene.background = SKY
-scene.fog = new THREE.Fog(SKY, 26, 60)
+scene.background = new THREE.Color(NIGHT)
+scene.fog = new THREE.Fog(NIGHT, 22, 65)
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 120)
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 140)
 camera.position.set(0, 9, 10)
 
 // ---------------------------------------------------------------------------
-// Lights
+// Bloom
 // ---------------------------------------------------------------------------
-scene.add(new THREE.HemisphereLight('#cfe8ff', '#8a9a5b', 0.9))
-
-const sun = new THREE.DirectionalLight('#fff4e0', 2.2)
-sun.position.set(8, 14, 6)
-sun.castShadow = true
-sun.shadow.mapSize.set(2048, 2048)
-sun.shadow.camera.left = -12
-sun.shadow.camera.right = 12
-sun.shadow.camera.top = 12
-sun.shadow.camera.bottom = -12
-sun.shadow.camera.near = 1
-sun.shadow.camera.far = 40
-sun.shadow.bias = -0.0005
-scene.add(sun)
+const composer = new EffectComposer(renderer)
+composer.addPass(new RenderPass(scene, camera))
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.85, // strength
+  0.5,  // radius
+  0.3   // threshold
+)
+composer.addPass(bloom)
+composer.addPass(new OutputPass())
 
 // ---------------------------------------------------------------------------
-// Floating island: checkerboard tiles + dirt base
+// Lights: cold moon + neon accents
 // ---------------------------------------------------------------------------
-const HALF = 4                       // island spans cells [-HALF..HALF]
+scene.add(new THREE.HemisphereLight('#2a1a4a', '#0a0614', 0.7))
+
+const moon = new THREE.DirectionalLight('#7aa6ff', 1.0)
+moon.position.set(8, 14, 6)
+moon.castShadow = true
+moon.shadow.mapSize.set(2048, 2048)
+moon.shadow.camera.left = -12
+moon.shadow.camera.right = 12
+moon.shadow.camera.top = 12
+moon.shadow.camera.bottom = -12
+moon.shadow.camera.near = 1
+moon.shadow.camera.far = 40
+moon.shadow.bias = -0.0005
+scene.add(moon)
+
+const magentaLight = new THREE.PointLight(NEON_MAGENTA, 45, 25)
+magentaLight.position.set(-7, 4, -7)
+scene.add(magentaLight)
+
+const cyanLight = new THREE.PointLight(NEON_CYAN, 45, 25)
+cyanLight.position.set(7, 4, 7)
+scene.add(cyanLight)
+
+// magenta underglow so the platform floats over pink haze
+const underGlow = new THREE.PointLight(NEON_MAGENTA, 60, 20)
+underGlow.position.set(0, -4, 0)
+scene.add(underGlow)
+
+// ---------------------------------------------------------------------------
+// Floating platform: dark tech tiles + neon grid
+// ---------------------------------------------------------------------------
+const HALF = 4                       // platform spans cells [-HALF..HALF]
 const blocked = new Set()            // cells the cube cannot enter
 const cellKey = (x, z) => `${x},${z}`
 
@@ -64,10 +102,11 @@ const island = new THREE.Group()
 scene.add(island)
 
 const tileGeo = new RoundedBoxGeometry(0.96, 0.3, 0.96, 2, 0.06)
-const tileMatA = new THREE.MeshStandardMaterial({ color: '#9ed36a', roughness: 0.9 })
-const tileMatB = new THREE.MeshStandardMaterial({ color: '#8bc456', roughness: 0.9 })
+const tileMatA = new THREE.MeshStandardMaterial({ color: '#181824', roughness: 0.45, metalness: 0.55 })
+const tileMatB = new THREE.MeshStandardMaterial({ color: '#0f0f18', roughness: 0.45, metalness: 0.55 })
+const baseMat = new THREE.MeshStandardMaterial({ color: '#0b0b14', roughness: 0.8, metalness: 0.3 })
 
-// drop a few corner cells so the island looks organic
+// drop a few corner cells so the platform looks damaged / organic
 const holes = new Set([
   cellKey(-HALF, -HALF), cellKey(HALF, HALF),
   cellKey(-HALF, HALF - 1), cellKey(HALF, -HALF),
@@ -85,105 +124,252 @@ for (let x = -HALF; x <= HALF; x++) {
     tile.castShadow = true
     island.add(tile)
 
-    const dirt = new THREE.Mesh(
+    const base = new THREE.Mesh(
       new THREE.BoxGeometry(0.96, 0.9 + Math.random() * 0.8, 0.96),
-      new THREE.MeshStandardMaterial({ color: '#8a6244', roughness: 1 })
+      baseMat
     )
-    dirt.position.set(x, -0.75 - dirt.geometry.parameters.height / 2 + 0.45, z)
-    island.add(dirt)
+    base.position.set(x, -0.75 - base.geometry.parameters.height / 2 + 0.45, z)
+    island.add(base)
   }
 }
 
-// ---------------------------------------------------------------------------
-// Decorations: trees and rocks on border cells (those cells become blocked)
-// ---------------------------------------------------------------------------
-const treeTrunkMat = new THREE.MeshStandardMaterial({ color: '#7a5236', roughness: 1 })
-const leafMats = [
-  new THREE.MeshStandardMaterial({ color: '#3e8948', roughness: 0.8 }),
-  new THREE.MeshStandardMaterial({ color: '#4fa457', roughness: 0.8 }),
-]
-const rockMat = new THREE.MeshStandardMaterial({ color: '#9aa2ad', roughness: 0.95 })
+// neon grid lines over tile seams
+const grid = new THREE.GridHelper(9, 9, NEON_MAGENTA, NEON_CYAN)
+grid.position.y = 0.02
+grid.material.transparent = true
+grid.material.opacity = 0.4
+grid.material.depthWrite = false
+island.add(grid)
 
-function addTree(x, z, scale = 1) {
+// glowing yellow frame around the platform
+const barGeo = new THREE.BoxGeometry(9.14, 0.05, 0.05)
+const barMat = new THREE.MeshStandardMaterial({
+  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 2,
+})
+for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0, 1]]) {
+  const bar = new THREE.Mesh(barGeo, barMat)
+  bar.position.set(x, 0.02, z)
+  if (rot) bar.rotation.y = Math.PI / 2
+  island.add(bar)
+}
+
+// ---------------------------------------------------------------------------
+// Obstacles: neon pylons and tech crates (their cells are blocked)
+// ---------------------------------------------------------------------------
+const darkMetal = new THREE.MeshStandardMaterial({ color: '#12121c', roughness: 0.35, metalness: 0.7 })
+const blinkers = []   // emissive meshes that pulse over time
+const holos = []      // rotating holographic shapes
+
+function neonMat(color, intensity = 2) {
+  return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity })
+}
+
+function addPylon(x, z, color, scale = 1, withHolo = false) {
   const g = new THREE.Group()
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 0.5, 7), treeTrunkMat)
-  trunk.position.y = 0.25
-  g.add(trunk)
-  const mat = leafMats[Math.floor(Math.random() * leafMats.length)]
-  let y = 0.62
-  for (const r of [0.42, 0.32, 0.2]) {
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(r, 0.5, 8), mat)
-    cone.position.y = y
-    g.add(cone)
-    y += 0.32
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 1.4, 8), darkMetal)
+  pole.position.y = 0.7
+  pole.castShadow = true
+  g.add(pole)
+
+  const ringMat = neonMat(color, 2.5)
+  for (const y of [0.35, 0.75, 1.15]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.022, 8, 24), ringMat)
+    ring.rotation.x = Math.PI / 2
+    ring.position.y = y
+    g.add(ring)
   }
-  g.traverse(o => { o.castShadow = true; o.receiveShadow = true })
+
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), neonMat(NEON_MAGENTA, 3))
+  tip.position.y = 1.48
+  g.add(tip)
+  blinkers.push({ mesh: tip, phase: Math.random() * Math.PI * 2, speed: 2 + Math.random() * 3 })
+
+  if (withHolo) {
+    const holo = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.22),
+      new THREE.MeshStandardMaterial({
+        color, emissive: color, emissiveIntensity: 1.6,
+        transparent: true, opacity: 0.55, wireframe: true,
+      })
+    )
+    holo.position.y = 2.0
+    g.add(holo)
+    holos.push(holo)
+  }
+
   g.position.set(x, 0, z)
   g.scale.setScalar(scale)
-  g.rotation.y = Math.random() * Math.PI
   island.add(g)
   blocked.add(cellKey(x, z))
 }
 
-function addRock(x, z, scale = 1) {
-  const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.28, 0), rockMat)
-  rock.position.set(x + (Math.random() - 0.5) * 0.2, 0.14, z + (Math.random() - 0.5) * 0.2)
-  rock.scale.set(scale, scale * 0.7, scale)
-  rock.rotation.set(Math.random(), Math.random() * Math.PI, Math.random())
-  rock.castShadow = rock.receiveShadow = true
-  island.add(rock)
+function addCrate(x, z, color, scale = 1) {
+  const g = new THREE.Group()
+  const box = new THREE.Mesh(new RoundedBoxGeometry(0.55, 0.55, 0.55, 2, 0.05), darkMetal)
+  box.position.y = 0.28
+  box.castShadow = true
+  box.receiveShadow = true
+  g.add(box)
+
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.57, 0.035, 0.57), neonMat(color, 2.2))
+  strip.position.y = 0.42
+  g.add(strip)
+
+  g.position.set(x, 0, z)
+  g.scale.setScalar(scale)
+  g.rotation.y = (Math.random() - 0.5) * 0.6
+  island.add(g)
   blocked.add(cellKey(x, z))
 }
 
-addTree(-HALF, 0, 1.2)
-addTree(-HALF, 2)
-addTree(HALF, -2, 1.1)
-addTree(2, -HALF, 0.9)
-addTree(-2, HALF, 1.15)
-addTree(HALF, 3, 0.85)
-addRock(0, -HALF, 1.1)
-addRock(HALF, 1, 0.9)
-addRock(-3, HALF)
-addRock(-HALF, -2, 0.8)
+addPylon(-HALF, 0, NEON_CYAN, 1.2, true)
+addPylon(-HALF, 2, NEON_MAGENTA)
+addPylon(HALF, -2, NEON_YELLOW, 1.1, true)
+addPylon(2, -HALF, NEON_CYAN, 0.9)
+addPylon(-2, HALF, NEON_MAGENTA, 1.15)
+addPylon(HALF, 3, NEON_YELLOW, 0.85)
+addCrate(0, -HALF, NEON_YELLOW, 1.1)
+addCrate(HALF, 1, NEON_CYAN, 0.9)
+addCrate(-3, HALF, NEON_MAGENTA)
+addCrate(-HALF, -2, NEON_CYAN, 0.8)
 
 // ---------------------------------------------------------------------------
-// Clouds drifting around the island
+// Night City skyline: towers with glowing windows below and around
 // ---------------------------------------------------------------------------
-const cloudMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1 })
-const clouds = []
-for (let i = 0; i < 8; i++) {
-  const cloud = new THREE.Group()
-  const n = 3 + Math.floor(Math.random() * 3)
-  for (let j = 0; j < n; j++) {
-    const s = 0.5 + Math.random() * 0.7
-    const puff = new THREE.Mesh(new THREE.SphereGeometry(s, 12, 12), cloudMat)
-    puff.position.set(j * 0.8 - n * 0.4, Math.random() * 0.25, (Math.random() - 0.5) * 0.6)
-    cloud.add(puff)
+function makeWindowTexture() {
+  const c = document.createElement('canvas')
+  c.width = 64
+  c.height = 128
+  const ctx = c.getContext('2d')
+  ctx.fillStyle = '#05050a'
+  ctx.fillRect(0, 0, c.width, c.height)
+  const palette = [NEON_YELLOW, NEON_CYAN, NEON_MAGENTA, '#f7f7ff']
+  for (let y = 4; y < c.height - 4; y += 8) {
+    for (let x = 4; x < c.width - 4; x += 8) {
+      if (Math.random() < 0.32) {
+        ctx.fillStyle = palette[Math.floor(Math.random() * palette.length)]
+        ctx.globalAlpha = 0.4 + Math.random() * 0.6
+        ctx.fillRect(x, y, 4, 5)
+      }
+    }
   }
-  const angle = (i / 8) * Math.PI * 2
-  const radius = 12 + Math.random() * 8
-  cloud.position.set(Math.cos(angle) * radius, -2 + Math.random() * 9, Math.sin(angle) * radius)
-  cloud.userData = { angle, radius, speed: 0.02 + Math.random() * 0.03, y: cloud.position.y }
-  scene.add(cloud)
-  clouds.push(cloud)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+const windowTextures = [makeWindowTexture(), makeWindowTexture(), makeWindowTexture()]
+const roofMat = new THREE.MeshStandardMaterial({ color: '#08080f', roughness: 0.9 })
+const signGeo = new THREE.PlaneGeometry(1.6, 0.5)
+
+for (let i = 0; i < 42; i++) {
+  const angle = Math.random() * Math.PI * 2
+  const radius = 14 + Math.random() * 20
+  const w = 1.5 + Math.random() * 2.5
+  const d = 1.5 + Math.random() * 2.5
+  const h = 13 + Math.random() * 17
+
+  const tex = windowTextures[i % windowTextures.length]
+  const sideMat = new THREE.MeshStandardMaterial({
+    map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: 1.1,
+    color: '#ffffff', roughness: 0.9,
+  })
+  const tower = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    [sideMat, sideMat, roofMat, roofMat, sideMat, sideMat]
+  )
+  tower.position.set(Math.cos(angle) * radius, -22 + h / 2, Math.sin(angle) * radius)
+  tower.rotation.y = Math.random() * Math.PI
+  scene.add(tower)
+
+  // red beacon on the tallest towers
+  if (h > 26) {
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), neonMat('#ff2222', 3))
+    beacon.position.set(tower.position.x, -22 + h + 0.15, tower.position.z)
+    scene.add(beacon)
+    blinkers.push({ mesh: beacon, phase: Math.random() * Math.PI * 2, speed: 3 })
+  }
+
+  // occasional neon billboard facing the platform
+  if (i % 5 === 0) {
+    const color = [NEON_YELLOW, NEON_CYAN, NEON_MAGENTA][i % 3]
+    const sign = new THREE.Mesh(signGeo, new THREE.MeshStandardMaterial({
+      color, emissive: color, emissiveIntensity: 2.4, side: THREE.DoubleSide,
+    }))
+    sign.position.set(tower.position.x, -22 + h * (0.55 + Math.random() * 0.3), tower.position.z)
+    sign.lookAt(0, sign.position.y, 0)
+    sign.translateZ(Math.max(w, d) * 0.75)
+    scene.add(sign)
+  }
 }
 
 // ---------------------------------------------------------------------------
-// The die: rounded cube with pips (opposite faces sum to 7)
+// Flying cars streaming around the city
+// ---------------------------------------------------------------------------
+const cars = []
+for (let i = 0; i < 7; i++) {
+  const car = new THREE.Group()
+  const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.2), darkMetal)
+  car.add(bodyMesh)
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.18), neonMat('#eaffff', 3))
+  head.position.x = 0.26
+  car.add(head)
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.18), neonMat(NEON_MAGENTA, 3))
+  tail.position.x = -0.26
+  car.add(tail)
+
+  const angle = (i / 7) * Math.PI * 2
+  const radius = 10 + Math.random() * 9
+  car.userData = {
+    angle, radius,
+    speed: (0.12 + Math.random() * 0.2) * (i % 2 === 0 ? 1 : -1),
+    y: -3 + Math.random() * 9,
+  }
+  scene.add(car)
+  cars.push(car)
+}
+
+// ---------------------------------------------------------------------------
+// Rain
+// ---------------------------------------------------------------------------
+const RAIN_COUNT = 500
+const rainPos = new Float32Array(RAIN_COUNT * 3)
+const rainSpeed = new Float32Array(RAIN_COUNT)
+for (let i = 0; i < RAIN_COUNT; i++) {
+  rainPos[i * 3] = (Math.random() - 0.5) * 40
+  rainPos[i * 3 + 1] = Math.random() * 22 - 4
+  rainPos[i * 3 + 2] = (Math.random() - 0.5) * 40
+  rainSpeed[i] = 9 + Math.random() * 7
+}
+const rainGeo = new THREE.BufferGeometry()
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3))
+const rain = new THREE.Points(rainGeo, new THREE.PointsMaterial({
+  color: '#6fe3ff', size: 0.05, transparent: true, opacity: 0.45, depthWrite: false,
+}))
+scene.add(rain)
+
+// ---------------------------------------------------------------------------
+// The die: black chrome with glowing yellow pips (opposite faces sum to 7)
 // ---------------------------------------------------------------------------
 const cube = new THREE.Group()
 scene.add(cube)
 
 const body = new THREE.Mesh(
   new RoundedBoxGeometry(1, 1, 1, 4, 0.09),
-  new THREE.MeshStandardMaterial({ color: '#f43f5e', roughness: 0.35, metalness: 0.05 })
+  new THREE.MeshStandardMaterial({ color: '#0d0d13', roughness: 0.22, metalness: 0.85 })
 )
 body.castShadow = true
 body.receiveShadow = true
 cube.add(body)
 
+// soft glow that travels with the cube
+const cubeGlow = new THREE.PointLight(NEON_YELLOW, 7, 5)
+cube.add(cubeGlow)
+
 const pipGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.04, 20)
-const pipMat = new THREE.MeshStandardMaterial({ color: '#fff7f7', roughness: 0.4 })
+const pipMat = new THREE.MeshStandardMaterial({
+  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 2.4, roughness: 0.3,
+})
 const O = 0.24
 const pipLayouts = {
   1: [[0, 0]],
@@ -193,7 +379,6 @@ const pipLayouts = {
   5: [[-O, -O], [-O, O], [0, 0], [O, -O], [O, O]],
   6: [[-O, -O], [-O, 0], [-O, O], [O, -O], [O, 0], [O, O]],
 }
-// face -> [value, normal axis, rotation to align pip cylinder]
 const faces = [
   { value: 1, normal: new THREE.Vector3(0, 1, 0) },
   { value: 6, normal: new THREE.Vector3(0, -1, 0) },
@@ -210,7 +395,6 @@ for (const { value, normal } of faces) {
     // place on the local XZ plane facing up, then rotate onto the face
     pip.position.set(u, 0.495, v).applyQuaternion(quat)
     pip.quaternion.copy(quat)
-    pip.castShadow = true
     cube.add(pip)
   }
 }
@@ -311,6 +495,7 @@ function resize() {
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  composer.setSize(window.innerWidth, window.innerHeight)
 }
 window.addEventListener('resize', resize)
 tg?.onEvent?.('viewportChanged', resize)
@@ -323,16 +508,41 @@ function tick() {
 
   updateRoll(dt)
 
-  // gentle island breathing
+  // gentle platform hover
   island.position.y = Math.sin(t * 0.6) * 0.05
 
-  // clouds drift in circles
-  for (const c of clouds) {
-    c.userData.angle += c.userData.speed * dt
-    c.position.x = Math.cos(c.userData.angle) * c.userData.radius
-    c.position.z = Math.sin(c.userData.angle) * c.userData.radius
-    c.position.y = c.userData.y + Math.sin(t * 0.4 + c.userData.radius) * 0.3
+  // flying cars stream in circles, facing their direction of travel
+  for (const c of cars) {
+    const u = c.userData
+    u.angle += u.speed * dt
+    const nx = Math.cos(u.angle) * u.radius
+    const nz = Math.sin(u.angle) * u.radius
+    c.position.set(nx, u.y, nz)
+    const ahead = u.angle + Math.sign(u.speed) * 0.05
+    c.lookAt(Math.cos(ahead) * u.radius, u.y, Math.sin(ahead) * u.radius)
+    c.rotateY(Math.PI / 2) // body is modeled along +x
   }
+
+  // rain falls and wraps around
+  const pos = rainGeo.attributes.position.array
+  for (let i = 0; i < RAIN_COUNT; i++) {
+    pos[i * 3 + 1] -= rainSpeed[i] * dt
+    if (pos[i * 3 + 1] < -6) pos[i * 3 + 1] = 18
+  }
+  rainGeo.attributes.position.needsUpdate = true
+
+  // pulsing beacons and rotating holograms
+  for (const b of blinkers) {
+    b.mesh.material.emissiveIntensity = 1.6 + Math.sin(t * b.speed + b.phase) * 1.4
+  }
+  for (const h of holos) {
+    h.rotation.y = t * 1.2
+    h.position.y = 2.0 + Math.sin(t * 2) * 0.08
+  }
+
+  // neon accent lights breathe slightly
+  magentaLight.intensity = 45 + Math.sin(t * 1.7) * 8
+  cyanLight.intensity = 45 + Math.cos(t * 1.3) * 8
 
   // camera smoothly follows the cube with a subtle sway
   camTarget.set(
@@ -344,7 +554,7 @@ function tick() {
   lookTarget.lerp(new THREE.Vector3(cube.position.x * 0.6, 0.5, cube.position.z * 0.6), 1 - Math.pow(0.001, dt))
   camera.lookAt(lookTarget)
 
-  renderer.render(scene, camera)
+  composer.render()
   requestAnimationFrame(tick)
 }
 
