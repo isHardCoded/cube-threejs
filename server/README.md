@@ -32,8 +32,8 @@ Client -> server: `{"t":"move","dx":1,"dz":0}` or `{"t":"dash","dx":0,"dz":-1}`
 Server -> client:
 - `welcome {id, players[], dashCooldownMs}` — on connect
 - `join {p}` / `leave {id}` — roster changes
-- `move {p, dash, cells?}` — a player moved (roll or dash)
-- `hit {a, d, dmgToD, dmgToA, hpA, hpD, dx, dz}` — collision, mutual damage
+- `move {p, dash, cells?}` — a player moved (roll or dash); `{p, knock: true}` — knocked back after a collision
+- `hit {a, d, dmgToD, dmgToA, hpA, hpD, dx, dz}` — collision, mutual damage; both survivors are then knocked one cell apart (the perimeter fence stops them at the edge, obstacles bounce them back one cell)
 - `death {id, respawnMs}` / `respawn {p}`
 - `denied {reason}` — e.g. dash on cooldown
 

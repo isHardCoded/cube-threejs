@@ -19,12 +19,12 @@ const (
 
 // blockedCells mirrors the obstacle layout hardcoded on the client.
 var blockedCells = map[[2]int]bool{
-	// corner holes
-	{-Half, -Half}: true, {Half, Half}: true, {-Half, Half - 1}: true, {Half, -Half}: true,
 	// pylons
 	{-Half, 0}: true, {-Half, 2}: true, {Half, -2}: true, {2, -Half}: true, {-2, Half}: true, {Half, 3}: true,
 	// crates
 	{0, -Half}: true, {Half, 1}: true, {-3, Half}: true, {-Half, -2}: true,
+	// barrels, broken column, antenna mast
+	{2, 2}: true, {-2, -2}: true, {0, 3}: true,
 }
 
 type Player struct {
@@ -282,6 +282,7 @@ func (h *Hub) doDash(p *Player, dx, dz int, now time.Time) {
 
 // resolveHit applies mutual damage: attacker hits with the face pointing at the
 // defender, the defender hits back with the face pointing at the attacker.
+// Then both survivors are knocked one cell apart.
 func (h *Hub) resolveHit(a, d *Player, dx, dz int, now time.Time) {
 	dmgToD := a.FaceToward(dx, dz)
 	dmgToA := d.FaceToward(-dx, -dz)
@@ -298,6 +299,14 @@ func (h *Hub) resolveHit(a, d *Player, dx, dz int, now time.Time) {
 		"dx": dx, "dz": dz,
 	})
 
+	// knockback before deaths: defender flies along the attack, attacker recoils
+	if d.HP > 0 && h.knockback(d, dx, dz) {
+		h.broadcast(map[string]any{"t": "move", "p": d, "knock": true})
+	}
+	if a.HP > 0 && h.knockback(a, -dx, -dz) {
+		h.broadcast(map[string]any{"t": "move", "p": a, "knock": true})
+	}
+
 	if d.HP <= 0 {
 		a.kills++
 		h.kill(d, now)
@@ -306,6 +315,27 @@ func (h *Hub) resolveHit(a, d *Player, dx, dz int, now time.Time) {
 		d.kills++
 		h.kill(a, now)
 	}
+}
+
+// knockback pushes p one cell in (dx, dz). The perimeter fence stops it at the
+// platform edge; flying into an obstacle bounces it one cell the opposite way.
+// Returns true if the player actually moved.
+func (h *Hub) knockback(p *Player, dx, dz int) bool {
+	nx, nz := p.X+dx, p.Z+dz
+	if nx < -Half || nx > Half || nz < -Half || nz > Half {
+		return false // slammed into the fence
+	}
+	if blockedCells[[2]int{nx, nz}] || h.playerAt(nx, nz) != nil {
+		bx, bz := p.X-dx, p.Z-dz
+		if bx < -Half || bx > Half || bz < -Half || bz > Half ||
+			blockedCells[[2]int{bx, bz}] || h.playerAt(bx, bz) != nil {
+			return false
+		}
+		p.X, p.Z = bx, bz
+		return true
+	}
+	p.X, p.Z = nx, nz
+	return true
 }
 
 func (h *Hub) kill(p *Player, now time.Time) {

@@ -9,7 +9,12 @@ import (
 func main() {
 	addr := os.Getenv("ADDR")
 	if addr == "" {
-		addr = ":8090"
+		// PaaS platforms (Koyeb, Railway, ...) inject PORT
+		if p := os.Getenv("PORT"); p != "" {
+			addr = ":" + p
+		} else {
+			addr = ":8090"
+		}
 	}
 
 	store := NewStore(os.Getenv("DATABASE_URL"))

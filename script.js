@@ -54,9 +54,9 @@ const composer = new EffectComposer(renderer)
 composer.addPass(new RenderPass(scene, camera))
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.42, // strength: subtle halo, not a blinding glow
-  0.35, // radius
-  0.6   // threshold: only truly bright things bloom
+  0.32, // strength: subtle halo, not a blinding glow
+  0.3,  // radius
+  0.7   // threshold: only truly bright things bloom
 )
 composer.addPass(bloom)
 composer.addPass(new OutputPass())
@@ -64,9 +64,9 @@ composer.addPass(new OutputPass())
 // ---------------------------------------------------------------------------
 // Lights: cold moon + neon accents
 // ---------------------------------------------------------------------------
-scene.add(new THREE.HemisphereLight('#2a1a4a', '#0a0614', 0.7))
+scene.add(new THREE.HemisphereLight('#3b2a63', '#141024', 1.0))
 
-const moon = new THREE.DirectionalLight('#7aa6ff', 1.5)
+const moon = new THREE.DirectionalLight('#7aa6ff', 1.8)
 moon.position.set(8, 14, 6)
 moon.castShadow = true
 moon.shadow.mapSize.set(2048, 2048)
@@ -92,6 +92,12 @@ const underGlow = new THREE.PointLight(NEON_MAGENTA, 28, 20)
 underGlow.position.set(0, -4, 0)
 scene.add(underGlow)
 
+// cool overhead spot so the arena itself reads clearly
+const arenaSpot = new THREE.SpotLight('#cfe6ff', 260, 30, Math.PI / 4.5, 0.55, 1.6)
+arenaSpot.position.set(0, 12, 2)
+arenaSpot.target.position.set(0, 0, 0)
+scene.add(arenaSpot, arenaSpot.target)
+
 // ---------------------------------------------------------------------------
 // Floating platform: dark tech tiles + neon grid
 // ---------------------------------------------------------------------------
@@ -102,30 +108,31 @@ const island = new THREE.Group()
 scene.add(island)
 
 const tileGeo = new RoundedBoxGeometry(0.96, 0.3, 0.96, 2, 0.06)
-const tileMatA = new THREE.MeshStandardMaterial({ color: '#181824', roughness: 0.45, metalness: 0.55 })
-const tileMatB = new THREE.MeshStandardMaterial({ color: '#0f0f18', roughness: 0.45, metalness: 0.55 })
-const baseMat = new THREE.MeshStandardMaterial({ color: '#0b0b14', roughness: 0.8, metalness: 0.3 })
-
-// drop a few corner cells so the platform looks damaged / organic
-const holes = new Set([
-  cellKey(-HALF, -HALF), cellKey(HALF, HALF),
-  cellKey(-HALF, HALF - 1), cellKey(HALF, -HALF),
-])
+const tileMatA = new THREE.MeshStandardMaterial({ color: '#262638', roughness: 0.5, metalness: 0.45 })
+const tileMatB = new THREE.MeshStandardMaterial({ color: '#1a1a29', roughness: 0.5, metalness: 0.45 })
+// torn-out chunk of ground: earthy rock underneath instead of clean metal
+const baseMat = new THREE.MeshStandardMaterial({ color: '#2b211d', roughness: 1 })
 
 for (let x = -HALF; x <= HALF; x++) {
   for (let z = -HALF; z <= HALF; z++) {
-    if (holes.has(cellKey(x, z))) continue
     const tile = new THREE.Mesh(tileGeo, (x + z) % 2 === 0 ? tileMatA : tileMatB)
     tile.position.set(x, -0.15, z)
     tile.receiveShadow = true
     tile.castShadow = true
     island.add(tile)
 
+    // ragged dirt chunk under each tile: random size, offset and tilt
+    const baseH = 0.7 + Math.random() * 1.4
     const base = new THREE.Mesh(
-      new THREE.BoxGeometry(0.96, 0.9 + Math.random() * 0.8, 0.96),
+      new THREE.BoxGeometry(0.88 + Math.random() * 0.16, baseH, 0.88 + Math.random() * 0.16),
       baseMat
     )
-    base.position.set(x, -0.75 - base.geometry.parameters.height / 2 + 0.45, z)
+    base.position.set(
+      x + (Math.random() - 0.5) * 0.12,
+      -0.3 - baseH / 2,
+      z + (Math.random() - 0.5) * 0.12
+    )
+    base.rotation.y = (Math.random() - 0.5) * 0.18
     island.add(base)
   }
 }
@@ -134,14 +141,14 @@ for (let x = -HALF; x <= HALF; x++) {
 const grid = new THREE.GridHelper(9, 9, NEON_MAGENTA, NEON_CYAN)
 grid.position.y = 0.02
 grid.material.transparent = true
-grid.material.opacity = 0.4
+grid.material.opacity = 0.25
 grid.material.depthWrite = false
 island.add(grid)
 
 // glowing yellow frame around the platform
 const barGeo = new THREE.BoxGeometry(9.14, 0.05, 0.05)
 const barMat = new THREE.MeshStandardMaterial({
-  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 1.1,
+  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 0.4,
 })
 for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0, 1]]) {
   const bar = new THREE.Mesh(barGeo, barMat)
@@ -227,6 +234,238 @@ addCrate(0, -HALF, NEON_YELLOW, 1.1)
 addCrate(HALF, 1, NEON_CYAN, 0.9)
 addCrate(-3, HALF, NEON_MAGENTA)
 addCrate(-HALF, -2, NEON_CYAN, 0.8)
+
+// --- new collidable props (cells blocked server-side: (2,2), (-2,-2), (0,3)) ---
+function addBarrels(x, z) {
+  const g = new THREE.Group()
+  const barrelGeo = new THREE.CylinderGeometry(0.15, 0.16, 0.4, 12)
+  const barrelMat = new THREE.MeshStandardMaterial({ color: '#1c2b26', roughness: 0.6, metalness: 0.5 })
+  const stripeMat = neonMat(NEON_YELLOW, 1.1)
+  const layout = [[-0.14, 0.2, -0.1, 0], [0.16, 0.2, 0.12, 0], [0.0, 0.56, 0.0, 0.12]]
+  for (const [bx, by, bz, tilt] of layout) {
+    const b = new THREE.Mesh(barrelGeo, barrelMat)
+    b.position.set(bx, by, bz)
+    b.rotation.z = tilt
+    b.castShadow = b.receiveShadow = true
+    g.add(b)
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.155, 0.05, 12), stripeMat)
+    stripe.position.set(bx, by + 0.08, bz)
+    stripe.rotation.z = tilt
+    g.add(stripe)
+  }
+  g.position.set(x, 0, z)
+  island.add(g)
+}
+
+function addBrokenColumn(x, z) {
+  const g = new THREE.Group()
+  const concrete = new THREE.MeshStandardMaterial({ color: '#3d3d48', roughness: 0.95 })
+  const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.55, 8), concrete)
+  stump.position.y = 0.28
+  stump.castShadow = stump.receiveShadow = true
+  g.add(stump)
+  const jag = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.28, 5), concrete)
+  jag.position.set(0.03, 0.68, -0.02)
+  jag.rotation.y = 0.7
+  jag.castShadow = true
+  g.add(jag)
+  const rebarMat = new THREE.MeshStandardMaterial({ color: '#6b5233', roughness: 0.5, metalness: 0.8 })
+  for (let i = 0; i < 3; i++) {
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.3, 5), rebarMat)
+    bar.position.set((Math.random() - 0.5) * 0.2, 0.85, (Math.random() - 0.5) * 0.2)
+    bar.rotation.set((Math.random() - 0.5) * 0.8, 0, (Math.random() - 0.5) * 0.8)
+    g.add(bar)
+  }
+  g.position.set(x, 0, z)
+  g.rotation.y = Math.random() * Math.PI
+  island.add(g)
+}
+
+function addAntenna(x, z) {
+  const g = new THREE.Group()
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 1.9, 6), darkMetal)
+  mast.position.y = 0.95
+  mast.castShadow = true
+  g.add(mast)
+  for (const [y, len] of [[1.2, 0.5], [1.55, 0.34]]) {
+    const cross = new THREE.Mesh(new THREE.BoxGeometry(len, 0.025, 0.025), darkMetal)
+    cross.position.y = y
+    g.add(cross)
+  }
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8, 0, Math.PI), darkMetal)
+  dish.position.set(0.1, 1.4, 0)
+  dish.rotation.y = -Math.PI / 2
+  g.add(dish)
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), neonMat('#ff2222', 1.8))
+  tip.position.y = 1.92
+  g.add(tip)
+  blinkers.push({ mesh: tip, phase: Math.random() * Math.PI * 2, speed: 3.5 })
+  g.position.set(x, 0, z)
+  island.add(g)
+}
+
+addBarrels(2, 2)
+addBrokenColumn(-2, -2)
+addAntenna(0, 3)
+
+// ---------------------------------------------------------------------------
+// Perimeter fence: the arena is caged, cubes slam into it on knockback
+// ---------------------------------------------------------------------------
+{
+  const postGeo = new THREE.CylinderGeometry(0.028, 0.04, 0.62, 6)
+  const railMat = new THREE.MeshStandardMaterial({
+    color: NEON_CYAN, emissive: NEON_CYAN, emissiveIntensity: 0.5,
+  })
+  const railGeo = new THREE.BoxGeometry(9.3, 0.028, 0.028)
+  for (let i = -HALF; i <= HALF; i++) {
+    for (const [px, pz] of [[i, -4.62], [i, 4.62], [-4.62, i], [4.62, i]]) {
+      const post = new THREE.Mesh(postGeo, darkMetal)
+      post.position.set(px, 0.31, pz)
+      post.castShadow = true
+      island.add(post)
+    }
+  }
+  for (const y of [0.3, 0.56]) {
+    for (const [x, z, rot] of [[0, -4.62, 0], [0, 4.62, 0], [-4.62, 0, 1], [4.62, 0, 1]]) {
+      const rail = new THREE.Mesh(railGeo, railMat)
+      rail.position.set(x, y, z)
+      if (rot) rail.rotation.y = Math.PI / 2
+      island.add(rail)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Torn-earth rim: hanging rock spikes, ragged slabs and rebar below the edges
+// ---------------------------------------------------------------------------
+{
+  const rockMat = new THREE.MeshStandardMaterial({ color: '#372c25', roughness: 1 })
+  const rockDark = new THREE.MeshStandardMaterial({ color: '#241c17', roughness: 1 })
+  const rebarMat = new THREE.MeshStandardMaterial({ color: '#5e4a35', roughness: 0.55, metalness: 0.8 })
+
+  for (let x = -HALF; x <= HALF; x++) {
+    for (let z = -HALF; z <= HALF; z++) {
+      const onRim = Math.abs(x) === HALF || Math.abs(z) === HALF
+      if (!onRim) continue
+      const ox = Math.abs(x) === HALF ? Math.sign(x) : 0
+      const oz = Math.abs(z) === HALF ? Math.sign(z) : 0
+
+      // rock spikes hanging under the edge
+      const n = 1 + Math.floor(Math.random() * 2)
+      for (let i = 0; i < n; i++) {
+        const spike = new THREE.Mesh(
+          new THREE.ConeGeometry(0.14 + Math.random() * 0.16, 0.7 + Math.random() * 1.2, 5),
+          Math.random() < 0.5 ? rockMat : rockDark
+        )
+        spike.rotation.x = Math.PI
+        spike.rotation.y = Math.random() * Math.PI
+        spike.position.set(
+          x + ox * 0.3 + (Math.random() - 0.5) * 0.4,
+          -1.5 - Math.random() * 0.9,
+          z + oz * 0.3 + (Math.random() - 0.5) * 0.4
+        )
+        island.add(spike)
+      }
+
+      // ragged slabs sticking out past the rim — breaks the perfect square outline
+      if (Math.random() < 0.75) {
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(0.45 + Math.random() * 0.5, 0.16 + Math.random() * 0.18, 0.45 + Math.random() * 0.5),
+          Math.random() < 0.5 ? rockMat : baseMat
+        )
+        slab.position.set(
+          x + ox * (0.6 + Math.random() * 0.3),
+          -0.35 - Math.random() * 0.7,
+          z + oz * (0.6 + Math.random() * 0.3)
+        )
+        slab.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, (Math.random() - 0.5) * 0.5)
+        island.add(slab)
+      }
+
+      // twisted rebar poking out of the broken earth
+      if (Math.random() < 0.4) {
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.45 + Math.random() * 0.4, 5), rebarMat)
+        bar.position.set(x + ox * 0.62, -0.6 - Math.random() * 0.7, z + oz * 0.62)
+        bar.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
+        island.add(bar)
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Floor details without collision: decals, center pad, scattered debris
+// ---------------------------------------------------------------------------
+{
+  // hazard stripes
+  const hazardTex = (() => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 128
+    const ctx = c.getContext('2d')
+    ctx.strokeStyle = NEON_YELLOW
+    ctx.lineWidth = 11
+    for (let i = -128; i < 256; i += 34) {
+      ctx.beginPath()
+      ctx.moveTo(i, 128)
+      ctx.lineTo(i + 128, 0)
+      ctx.stroke()
+    }
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    return tex
+  })()
+  for (const [x, z] of [[3, -1], [-1, 2], [1, -2]]) {
+    const decal = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85), new THREE.MeshStandardMaterial({
+      map: hazardTex, transparent: true, opacity: 0.3, depthWrite: false,
+      emissive: NEON_YELLOW, emissiveMap: hazardTex, emissiveIntensity: 0.25,
+    }))
+    decal.rotation.x = -Math.PI / 2
+    decal.position.set(x, 0.022, z)
+    island.add(decal)
+  }
+
+  // glowing ring pad at the center
+  const ringTex = (() => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 128
+    const ctx = c.getContext('2d')
+    ctx.strokeStyle = NEON_CYAN
+    ctx.lineWidth = 6
+    ctx.beginPath()
+    ctx.arc(64, 64, 48, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.arc(64, 64, 34, 0, Math.PI * 2)
+    ctx.stroke()
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    return tex
+  })()
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshStandardMaterial({
+    map: ringTex, transparent: true, opacity: 0.5, depthWrite: false,
+    emissive: NEON_CYAN, emissiveMap: ringTex, emissiveIntensity: 0.5,
+  }))
+  pad.rotation.x = -Math.PI / 2
+  pad.position.set(0, 0.022, 0)
+  island.add(pad)
+
+  // litter: tiny debris chunks scattered across the arena
+  const debrisMats = [
+    new THREE.MeshStandardMaterial({ color: '#3a3a46', roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({ color: '#2e2622', roughness: 1 }),
+  ]
+  for (let i = 0; i < 16; i++) {
+    const debris = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06 + Math.random() * 0.1, 0.04 + Math.random() * 0.04, 0.06 + Math.random() * 0.1),
+      debrisMats[i % 2]
+    )
+    debris.position.set((Math.random() - 0.5) * 8.6, 0.04, (Math.random() - 0.5) * 8.6)
+    debris.rotation.y = Math.random() * Math.PI
+    debris.castShadow = true
+    island.add(debris)
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Night City skyline: towers with glowing windows below and around
@@ -426,28 +665,38 @@ const quatForOrient = (o) => orientTable.get(`${o.top},${o.east},${o.south}`)
 function createHpBar() {
   const c = document.createElement('canvas')
   c.width = 128
-  c.height = 20
+  c.height = 30
   const tex = new THREE.CanvasTexture(c)
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: tex, transparent: true, depthWrite: false,
   }))
-  sprite.scale.set(1.0, 0.16, 1)
+  sprite.scale.set(1.0, 0.235, 1)
   scene.add(sprite)
   return { sprite, ctx: c.getContext('2d'), tex }
 }
 
-function drawHpBar(bar, hp) {
+// dashFrac: 0..1 readiness of the dash; null hides the dash strip (other players)
+function drawHpBar(bar, hp, dashFrac = null) {
   const { ctx, tex } = bar
-  const w = 128, h = 20
-  ctx.clearRect(0, 0, w, h)
+  const w = 128
+  ctx.clearRect(0, 0, w, 30)
   ctx.fillStyle = 'rgba(5,5,12,.8)'
-  ctx.fillRect(0, 4, w, h - 8)
+  ctx.fillRect(0, 2, w, 14)
   const frac = Math.max(0, hp / 100)
   ctx.fillStyle = frac > 0.5 ? '#39ff14' : frac > 0.25 ? '#fcee0a' : '#ff2a6d'
-  ctx.fillRect(2, 6, (w - 4) * frac, h - 12)
+  ctx.fillRect(2, 4, (w - 4) * frac, 10)
   ctx.strokeStyle = 'rgba(0,240,255,.7)'
   ctx.lineWidth = 2
-  ctx.strokeRect(1, 5, w - 2, h - 10)
+  ctx.strokeRect(1, 3, w - 2, 12)
+  if (dashFrac !== null) {
+    ctx.fillStyle = 'rgba(5,5,12,.8)'
+    ctx.fillRect(0, 20, w, 8)
+    ctx.fillStyle = dashFrac >= 1 ? '#fcee0a' : 'rgba(252,238,10,.55)'
+    ctx.fillRect(2, 22, (w - 4) * Math.min(1, dashFrac), 4)
+    ctx.strokeStyle = 'rgba(252,238,10,.6)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(0.5, 20.5, w - 1, 7)
+  }
   tex.needsUpdate = true
 }
 
@@ -477,6 +726,116 @@ function spawnPopup(text, color, worldPos) {
 }
 
 // ---------------------------------------------------------------------------
+// Sound: tiny WebAudio synth, no asset files
+// ---------------------------------------------------------------------------
+let audioCtx = null
+function ensureAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext
+  if (!AC) return
+  if (!audioCtx) audioCtx = new AC()
+  if (audioCtx.state === 'suspended') audioCtx.resume()
+}
+window.addEventListener('pointerdown', ensureAudio)
+window.addEventListener('keydown', ensureAudio)
+
+function envGain(t0, peak, dur) {
+  const g = audioCtx.createGain()
+  g.gain.setValueAtTime(0, t0)
+  g.gain.linearRampToValueAtTime(peak, t0 + 0.006)
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+  g.connect(audioCtx.destination)
+  return g
+}
+
+function makeNoise(dur) {
+  const n = Math.floor(audioCtx.sampleRate * dur)
+  const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate)
+  const d = buf.getChannelData(0)
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1
+  const src = audioCtx.createBufferSource()
+  src.buffer = buf
+  return src
+}
+
+const sfx = {
+  // dull wooden knock of a die tipping onto the next tile
+  roll() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    const o = audioCtx.createOscillator()
+    o.type = 'triangle'
+    o.frequency.setValueAtTime(190 + Math.random() * 40, t0)
+    o.frequency.exponentialRampToValueAtTime(85, t0 + 0.07)
+    o.connect(envGain(t0, 0.1, 0.09))
+    o.start(t0)
+    o.stop(t0 + 0.1)
+  },
+  // rising whoosh
+  dash() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    const src = makeNoise(0.25)
+    const f = audioCtx.createBiquadFilter()
+    f.type = 'bandpass'
+    f.Q.value = 1.4
+    f.frequency.setValueAtTime(350, t0)
+    f.frequency.exponentialRampToValueAtTime(3400, t0 + 0.18)
+    src.connect(f).connect(envGain(t0, 0.22, 0.24))
+    src.start(t0)
+  },
+  // heavy impact: low thump + noise crack
+  hit() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    const o = audioCtx.createOscillator()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(130, t0)
+    o.frequency.exponentialRampToValueAtTime(42, t0 + 0.16)
+    o.connect(envGain(t0, 0.4, 0.2))
+    o.start(t0)
+    o.stop(t0 + 0.2)
+    const src = makeNoise(0.12)
+    const f = audioCtx.createBiquadFilter()
+    f.type = 'lowpass'
+    f.frequency.value = 900
+    src.connect(f).connect(envGain(t0, 0.24, 0.11))
+    src.start(t0)
+  },
+  // falling pitch + rumble
+  death() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    const o = audioCtx.createOscillator()
+    o.type = 'sawtooth'
+    o.frequency.setValueAtTime(320, t0)
+    o.frequency.exponentialRampToValueAtTime(38, t0 + 0.55)
+    o.connect(envGain(t0, 0.22, 0.6))
+    o.start(t0)
+    o.stop(t0 + 0.6)
+    const src = makeNoise(0.5)
+    const f = audioCtx.createBiquadFilter()
+    f.type = 'lowpass'
+    f.frequency.setValueAtTime(2600, t0)
+    f.frequency.exponentialRampToValueAtTime(120, t0 + 0.5)
+    src.connect(f).connect(envGain(t0, 0.2, 0.5))
+    src.start(t0)
+  },
+  // short double blip for a denied action
+  deny() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    for (const dt of [0, 0.09]) {
+      const o = audioCtx.createOscillator()
+      o.type = 'square'
+      o.frequency.value = 150
+      o.connect(envGain(t0 + dt, 0.07, 0.06))
+      o.start(t0 + dt)
+      o.stop(t0 + dt + 0.07)
+    }
+  },
+}
+
+// ---------------------------------------------------------------------------
 // Players
 // ---------------------------------------------------------------------------
 const players = new Map()   // id -> player object
@@ -484,9 +843,6 @@ let myId = null
 
 const hint = document.getElementById('hint')
 const statusEl = document.getElementById('status')
-const hpFill = document.getElementById('hpfill')
-const hpText = document.getElementById('hptext')
-const dashFill = document.getElementById('dashfill')
 let moved = false
 
 let dashCooldownMs = 5000
@@ -496,11 +852,12 @@ let shake = 0               // camera shake amount
 function addPlayer(data) {
   if (players.has(data.id)) return players.get(data.id)
   const isMe = data.id === myId
-  const { group, bodyMat } = createDie(isMe ? NEON_YELLOW : colorForId(data.id))
-  if (isMe) {
-    const glow = new THREE.PointLight(NEON_YELLOW, 3, 4)
-    group.add(glow)
-  }
+  const color = isMe ? NEON_YELLOW : colorForId(data.id)
+  const { group, bodyMat } = createDie(color)
+  // every die glows in its own color, mine slightly stronger
+  const glow = new THREE.PointLight(color, isMe ? 3 : 2.2, 4)
+  glow.position.y = 0.2
+  group.add(glow)
   group.position.set(data.x, 0.5, data.z)
   const q = quatForOrient(data)
   if (q) group.quaternion.copy(q)
@@ -518,7 +875,6 @@ function addPlayer(data) {
   }
   if (p.dead) group.visible = false
   players.set(data.id, p)
-  updateMyHud()
   return p
 }
 
@@ -528,15 +884,6 @@ function removePlayer(id) {
   scene.remove(p.group)
   scene.remove(p.bar.sprite)
   players.delete(id)
-}
-
-function updateMyHud() {
-  const me = players.get(myId)
-  if (!me) return
-  const frac = Math.max(0, me.hp) / 100
-  hpFill.style.width = `${frac * 100}%`
-  hpFill.style.background = frac > 0.5 ? '#39ff14' : frac > 0.25 ? '#fcee0a' : '#ff2a6d'
-  hpText.textContent = `HP ${Math.max(0, me.hp)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +914,7 @@ function startNextAnim(p) {
   const dz = Math.sign(m.p.z - p.cell.z)
   const dist = Math.abs(m.p.x - p.cell.x) + Math.abs(m.p.z - p.cell.z)
 
-  if (m.dash || dist > 1 || dist === 0) {
+  if (m.dash || m.knock || dist > 1 || dist === 0) {
     p.anim = {
       type: 'dash', t: 0,
       from: p.group.position.clone(),
@@ -576,6 +923,7 @@ function startNextAnim(p) {
       target: m.p,
       time: DASH_TIME * Math.max(1, dist * 0.7),
     }
+    if (m.dash) sfx.dash() // knockback slides are voiced by the hit sound
   } else {
     p.anim = {
       type: 'roll', t: 0,
@@ -586,6 +934,7 @@ function startNextAnim(p) {
       target: m.p,
       time: ROLL_TIME,
     }
+    sfx.roll()
   }
 }
 
@@ -697,8 +1046,6 @@ function handleMessage(msg) {
         a.flash = 1
         drawHpBar(a.bar, a.hp)
         spawnPopup(`-${msg.dmgToA}`, NEON_MAGENTA, a.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)))
-        // attacker lunges toward the defender
-        a.lunge = { dir: new THREE.Vector3(msg.dx, 0, msg.dz), t: 0 }
       }
       if (d) {
         d.hp = msg.hpD
@@ -706,11 +1053,11 @@ function handleMessage(msg) {
         drawHpBar(d.bar, d.hp)
         spawnPopup(`-${msg.dmgToD}`, NEON_MAGENTA, d.group.position.clone().add(new THREE.Vector3(0, 1.4, 0)))
       }
+      sfx.hit()
       if (msg.a === myId || msg.d === myId) {
         shake = 0.35
         tg?.HapticFeedback?.impactOccurred?.('heavy')
       }
-      updateMyHud()
       break
     }
     case 'death': {
@@ -720,6 +1067,7 @@ function handleMessage(msg) {
       p.queue = []
       p.anim = null
       p.deathAnim = { t: 0 }
+      sfx.death()
       if (msg.id === myId) setStatus('УНИЧТОЖЕН — РЕСПАУН...')
       break
     }
@@ -740,14 +1088,12 @@ function handleMessage(msg) {
       p.spawnAnim = { t: 0 }
       drawHpBar(p.bar, p.hp)
       if (msg.p.id === myId) setStatus('')
-      updateMyHud()
       break
     }
     case 'denied':
       if (msg.reason === 'dash_cooldown') {
         hapticError()
-        dashFill.parentElement.classList.add('denied')
-        setTimeout(() => dashFill.parentElement.classList.remove('denied'), 300)
+        sfx.deny()
       }
       break
   }
@@ -839,17 +1185,6 @@ function tick() {
       p.bodyMat.emissiveIntensity = 0
     }
 
-    if (p.lunge) {
-      p.lunge.t += dt * 6
-      const k = Math.sin(Math.min(p.lunge.t, 1) * Math.PI) * 0.25
-      p.group.position.set(
-        p.cell.x + p.lunge.dir.x * k, 0.5, p.cell.z + p.lunge.dir.z * k)
-      if (p.lunge.t >= 1) {
-        p.group.position.set(p.cell.x, 0.5, p.cell.z)
-        p.lunge = null
-      }
-    }
-
     if (p.deathAnim) {
       p.deathAnim.t += dt * 1.6
       const k = Math.min(p.deathAnim.t, 1)
@@ -868,7 +1203,14 @@ function tick() {
 
     // hp bar floats above the die (hidden while dead)
     p.bar.sprite.visible = !p.dead && p.group.visible
-    p.bar.sprite.position.set(p.group.position.x, p.group.position.y + 0.95, p.group.position.z)
+    p.bar.sprite.position.set(p.group.position.x, p.group.position.y + 1.0, p.group.position.z)
+  }
+
+  // my bar also shows dash readiness, redrawn every frame while recharging
+  const meBar = players.get(myId)
+  if (meBar && !meBar.dead) {
+    const remainMs = Math.max(0, dashReadyAt - performance.now())
+    drawHpBar(meBar.bar, meBar.hp, 1 - remainMs / dashCooldownMs)
   }
 
   // damage popups float up and fade
@@ -884,10 +1226,6 @@ function tick() {
       popups.splice(i, 1)
     }
   }
-
-  // dash cooldown HUD
-  const remain = Math.max(0, dashReadyAt - performance.now())
-  dashFill.style.width = `${(1 - remain / dashCooldownMs) * 100}%`
 
   // flying cars stream in circles, facing their direction of travel
   for (const c of cars) {
