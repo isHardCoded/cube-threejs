@@ -221,7 +221,7 @@ for (const { value, normal } of faces) {
 const cell = { x: 0, z: 0 }
 cube.position.set(cell.x, 0.5, cell.z)
 
-const ROLL_TIME = 0.19
+const ROLL_TIME = 0.28
 let rolling = null      // { axis, pivot, startPos, startQuat, t, target }
 let queued = null       // queued direction while a roll is in progress
 const hint = document.getElementById('hint')
@@ -237,7 +237,7 @@ function tryRoll(dx, dz) {
   }
   const dir = new THREE.Vector3(dx, 0, dz)
   rolling = {
-    axis: new THREE.Vector3().crossVectors(yAxis, dir).negate(), // up x dir gives -roll axis
+    axis: new THREE.Vector3().crossVectors(yAxis, dir), // up x dir = roll axis toward movement
     pivot: cube.position.clone().add(new THREE.Vector3(dx * 0.5, -0.5, dz * 0.5)),
     startPos: cube.position.clone(),
     startQuat: cube.quaternion.clone(),
@@ -247,12 +247,13 @@ function tryRoll(dx, dz) {
   if (!moved) { moved = true; hint.classList.add('faded') }
 }
 
-const easeOutQuad = t => t * (2 - t)
+// smooth start and stop, no jerk on either end
+const smoothstep = t => t * t * (3 - 2 * t)
 
 function updateRoll(dt) {
   if (!rolling) return
   rolling.t = Math.min(rolling.t + dt / ROLL_TIME, 1)
-  const angle = easeOutQuad(rolling.t) * (Math.PI / 2)
+  const angle = smoothstep(rolling.t) * (Math.PI / 2)
 
   const q = new THREE.Quaternion().setFromAxisAngle(rolling.axis, angle)
   cube.quaternion.copy(q).multiply(rolling.startQuat)
