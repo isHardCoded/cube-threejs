@@ -1239,14 +1239,16 @@ function rollOrient(o, dx, dz) {
   }
 }
 
-function syncConfirmed(p, data) {
-  p.orient = { top: data.top, east: data.east, south: data.south }
-  p.confirmedCell = { x: data.x, z: data.z }
-  p.confirmedOrient = { ...p.orient }
-}
-
 // FIFO of cells my unconfirmed predicted moves should land on
 let myPredictions = []
+
+function syncConfirmed(p, data) {
+  p.confirmedCell = { x: data.x, z: data.z }
+  p.confirmedOrient = { top: data.top, east: data.east, south: data.south }
+  // while predictions are in flight my orient chain is ahead of the server:
+  // don't rewind it with the confirmation of an older move
+  if (p.id !== myId || myPredictions.length === 0) p.orient = { ...p.confirmedOrient }
+}
 
 function rollbackPrediction(p) {
   if (!p?.confirmedCell) return
@@ -1273,24 +1275,32 @@ function playerAtCell(l, x, z) {
   return null
 }
 
+// logical position for chaining predictions: ahead of the animation cell,
+// which only advances when each roll animation actually finishes
+function predictOrigin(me) {
+  return myPredictions.length > 0
+    ? myPredictions[myPredictions.length - 1]
+    : me.confirmedCell
+}
+
 // returns false when the move must not even be sent (wall/obstacle)
 function predictRoll(dx, dz) {
   const me = players.get(myId)
   if (!me || me.dead || me.gone) return true
   const l = me.level
-  const nx = me.cell.x + dx
-  const nz = me.cell.z + dz
+  const o = predictOrigin(me)
+  const nx = o.x + dx
+  const nz = o.z + dz
   if (!inArena(nx, nz) || isBlockedC(l, nx, nz)) return false
   // an occupied cell means attack: send the move but keep the cube in place
   if (playerAtCell(l, nx, nz)) return true
   const next = rollOrient(me.orient || { top: 1, east: 3, south: 2 }, dx, dz)
   myPredictions.push({ x: nx, z: nz })
+  me.orient = next
   enqueueMove(me, {
     predicted: true,
     p: { id: myId, level: l, x: nx, z: nz, ...next },
   })
-  me.cell = { x: nx, z: nz }
-  me.orient = next
   return true
 }
 
@@ -1299,7 +1309,7 @@ function predictDash(dx, dz) {
   const me = players.get(myId)
   if (!me || me.dead || me.gone) return
   const l = me.level
-  let { x, z } = me.cell
+  let { x, z } = predictOrigin(me)
   let steps = 0
   for (let i = 0; i < 2; i++) {
     const nx = x + dx
@@ -1316,7 +1326,6 @@ function predictDash(dx, dz) {
     predicted: true, dash: true,
     p: { id: myId, level: l, x, z, ...me.orient },
   })
-  me.cell = { x, z }
 }
 
 function enqueueMove(p, data) {
@@ -1610,6 +1619,7 @@ function handleMessage(msg) {
       p.hp = msg.p.hp
       p.level = msg.p.level
       p.cell = { x: msg.p.x, z: msg.p.z }
+      syncConfirmed(p, msg.p)
       p.queue = []
       p.anim = null
       p.deathAnim = null
@@ -1650,6 +1660,7 @@ function handleMessage(msg) {
       const p = players.get(msg.p.id)
       if (!p) { addPlayer(msg.p); break }
       if (msg.p.id === myId) myPredictions = []
+      syncConfirmed(p, msg.p)
       // queued after the move that stepped onto the trampoline,
       // so the roll finishes first and the launch starts from the pad
       enqueueMove(p, msg)
@@ -1665,6 +1676,7 @@ function handleMessage(msg) {
         p.hp = pd.hp
         p.level = pd.level
         p.cell = { x: pd.x, z: pd.z }
+        syncConfirmed(p, pd)
         p.queue = []
         p.anim = null
         p.deathAnim = null

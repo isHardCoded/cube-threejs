@@ -15,7 +15,9 @@ const (
 	Levels = 3
 	MaxHP  = 30
 
-	RollCooldown = 130 * time.Millisecond
+	// slightly below the client's 140ms send gate so network jitter never
+	// bunches two legit moves into a cooldown denial (which snaps the cube back)
+	RollCooldown = 110 * time.Millisecond
 	DashCooldown = 5 * time.Second
 	JumpCooldown = 1200 * time.Millisecond
 	RespawnDelay = 3 * time.Second
