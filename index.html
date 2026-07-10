@@ -75,6 +75,23 @@
             animation: flicker 2s infinite;
         }
         .hud--status.hidden { display: none; }
+        .hud--timer {
+            top: calc(84px + env(safe-area-inset-top));
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 2.5px;
+            color: #00f0ff;
+            text-shadow: 0 0 8px rgba(0, 240, 255, .7);
+        }
+        .hud--timer.danger {
+            color: #ff2a6d;
+            text-shadow: 0 0 12px rgba(255, 42, 109, .95);
+            animation: pulse .7s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .45; }
+        }
         @keyframes flicker {
             0%, 100% { opacity: 1; }
             92% { opacity: 1; }
@@ -89,7 +106,8 @@
     <canvas class="webgl"></canvas>
     <div class="hud hud--title">CUBE&nbsp;<span>2077</span></div>
     <div class="hud hud--status hidden" id="status"></div>
-    <div class="hud hud--hint" id="hint">WASD&nbsp;·&nbsp;стрелки&nbsp;·&nbsp;свайп&nbsp;·&nbsp;двойное&nbsp;нажатие&nbsp;=&nbsp;рывок</div>
+    <div class="hud hud--timer" id="timer"></div>
+    <div class="hud hud--hint" id="hint">WASD&nbsp;·&nbsp;свайп&nbsp;·&nbsp;двойное&nbsp;нажатие&nbsp;=&nbsp;рывок&nbsp;·&nbsp;пробел&nbsp;=&nbsp;прыжок</div>
     <script type="module" src="script.js"></script>
 </body>
 </html>

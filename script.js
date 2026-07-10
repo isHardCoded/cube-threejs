@@ -42,9 +42,9 @@ renderer.toneMappingExposure = 1.0
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(NIGHT)
-scene.fog = new THREE.Fog(NIGHT, 22, 65)
+scene.fog = new THREE.Fog(NIGHT, 22, 70)
 
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 140)
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 160)
 camera.position.set(0, 9, 10)
 
 // ---------------------------------------------------------------------------
@@ -67,15 +67,15 @@ composer.addPass(new OutputPass())
 scene.add(new THREE.HemisphereLight('#3b2a63', '#141024', 1.0))
 
 const moon = new THREE.DirectionalLight('#7aa6ff', 1.8)
-moon.position.set(8, 14, 6)
+moon.position.set(12, 26, 10)
 moon.castShadow = true
 moon.shadow.mapSize.set(2048, 2048)
-moon.shadow.camera.left = -12
-moon.shadow.camera.right = 12
-moon.shadow.camera.top = 12
-moon.shadow.camera.bottom = -12
+moon.shadow.camera.left = -16
+moon.shadow.camera.right = 16
+moon.shadow.camera.top = 20
+moon.shadow.camera.bottom = -16
 moon.shadow.camera.near = 1
-moon.shadow.camera.far = 40
+moon.shadow.camera.far = 60
 moon.shadow.bias = -0.0005
 scene.add(moon)
 
@@ -87,80 +87,58 @@ const cyanLight = new THREE.PointLight(NEON_CYAN, 22, 25)
 cyanLight.position.set(7, 4, 7)
 scene.add(cyanLight)
 
-// magenta underglow so the platform floats over pink haze
+// magenta underglow so the bottom platform floats over pink haze
 const underGlow = new THREE.PointLight(NEON_MAGENTA, 28, 20)
 underGlow.position.set(0, -4, 0)
 scene.add(underGlow)
 
-// cool overhead spot so the arena itself reads clearly
-const arenaSpot = new THREE.SpotLight('#cfe6ff', 260, 30, Math.PI / 4.5, 0.55, 1.6)
-arenaSpot.position.set(0, 12, 2)
-arenaSpot.target.position.set(0, 0, 0)
-scene.add(arenaSpot, arenaSpot.target)
-
 // ---------------------------------------------------------------------------
-// Floating platform: dark tech tiles + neon grid
+// Arena layout: three stacked platforms, each with its own obstacle set.
+// Blocked cells must mirror the server's levelBlocked maps.
 // ---------------------------------------------------------------------------
-const HALF = 4                       // platform spans cells [-HALF..HALF]
+const HALF = 4                        // each platform spans cells [-HALF..HALF]
+const LEVEL_H = 7                     // vertical distance between platforms
+const levelY = (l) => l * LEVEL_H
 const cellKey = (x, z) => `${x},${z}`
 
-const island = new THREE.Group()
-scene.add(island)
+const LAYOUTS = [
+  { // level 0: the junkyard arena
+    pylons: [
+      [-4, 0, NEON_CYAN, 1.2, true], [-4, 2, NEON_MAGENTA, 1, false],
+      [4, -2, NEON_YELLOW, 1.1, true], [2, -4, NEON_CYAN, 0.9, false],
+      [-2, 4, NEON_MAGENTA, 1.15, false], [4, 3, NEON_YELLOW, 0.85, false],
+    ],
+    crates: [[0, -4, NEON_YELLOW, 1.1], [4, 1, NEON_CYAN, 0.9], [-3, 4, NEON_MAGENTA, 1], [-4, -2, NEON_CYAN, 0.8]],
+    barrels: [[2, 2]], columns: [[-2, -2]], antennas: [[0, 3]],
+    decals: [[3, -1], [-1, 2], [1, -2]],
+  },
+  { // level 1: tighter maze around the middle
+    pylons: [
+      [3, 3, NEON_MAGENTA, 1.2, true], [-3, -3, NEON_CYAN, 1.1, true],
+      [0, -3, NEON_YELLOW, 0.9, false], [3, 0, NEON_CYAN, 1, false],
+    ],
+    crates: [[-1, -1, NEON_MAGENTA, 1], [1, 3, NEON_CYAN, 0.9], [-3, 1, NEON_YELLOW, 1.05]],
+    barrels: [[-1, 2], [2, -2]], columns: [[2, 0]], antennas: [[-3, -1]],
+    decals: [[0, 2], [-2, 0], [2, -3]],
+  },
+  { // level 2: sparse rooftop with a central obelisk, no trampoline here
+    pylons: [
+      [0, 0, NEON_MAGENTA, 1.6, true],
+      [2, 3, NEON_YELLOW, 1.15, false], [-2, -3, NEON_MAGENTA, 1.05, false],
+    ],
+    crates: [[3, -3, NEON_CYAN, 1], [-3, 3, NEON_YELLOW, 0.9]],
+    barrels: [[1, -1]], columns: [[-1, 1]], antennas: [],
+    decals: [[2, 0], [-2, 2], [0, -2]],
+  },
+]
 
+// shared materials / geometries
 const tileGeo = new RoundedBoxGeometry(0.96, 0.3, 0.96, 2, 0.06)
 const tileMatA = new THREE.MeshStandardMaterial({ color: '#262638', roughness: 0.5, metalness: 0.45 })
 const tileMatB = new THREE.MeshStandardMaterial({ color: '#1a1a29', roughness: 0.5, metalness: 0.45 })
-// torn-out chunk of ground: earthy rock underneath instead of clean metal
 const baseMat = new THREE.MeshStandardMaterial({ color: '#2b211d', roughness: 1 })
-
-for (let x = -HALF; x <= HALF; x++) {
-  for (let z = -HALF; z <= HALF; z++) {
-    const tile = new THREE.Mesh(tileGeo, (x + z) % 2 === 0 ? tileMatA : tileMatB)
-    tile.position.set(x, -0.15, z)
-    tile.receiveShadow = true
-    tile.castShadow = true
-    island.add(tile)
-
-    // ragged dirt chunk under each tile: random size, offset and tilt
-    const baseH = 0.7 + Math.random() * 1.4
-    const base = new THREE.Mesh(
-      new THREE.BoxGeometry(0.88 + Math.random() * 0.16, baseH, 0.88 + Math.random() * 0.16),
-      baseMat
-    )
-    base.position.set(
-      x + (Math.random() - 0.5) * 0.12,
-      -0.3 - baseH / 2,
-      z + (Math.random() - 0.5) * 0.12
-    )
-    base.rotation.y = (Math.random() - 0.5) * 0.18
-    island.add(base)
-  }
-}
-
-// neon grid lines over tile seams
-const grid = new THREE.GridHelper(9, 9, NEON_MAGENTA, NEON_CYAN)
-grid.position.y = 0.02
-grid.material.transparent = true
-grid.material.opacity = 0.25
-grid.material.depthWrite = false
-island.add(grid)
-
-// glowing yellow frame around the platform
-const barGeo = new THREE.BoxGeometry(9.14, 0.05, 0.05)
-const barMat = new THREE.MeshStandardMaterial({
-  color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 0.4,
-})
-for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0, 1]]) {
-  const bar = new THREE.Mesh(barGeo, barMat)
-  bar.position.set(x, 0.02, z)
-  if (rot) bar.rotation.y = Math.PI / 2
-  island.add(bar)
-}
-
-// ---------------------------------------------------------------------------
-// Obstacles: neon pylons and tech crates (blocking is enforced server-side)
-// ---------------------------------------------------------------------------
 const darkMetal = new THREE.MeshStandardMaterial({ color: '#12121c', roughness: 0.35, metalness: 0.7 })
+
 const blinkers = []   // emissive meshes that pulse over time
 const holos = []      // rotating holographic shapes
 
@@ -168,7 +146,44 @@ function neonMat(color, intensity = 1.3) {
   return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity })
 }
 
-function addPylon(x, z, color, scale = 1, withHolo = false) {
+const hazardTex = (() => {
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const ctx = c.getContext('2d')
+  ctx.strokeStyle = NEON_YELLOW
+  ctx.lineWidth = 11
+  for (let i = -128; i < 256; i += 34) {
+    ctx.beginPath()
+    ctx.moveTo(i, 128)
+    ctx.lineTo(i + 128, 0)
+    ctx.stroke()
+  }
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+})()
+
+const ringTex = (() => {
+  const c = document.createElement('canvas')
+  c.width = c.height = 128
+  const ctx = c.getContext('2d')
+  ctx.strokeStyle = NEON_CYAN
+  ctx.lineWidth = 6
+  ctx.beginPath()
+  ctx.arc(64, 64, 48, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.arc(64, 64, 34, 0, Math.PI * 2)
+  ctx.stroke()
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+})()
+
+// --- props --------------------------------------------------------------
+
+function propPylon([x, z, color, scale = 1, withHolo = false]) {
   const g = new THREE.Group()
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.1, 1.4, 8), darkMetal)
   pole.position.y = 0.7
@@ -203,10 +218,10 @@ function addPylon(x, z, color, scale = 1, withHolo = false) {
 
   g.position.set(x, 0, z)
   g.scale.setScalar(scale)
-  island.add(g)
+  return g
 }
 
-function addCrate(x, z, color, scale = 1) {
+function propCrate([x, z, color, scale = 1]) {
   const g = new THREE.Group()
   const box = new THREE.Mesh(new RoundedBoxGeometry(0.55, 0.55, 0.55, 2, 0.05), darkMetal)
   box.position.y = 0.28
@@ -221,22 +236,10 @@ function addCrate(x, z, color, scale = 1) {
   g.position.set(x, 0, z)
   g.scale.setScalar(scale)
   g.rotation.y = (Math.random() - 0.5) * 0.6
-  island.add(g)
+  return g
 }
 
-addPylon(-HALF, 0, NEON_CYAN, 1.2, true)
-addPylon(-HALF, 2, NEON_MAGENTA)
-addPylon(HALF, -2, NEON_YELLOW, 1.1, true)
-addPylon(2, -HALF, NEON_CYAN, 0.9)
-addPylon(-2, HALF, NEON_MAGENTA, 1.15)
-addPylon(HALF, 3, NEON_YELLOW, 0.85)
-addCrate(0, -HALF, NEON_YELLOW, 1.1)
-addCrate(HALF, 1, NEON_CYAN, 0.9)
-addCrate(-3, HALF, NEON_MAGENTA)
-addCrate(-HALF, -2, NEON_CYAN, 0.8)
-
-// --- new collidable props (cells blocked server-side: (2,2), (-2,-2), (0,3)) ---
-function addBarrels(x, z) {
+function propBarrels([x, z]) {
   const g = new THREE.Group()
   const barrelGeo = new THREE.CylinderGeometry(0.15, 0.16, 0.4, 12)
   const barrelMat = new THREE.MeshStandardMaterial({ color: '#1c2b26', roughness: 0.6, metalness: 0.5 })
@@ -254,10 +257,10 @@ function addBarrels(x, z) {
     g.add(stripe)
   }
   g.position.set(x, 0, z)
-  island.add(g)
+  return g
 }
 
-function addBrokenColumn(x, z) {
+function propColumn([x, z]) {
   const g = new THREE.Group()
   const concrete = new THREE.MeshStandardMaterial({ color: '#3d3d48', roughness: 0.95 })
   const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.55, 8), concrete)
@@ -278,10 +281,10 @@ function addBrokenColumn(x, z) {
   }
   g.position.set(x, 0, z)
   g.rotation.y = Math.random() * Math.PI
-  island.add(g)
+  return g
 }
 
-function addAntenna(x, z) {
+function propAntenna([x, z]) {
   const g = new THREE.Group()
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 1.9, 6), darkMetal)
   mast.position.y = 0.95
@@ -301,170 +304,343 @@ function addAntenna(x, z) {
   g.add(tip)
   blinkers.push({ mesh: tip, phase: Math.random() * Math.PI * 2, speed: 3.5 })
   g.position.set(x, 0, z)
-  island.add(g)
+  return g
 }
 
-addBarrels(2, 2)
-addBrokenColumn(-2, -2)
-addAntenna(0, 3)
+// --- trampoline -----------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Perimeter fence: the arena is caged, cubes slam into it on knockback
-// ---------------------------------------------------------------------------
-{
-  const postGeo = new THREE.CylinderGeometry(0.028, 0.04, 0.62, 6)
-  const railMat = new THREE.MeshStandardMaterial({
-    color: NEON_CYAN, emissive: NEON_CYAN, emissiveIntensity: 0.5,
-  })
-  const railGeo = new THREE.BoxGeometry(9.3, 0.028, 0.028)
-  for (let i = -HALF; i <= HALF; i++) {
-    for (const [px, pz] of [[i, -4.62], [i, 4.62], [-4.62, i], [4.62, i]]) {
-      const post = new THREE.Mesh(postGeo, darkMetal)
-      post.position.set(px, 0.31, pz)
-      post.castShadow = true
-      island.add(post)
-    }
-  }
-  for (const y of [0.3, 0.56]) {
-    for (const [x, z, rot] of [[0, -4.62, 0], [0, 4.62, 0], [-4.62, 0, 1], [4.62, 0, 1]]) {
-      const rail = new THREE.Mesh(railGeo, railMat)
-      rail.position.set(x, y, z)
-      if (rot) rail.rotation.y = Math.PI / 2
-      island.add(rail)
-    }
-  }
+function createTrampoline() {
+  const g = new THREE.Group()
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.46, 0.14, 20), darkMetal)
+  base.position.y = 0.07
+  base.castShadow = base.receiveShadow = true
+  g.add(base)
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.045, 10, 28), neonMat(NEON_CYAN, 1.6))
+  ring.rotation.x = Math.PI / 2
+  ring.position.y = 0.16
+  g.add(ring)
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.07, 24), neonMat(NEON_MAGENTA, 1.3))
+  pad.position.y = 0.17
+  g.add(pad)
+  g.visible = false
+  return { g, pad, ring, bounce: 0 }
 }
 
-// ---------------------------------------------------------------------------
-// Torn-earth rim: hanging rock spikes, ragged slabs and rebar below the edges
-// ---------------------------------------------------------------------------
-{
-  const rockMat = new THREE.MeshStandardMaterial({ color: '#372c25', roughness: 1 })
-  const rockDark = new THREE.MeshStandardMaterial({ color: '#241c17', roughness: 1 })
-  const rebarMat = new THREE.MeshStandardMaterial({ color: '#5e4a35', roughness: 0.55, metalness: 0.8 })
+// --- platform builder -------------------------------------------------------
 
+// platforms[l] = { group, pieces: Map(key -> [{obj, pos0, quat0}]), tramp, trampKey, rimGone }
+const platforms = []
+const RIM_CELLS = (2 * HALF + 1) * 4 - 4 // outermost ring size
+
+function buildPlatform(level) {
+  const layout = LAYOUTS[level]
+  const group = new THREE.Group()
+  group.position.y = levelY(level)
+  scene.add(group)
+
+  const pieces = new Map()
+  const reg = (x, z, obj) => {
+    const key = cellKey(x, z)
+    if (!pieces.has(key)) pieces.set(key, [])
+    pieces.get(key).push({ obj, pos0: obj.position.clone(), quat0: obj.quaternion.clone() })
+  }
+  // rim furniture (fence, frame, grid) collapses once the outer ring is gone
+  const regRim = (obj) => {
+    if (!pieces.has('__rim')) pieces.set('__rim', [])
+    pieces.get('__rim').push({ obj, pos0: obj.position.clone(), quat0: obj.quaternion.clone() })
+  }
+
+  // tiles + ragged dirt chunks underneath
   for (let x = -HALF; x <= HALF; x++) {
     for (let z = -HALF; z <= HALF; z++) {
-      const onRim = Math.abs(x) === HALF || Math.abs(z) === HALF
-      if (!onRim) continue
-      const ox = Math.abs(x) === HALF ? Math.sign(x) : 0
-      const oz = Math.abs(z) === HALF ? Math.sign(z) : 0
+      const tile = new THREE.Mesh(tileGeo, (x + z) % 2 === 0 ? tileMatA : tileMatB)
+      tile.position.set(x, -0.15, z)
+      tile.receiveShadow = true
+      tile.castShadow = true
+      group.add(tile)
+      reg(x, z, tile)
 
-      // rock spikes hanging under the edge
-      const n = 1 + Math.floor(Math.random() * 2)
-      for (let i = 0; i < n; i++) {
-        const spike = new THREE.Mesh(
-          new THREE.ConeGeometry(0.14 + Math.random() * 0.16, 0.7 + Math.random() * 1.2, 5),
-          Math.random() < 0.5 ? rockMat : rockDark
-        )
-        spike.rotation.x = Math.PI
-        spike.rotation.y = Math.random() * Math.PI
-        spike.position.set(
-          x + ox * 0.3 + (Math.random() - 0.5) * 0.4,
-          -1.5 - Math.random() * 0.9,
-          z + oz * 0.3 + (Math.random() - 0.5) * 0.4
-        )
-        island.add(spike)
+      const baseH = 0.7 + Math.random() * 1.4
+      const base = new THREE.Mesh(
+        new THREE.BoxGeometry(0.88 + Math.random() * 0.16, baseH, 0.88 + Math.random() * 0.16),
+        baseMat
+      )
+      base.position.set(
+        x + (Math.random() - 0.5) * 0.12,
+        -0.3 - baseH / 2,
+        z + (Math.random() - 0.5) * 0.12
+      )
+      base.rotation.y = (Math.random() - 0.5) * 0.18
+      group.add(base)
+      reg(x, z, base)
+    }
+  }
+
+  // neon grid over tile seams
+  const grid = new THREE.GridHelper(9, 9, NEON_MAGENTA, NEON_CYAN)
+  grid.position.y = 0.02
+  grid.material.transparent = true
+  grid.material.opacity = 0.25
+  grid.material.depthWrite = false
+  group.add(grid)
+  regRim(grid)
+
+  // glowing yellow frame
+  const barGeo = new THREE.BoxGeometry(9.14, 0.05, 0.05)
+  const barMat = new THREE.MeshStandardMaterial({
+    color: NEON_YELLOW, emissive: NEON_YELLOW, emissiveIntensity: 0.4,
+  })
+  for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0, 1]]) {
+    const bar = new THREE.Mesh(barGeo, barMat)
+    bar.position.set(x, 0.02, z)
+    if (rot) bar.rotation.y = Math.PI / 2
+    group.add(bar)
+    regRim(bar)
+  }
+
+  // obstacles per layout
+  for (const def of layout.pylons) {
+    const g = propPylon(def)
+    group.add(g)
+    reg(def[0], def[1], g)
+  }
+  for (const def of layout.crates) {
+    const g = propCrate(def)
+    group.add(g)
+    reg(def[0], def[1], g)
+  }
+  for (const def of layout.barrels) {
+    const g = propBarrels(def)
+    group.add(g)
+    reg(def[0], def[1], g)
+  }
+  for (const def of layout.columns) {
+    const g = propColumn(def)
+    group.add(g)
+    reg(def[0], def[1], g)
+  }
+  for (const def of layout.antennas) {
+    const g = propAntenna(def)
+    group.add(g)
+    reg(def[0], def[1], g)
+  }
+
+  // perimeter fence
+  {
+    const postGeo = new THREE.CylinderGeometry(0.028, 0.04, 0.62, 6)
+    const railMat = new THREE.MeshStandardMaterial({
+      color: NEON_CYAN, emissive: NEON_CYAN, emissiveIntensity: 0.5,
+    })
+    const railGeo = new THREE.BoxGeometry(9.3, 0.028, 0.028)
+    for (let i = -HALF; i <= HALF; i++) {
+      for (const [px, pz] of [[i, -4.62], [i, 4.62], [-4.62, i], [4.62, i]]) {
+        const post = new THREE.Mesh(postGeo, darkMetal)
+        post.position.set(px, 0.31, pz)
+        post.castShadow = true
+        group.add(post)
+        regRim(post)
       }
-
-      // ragged slabs sticking out past the rim — breaks the perfect square outline
-      if (Math.random() < 0.75) {
-        const slab = new THREE.Mesh(
-          new THREE.BoxGeometry(0.45 + Math.random() * 0.5, 0.16 + Math.random() * 0.18, 0.45 + Math.random() * 0.5),
-          Math.random() < 0.5 ? rockMat : baseMat
-        )
-        slab.position.set(
-          x + ox * (0.6 + Math.random() * 0.3),
-          -0.35 - Math.random() * 0.7,
-          z + oz * (0.6 + Math.random() * 0.3)
-        )
-        slab.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, (Math.random() - 0.5) * 0.5)
-        island.add(slab)
+    }
+    for (const y of [0.3, 0.56]) {
+      for (const [x, z, rot] of [[0, -4.62, 0], [0, 4.62, 0], [-4.62, 0, 1], [4.62, 0, 1]]) {
+        const rail = new THREE.Mesh(railGeo, railMat)
+        rail.position.set(x, y, z)
+        if (rot) rail.rotation.y = Math.PI / 2
+        group.add(rail)
+        regRim(rail)
       }
+    }
+  }
 
-      // twisted rebar poking out of the broken earth
-      if (Math.random() < 0.4) {
-        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.45 + Math.random() * 0.4, 5), rebarMat)
-        bar.position.set(x + ox * 0.62, -0.6 - Math.random() * 0.7, z + oz * 0.62)
-        bar.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
-        island.add(bar)
+  // torn-earth rim: hanging rock spikes, ragged slabs, rebar
+  {
+    const rockMat = new THREE.MeshStandardMaterial({ color: '#372c25', roughness: 1 })
+    const rockDark = new THREE.MeshStandardMaterial({ color: '#241c17', roughness: 1 })
+    const rebarMat = new THREE.MeshStandardMaterial({ color: '#5e4a35', roughness: 0.55, metalness: 0.8 })
+
+    for (let x = -HALF; x <= HALF; x++) {
+      for (let z = -HALF; z <= HALF; z++) {
+        const onRim = Math.abs(x) === HALF || Math.abs(z) === HALF
+        if (!onRim) continue
+        const ox = Math.abs(x) === HALF ? Math.sign(x) : 0
+        const oz = Math.abs(z) === HALF ? Math.sign(z) : 0
+
+        const n = 1 + Math.floor(Math.random() * 2)
+        for (let i = 0; i < n; i++) {
+          const spike = new THREE.Mesh(
+            new THREE.ConeGeometry(0.14 + Math.random() * 0.16, 0.7 + Math.random() * 1.2, 5),
+            Math.random() < 0.5 ? rockMat : rockDark
+          )
+          spike.rotation.x = Math.PI
+          spike.rotation.y = Math.random() * Math.PI
+          spike.position.set(
+            x + ox * 0.3 + (Math.random() - 0.5) * 0.4,
+            -1.5 - Math.random() * 0.9,
+            z + oz * 0.3 + (Math.random() - 0.5) * 0.4
+          )
+          group.add(spike)
+          reg(x, z, spike)
+        }
+
+        if (Math.random() < 0.75) {
+          const slab = new THREE.Mesh(
+            new THREE.BoxGeometry(0.45 + Math.random() * 0.5, 0.16 + Math.random() * 0.18, 0.45 + Math.random() * 0.5),
+            Math.random() < 0.5 ? rockMat : baseMat
+          )
+          slab.position.set(
+            x + ox * (0.6 + Math.random() * 0.3),
+            -0.35 - Math.random() * 0.7,
+            z + oz * (0.6 + Math.random() * 0.3)
+          )
+          slab.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, (Math.random() - 0.5) * 0.5)
+          group.add(slab)
+          reg(x, z, slab)
+        }
+
+        if (Math.random() < 0.4) {
+          const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.45 + Math.random() * 0.4, 5), rebarMat)
+          bar.position.set(x + ox * 0.62, -0.6 - Math.random() * 0.7, z + oz * 0.62)
+          bar.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
+          group.add(bar)
+          reg(x, z, bar)
+        }
+      }
+    }
+  }
+
+  // floor decals + debris
+  {
+    for (const [x, z] of layout.decals) {
+      const decal = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85), new THREE.MeshStandardMaterial({
+        map: hazardTex, transparent: true, opacity: 0.3, depthWrite: false,
+        emissive: NEON_YELLOW, emissiveMap: hazardTex, emissiveIntensity: 0.25,
+      }))
+      decal.rotation.x = -Math.PI / 2
+      decal.position.set(x, 0.022, z)
+      group.add(decal)
+      reg(x, z, decal)
+    }
+
+    if (level === 0) {
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshStandardMaterial({
+        map: ringTex, transparent: true, opacity: 0.5, depthWrite: false,
+        emissive: NEON_CYAN, emissiveMap: ringTex, emissiveIntensity: 0.5,
+      }))
+      pad.rotation.x = -Math.PI / 2
+      pad.position.set(0, 0.022, 0)
+      group.add(pad)
+      reg(0, 0, pad)
+    }
+
+    const debrisMats = [
+      new THREE.MeshStandardMaterial({ color: '#3a3a46', roughness: 0.9 }),
+      new THREE.MeshStandardMaterial({ color: '#2e2622', roughness: 1 }),
+    ]
+    for (let i = 0; i < 14; i++) {
+      const debris = new THREE.Mesh(
+        new THREE.BoxGeometry(0.06 + Math.random() * 0.1, 0.04 + Math.random() * 0.04, 0.06 + Math.random() * 0.1),
+        debrisMats[i % 2]
+      )
+      const dx = (Math.random() - 0.5) * 8.6
+      const dz = (Math.random() - 0.5) * 8.6
+      debris.position.set(dx, 0.04, dz)
+      debris.rotation.y = Math.random() * Math.PI
+      debris.castShadow = true
+      group.add(debris)
+      reg(Math.round(dx), Math.round(dz), debris)
+    }
+  }
+
+  // cool overhead spot so the arena reads clearly
+  const spot = new THREE.SpotLight('#cfe6ff', 260, 30, Math.PI / 4.5, 0.55, 1.6)
+  spot.position.set(0, 12, 2)
+  spot.target.position.set(0, 0, 0)
+  group.add(spot, spot.target)
+
+  // accent light for the upper platforms
+  if (level === 1) {
+    const accent = new THREE.PointLight(NEON_CYAN, 16, 18)
+    accent.position.set(6, 3.5, -6)
+    group.add(accent)
+  } else if (level === 2) {
+    const accent = new THREE.PointLight(NEON_MAGENTA, 16, 18)
+    accent.position.set(-6, 3.5, 6)
+    group.add(accent)
+  }
+
+  const tramp = createTrampoline()
+  group.add(tramp.g)
+
+  platforms.push({ group, pieces, tramp, trampKey: null, rimGone: 0 })
+}
+
+for (let l = 0; l < 3; l++) buildPlatform(l)
+
+// --- destruction ------------------------------------------------------------
+
+const fallingPieces = []
+
+function destroyCellVisual(level, x, z, animate = true) {
+  const plat = platforms[level]
+  const arr = plat.pieces.get(cellKey(x, z))
+  if (arr) {
+    for (const e of arr) {
+      if (!e.obj.visible) continue
+      if (animate) {
+        fallingPieces.push({
+          ...e,
+          vy: 0.4 + Math.random() * 0.8,
+          rx: (Math.random() - 0.5) * 3,
+          rz: (Math.random() - 0.5) * 3,
+          t: -Math.random() * 0.15,
+        })
+      } else {
+        e.obj.visible = false
+      }
+    }
+  }
+  // trampoline sits on a cell too — it goes down with it
+  if (plat.trampKey === cellKey(x, z)) {
+    plat.tramp.g.visible = false
+    plat.trampKey = null
+  }
+  // once the whole outer ring is gone, the fence/frame/grid collapse as well
+  if (Math.max(Math.abs(x), Math.abs(z)) === HALF) {
+    plat.rimGone++
+    if (plat.rimGone === RIM_CELLS) {
+      for (const e of plat.pieces.get('__rim') || []) {
+        if (!e.obj.visible) continue
+        if (animate) {
+          fallingPieces.push({ ...e, vy: 0.3, rx: (Math.random() - 0.5) * 1.5, rz: (Math.random() - 0.5) * 1.5, t: 0 })
+        } else {
+          e.obj.visible = false
+        }
       }
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// Floor details without collision: decals, center pad, scattered debris
-// ---------------------------------------------------------------------------
-{
-  // hazard stripes
-  const hazardTex = (() => {
-    const c = document.createElement('canvas')
-    c.width = c.height = 128
-    const ctx = c.getContext('2d')
-    ctx.strokeStyle = NEON_YELLOW
-    ctx.lineWidth = 11
-    for (let i = -128; i < 256; i += 34) {
-      ctx.beginPath()
-      ctx.moveTo(i, 128)
-      ctx.lineTo(i + 128, 0)
-      ctx.stroke()
+function restorePlatforms() {
+  fallingPieces.length = 0
+  for (const plat of platforms) {
+    for (const arr of plat.pieces.values()) {
+      for (const e of arr) {
+        e.obj.visible = true
+        e.obj.position.copy(e.pos0)
+        e.obj.quaternion.copy(e.quat0)
+      }
     }
-    const tex = new THREE.CanvasTexture(c)
-    tex.colorSpace = THREE.SRGBColorSpace
-    return tex
-  })()
-  for (const [x, z] of [[3, -1], [-1, 2], [1, -2]]) {
-    const decal = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85), new THREE.MeshStandardMaterial({
-      map: hazardTex, transparent: true, opacity: 0.3, depthWrite: false,
-      emissive: NEON_YELLOW, emissiveMap: hazardTex, emissiveIntensity: 0.25,
-    }))
-    decal.rotation.x = -Math.PI / 2
-    decal.position.set(x, 0.022, z)
-    island.add(decal)
+    plat.tramp.g.visible = false
+    plat.trampKey = null
+    plat.rimGone = 0
   }
+}
 
-  // glowing ring pad at the center
-  const ringTex = (() => {
-    const c = document.createElement('canvas')
-    c.width = c.height = 128
-    const ctx = c.getContext('2d')
-    ctx.strokeStyle = NEON_CYAN
-    ctx.lineWidth = 6
-    ctx.beginPath()
-    ctx.arc(64, 64, 48, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.arc(64, 64, 34, 0, Math.PI * 2)
-    ctx.stroke()
-    const tex = new THREE.CanvasTexture(c)
-    tex.colorSpace = THREE.SRGBColorSpace
-    return tex
-  })()
-  const pad = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshStandardMaterial({
-    map: ringTex, transparent: true, opacity: 0.5, depthWrite: false,
-    emissive: NEON_CYAN, emissiveMap: ringTex, emissiveIntensity: 0.5,
-  }))
-  pad.rotation.x = -Math.PI / 2
-  pad.position.set(0, 0.022, 0)
-  island.add(pad)
-
-  // litter: tiny debris chunks scattered across the arena
-  const debrisMats = [
-    new THREE.MeshStandardMaterial({ color: '#3a3a46', roughness: 0.9 }),
-    new THREE.MeshStandardMaterial({ color: '#2e2622', roughness: 1 }),
-  ]
-  for (let i = 0; i < 16; i++) {
-    const debris = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06 + Math.random() * 0.1, 0.04 + Math.random() * 0.04, 0.06 + Math.random() * 0.1),
-      debrisMats[i % 2]
-    )
-    debris.position.set((Math.random() - 0.5) * 8.6, 0.04, (Math.random() - 0.5) * 8.6)
-    debris.rotation.y = Math.random() * Math.PI
-    debris.castShadow = true
-    island.add(debris)
-  }
+function showTramp(level, x, z) {
+  const plat = platforms[level]
+  plat.tramp.g.position.set(x, 0, z)
+  plat.tramp.g.visible = true
+  plat.trampKey = cellKey(x, z)
 }
 
 // ---------------------------------------------------------------------------
@@ -516,7 +692,6 @@ for (let i = 0; i < 42; i++) {
   tower.rotation.y = Math.random() * Math.PI
   scene.add(tower)
 
-  // red beacon on the tallest towers
   if (h > 26) {
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), neonMat('#ff2222', 1.8))
     beacon.position.set(tower.position.x, -22 + h + 0.15, tower.position.z)
@@ -524,7 +699,6 @@ for (let i = 0; i < 42; i++) {
     blinkers.push({ mesh: beacon, phase: Math.random() * Math.PI * 2, speed: 3 })
   }
 
-  // occasional neon billboard facing the platform
   if (i % 5 === 0) {
     const color = [NEON_YELLOW, NEON_CYAN, NEON_MAGENTA][i % 3]
     const sign = new THREE.Mesh(signGeo, new THREE.MeshStandardMaterial({
@@ -571,9 +745,9 @@ const rainPos = new Float32Array(RAIN_COUNT * 3)
 const rainSpeed = new Float32Array(RAIN_COUNT)
 for (let i = 0; i < RAIN_COUNT; i++) {
   rainPos[i * 3] = (Math.random() - 0.5) * 40
-  rainPos[i * 3 + 1] = Math.random() * 22 - 4
-  rainPos[i * 3 + 2] = (Math.random() - 0.5) * 40
+  rainPos[i * 3 + 1] = Math.random() * 28 - 4
   rainSpeed[i] = 9 + Math.random() * 7
+  rainPos[i * 3 + 2] = (Math.random() - 0.5) * 40
 }
 const rainGeo = new THREE.BufferGeometry()
 rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3))
@@ -783,6 +957,71 @@ const sfx = {
     src.connect(f).connect(envGain(t0, 0.22, 0.24))
     src.start(t0)
   },
+  // springy hop
+  jump() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    const o = audioCtx.createOscillator()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(240, t0)
+    o.frequency.exponentialRampToValueAtTime(560, t0 + 0.14)
+    o.connect(envGain(t0, 0.14, 0.18))
+    o.start(t0)
+    o.stop(t0 + 0.2)
+  },
+  // big trampoline boing up to the next platform
+  launch() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    const o = audioCtx.createOscillator()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(150, t0)
+    o.frequency.exponentialRampToValueAtTime(880, t0 + 0.4)
+    o.connect(envGain(t0, 0.25, 0.5))
+    o.start(t0)
+    o.stop(t0 + 0.5)
+    const src = makeNoise(0.3)
+    const f = audioCtx.createBiquadFilter()
+    f.type = 'bandpass'
+    f.Q.value = 1.2
+    f.frequency.setValueAtTime(500, t0)
+    f.frequency.exponentialRampToValueAtTime(4000, t0 + 0.3)
+    src.connect(f).connect(envGain(t0, 0.12, 0.3))
+    src.start(t0)
+  },
+  // a tile breaking off and dropping away
+  crumble() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    const src = makeNoise(0.22)
+    const f = audioCtx.createBiquadFilter()
+    f.type = 'lowpass'
+    f.frequency.setValueAtTime(700, t0)
+    f.frequency.exponentialRampToValueAtTime(120, t0 + 0.2)
+    src.connect(f).connect(envGain(t0, 0.16, 0.22))
+    src.start(t0)
+    const o = audioCtx.createOscillator()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(90, t0)
+    o.frequency.exponentialRampToValueAtTime(40, t0 + 0.18)
+    o.connect(envGain(t0, 0.18, 0.2))
+    o.start(t0)
+    o.stop(t0 + 0.2)
+  },
+  // alarm when a platform starts to crumble
+  alarm() {
+    if (!audioCtx) return
+    const t0 = audioCtx.currentTime
+    for (const dt of [0, 0.22, 0.44]) {
+      const o = audioCtx.createOscillator()
+      o.type = 'square'
+      o.frequency.setValueAtTime(660, t0 + dt)
+      o.frequency.setValueAtTime(880, t0 + dt + 0.09)
+      o.connect(envGain(t0 + dt, 0.06, 0.16))
+      o.start(t0 + dt)
+      o.stop(t0 + dt + 0.18)
+    }
+  },
   // heavy impact: low thump + noise crack
   hit() {
     if (!audioCtx) return
@@ -843,11 +1082,23 @@ let myId = null
 
 const hint = document.getElementById('hint')
 const statusEl = document.getElementById('status')
+const timerEl = document.getElementById('timer')
 let moved = false
 
 let dashCooldownMs = 5000
 let dashReadyAt = 0
+let jumpCooldownMs = 1200
+let jumpReadyAt = 0
 let shake = 0               // camera shake amount
+
+// round phase, driven by server messages; endsAt is in performance.now() time
+const phase = { mode: 'calm', level: 0, endsAt: 0 }
+function applyPhase(ph) {
+  if (!ph) return
+  phase.mode = ph.mode
+  phase.level = ph.level
+  phase.endsAt = ph.remainMs != null ? performance.now() + ph.remainMs : 0
+}
 
 function addPlayer(data) {
   if (players.has(data.id)) return players.get(data.id)
@@ -858,7 +1109,7 @@ function addPlayer(data) {
   const glow = new THREE.PointLight(color, isMe ? 3 : 2.2, 4)
   glow.position.y = 0.2
   group.add(glow)
-  group.position.set(data.x, 0.5, data.z)
+  group.position.set(data.x, levelY(data.level || 0) + 0.5, data.z)
   const q = quatForOrient(data)
   if (q) group.quaternion.copy(q)
   scene.add(group)
@@ -869,13 +1120,20 @@ function addPlayer(data) {
   const p = {
     id: data.id, group, bodyMat, bar,
     cell: { x: data.x, z: data.z },
+    level: data.level || 0,
     hp: data.hp, dead: data.dead || false,
     queue: [], anim: null,
     flash: 0, deathAnim: null, spawnAnim: null,
+    pendingDeath: null,           // death animation deferred until move anims finish
+    gone: data.dead || false,     // fully hidden (dead, waiting for respawn)
   }
-  if (p.dead) group.visible = false
   players.set(data.id, p)
   return p
+}
+
+function startDeathAnim(p, mode) {
+  p.deathAnim = { t: 0, mode, vy: 2 }
+  sfx.death()
 }
 
 function removePlayer(id) {
@@ -891,6 +1149,7 @@ function removePlayer(id) {
 // ---------------------------------------------------------------------------
 const ROLL_TIME = 0.24
 const DASH_TIME = 0.16
+const JUMP_TIME = 0.5
 const smoothstep = t => t * t * (3 - 2 * t)
 
 function enqueueMove(p, data) {
@@ -901,8 +1160,9 @@ function enqueueMove(p, data) {
 
 function applyMoveInstantly(p, m) {
   p.anim = null
+  if (m.t === 'launch') p.level = m.p.level
   p.cell = { x: m.p.x, z: m.p.z }
-  p.group.position.set(m.p.x, 0.5, m.p.z)
+  p.group.position.set(m.p.x, levelY(p.level) + 0.5, m.p.z)
   const q = quatForOrient(m.p)
   if (q) p.group.quaternion.copy(q)
 }
@@ -910,15 +1170,52 @@ function applyMoveInstantly(p, m) {
 function startNextAnim(p) {
   if (p.anim || p.queue.length === 0) return
   const m = p.queue.shift()
+
+  // trampoline launch to the next platform: big soaring arc with flips
+  if (m.t === 'launch') {
+    const fromLevel = p.level
+    p.level = m.p.level
+    p.anim = {
+      type: 'launch', t: 0,
+      from: p.group.position.clone(),
+      to: new THREE.Vector3(m.p.x, levelY(p.level) + 0.5, m.p.z),
+      axis: new THREE.Vector3(1, 0, 0),
+      startQuat: p.group.quaternion.clone(),
+      arc: 2.6,
+      target: m.p,
+      time: 1.45,
+    }
+    // the pad visibly kicks the cube off
+    const plat = platforms[fromLevel]
+    if (plat) plat.tramp.bounce = 1
+    sfx.launch()
+    if (p.id === myId) tg?.HapticFeedback?.impactOccurred?.('heavy')
+    return
+  }
+
   const dx = Math.sign(m.p.x - p.cell.x)
   const dz = Math.sign(m.p.z - p.cell.z)
   const dist = Math.abs(m.p.x - p.cell.x) + Math.abs(m.p.z - p.cell.z)
+  const baseY = levelY(p.level) + 0.5
 
-  if (m.dash || m.knock || dist > 1 || dist === 0) {
+  if (m.jump) {
+    const dir = new THREE.Vector3(dx, 0, dz)
+    p.anim = {
+      type: 'jump', t: 0,
+      from: p.group.position.clone(),
+      to: new THREE.Vector3(m.p.x, baseY, m.p.z),
+      axis: dir.lengthSq() > 0 ? new THREE.Vector3().crossVectors(yAxis, dir).normalize() : null,
+      startQuat: p.group.quaternion.clone(),
+      arc: 1.4,
+      target: m.p,
+      time: JUMP_TIME,
+    }
+    sfx.jump()
+  } else if (m.dash || m.knock || dist > 1 || dist === 0) {
     p.anim = {
       type: 'dash', t: 0,
       from: p.group.position.clone(),
-      to: new THREE.Vector3(m.p.x, 0.5, m.p.z),
+      to: new THREE.Vector3(m.p.x, baseY, m.p.z),
       dir: new THREE.Vector3(dx, 0, dz),
       target: m.p,
       time: DASH_TIME * Math.max(1, dist * 0.7),
@@ -949,6 +1246,25 @@ function updatePlayerAnim(p, dt) {
     const q = new THREE.Quaternion().setFromAxisAngle(a.axis, e * Math.PI / 2)
     p.group.quaternion.copy(q).multiply(a.startQuat)
     p.group.position.copy(a.startPos).sub(a.pivot).applyQuaternion(q).add(a.pivot)
+  } else if (a.type === 'jump') {
+    p.group.position.lerpVectors(a.from, a.to, e)
+    p.group.position.y += a.arc * 4 * e * (1 - e)
+    // full flip in the air: ends in the same orientation it started with
+    const axis = a.axis || new THREE.Vector3(1, 0, 0)
+    const q = new THREE.Quaternion().setFromAxisAngle(axis, e * Math.PI * 2)
+    p.group.quaternion.copy(q).multiply(a.startQuat)
+  } else if (a.type === 'launch') {
+    // trampoline pop: shoots up fast, floats over the apex, settles down softly
+    p.group.position.x = a.from.x + (a.to.x - a.from.x) * e
+    p.group.position.z = a.from.z + (a.to.z - a.from.z) * e
+    const ve = 1 - Math.pow(1 - a.t, 2.4)
+    p.group.position.y = a.from.y + (a.to.y - a.from.y) * ve + a.arc * 4 * a.t * (1 - a.t)
+    // double front flip, slowing towards the landing; ends where it started
+    const q = new THREE.Quaternion().setFromAxisAngle(a.axis, e * Math.PI * 4)
+    p.group.quaternion.copy(q).multiply(a.startQuat)
+    // stretch on take-off, relax mid-air
+    const st = 1 + 0.4 * Math.sin(Math.PI * Math.min(a.t * 2.5, 1)) * (1 - a.t)
+    p.group.scale.set(1 / Math.sqrt(st), st, 1 / Math.sqrt(st))
   } else {
     p.group.position.lerpVectors(a.from, a.to, e)
     // dash stretch: elongate along travel direction mid-dash
@@ -963,13 +1279,17 @@ function updatePlayerAnim(p, dt) {
 
   if (a.t >= 1) {
     p.cell = { x: a.target.x, z: a.target.z }
-    p.group.position.set(a.target.x, 0.5, a.target.z)
+    p.group.position.set(a.target.x, levelY(p.level) + 0.5, a.target.z)
     p.group.scale.set(1, 1, 1)
     const q = quatForOrient(a.target)
     if (q) p.group.quaternion.copy(q)
     p.anim = null
     if (p.id === myId) haptic()
     startNextAnim(p)
+    if (!p.anim && p.pendingDeath) {
+      startDeathAnim(p, p.pendingDeath)
+      p.pendingDeath = null
+    }
   }
 }
 
@@ -983,10 +1303,15 @@ const WS_URL = import.meta.env.VITE_WS_URL
 
 let ws = null
 let reconnectDelay = 500
+let statusTimeout = null
 
-function setStatus(text) {
+function setStatus(text, autoClearMs = 0) {
+  clearTimeout(statusTimeout)
   statusEl.textContent = text
   statusEl.classList.toggle('hidden', !text)
+  if (text && autoClearMs) {
+    statusTimeout = setTimeout(() => setStatus(''), autoClearMs)
+  }
 }
 
 function connect() {
@@ -1022,6 +1347,17 @@ function handleMessage(msg) {
     case 'welcome': {
       myId = msg.id
       dashCooldownMs = msg.dashCooldownMs || 5000
+      jumpCooldownMs = msg.jumpCooldownMs || 1200
+      restorePlatforms()
+      if (msg.destroyed) {
+        msg.destroyed.forEach((cells, l) => {
+          for (const [x, z] of cells || []) destroyCellVisual(l, x, z, false)
+        })
+      }
+      if (msg.tramps) {
+        msg.tramps.forEach((tr, l) => { if (tr) showTramp(l, tr[0], tr[1]) })
+      }
+      applyPhase(msg.phase)
       for (const pd of msg.players) addPlayer(pd)
       break
     }
@@ -1036,6 +1372,7 @@ function handleMessage(msg) {
       if (!p) { addPlayer(msg.p); break }
       enqueueMove(p, msg)
       if (msg.p.id === myId && msg.dash) dashReadyAt = performance.now() + dashCooldownMs
+      if (msg.p.id === myId && msg.jump) jumpReadyAt = performance.now() + jumpCooldownMs
       break
     }
     case 'hit': {
@@ -1064,11 +1401,14 @@ function handleMessage(msg) {
       const p = players.get(msg.id)
       if (!p) break
       p.dead = true
-      p.queue = []
-      p.anim = null
-      p.deathAnim = { t: 0 }
-      sfx.death()
-      if (msg.id === myId) setStatus('УНИЧТОЖЕН — РЕСПАУН...')
+      const mode = msg.cause === 'fall' ? 'fall' : 'shrink'
+      // let pending move animations (e.g. the jump arc off the platform)
+      // play out first, otherwise the cube "falls through" its own tile
+      if (p.anim || p.queue.length > 0) p.pendingDeath = mode
+      else startDeathAnim(p, mode)
+      if (msg.id === myId) {
+        setStatus(msg.cause === 'fall' ? 'ПАДЕНИЕ — РЕСПАУН...' : 'УНИЧТОЖЕН — РЕСПАУН...')
+      }
       break
     }
     case 'respawn': {
@@ -1076,12 +1416,14 @@ function handleMessage(msg) {
       if (!p) { addPlayer(msg.p); break }
       p.dead = false
       p.hp = msg.p.hp
+      p.level = msg.p.level
       p.cell = { x: msg.p.x, z: msg.p.z }
       p.queue = []
       p.anim = null
       p.deathAnim = null
-      p.group.visible = true
-      p.group.position.set(msg.p.x, 0.5, msg.p.z)
+      p.pendingDeath = null
+      p.gone = false
+      p.group.position.set(msg.p.x, levelY(p.level) + 0.5, msg.p.z)
       p.group.scale.set(1, 1, 1)
       const q = quatForOrient(msg.p)
       if (q) p.group.quaternion.copy(q)
@@ -1090,8 +1432,63 @@ function handleMessage(msg) {
       if (msg.p.id === myId) setStatus('')
       break
     }
+    case 'phase': {
+      applyPhase(msg)
+      if (msg.mode === 'crumble') {
+        sfx.alarm()
+        hapticError()
+      }
+      break
+    }
+    case 'tiles': {
+      for (const [x, z] of msg.cells || []) {
+        destroyCellVisual(msg.level, x, z, true)
+      }
+      const me = players.get(myId)
+      if (me && me.level === msg.level) {
+        shake = Math.max(shake, 0.12)
+        if (Math.random() < 0.5) sfx.crumble()
+      }
+      break
+    }
+    case 'tramp':
+      showTramp(msg.level, msg.x, msg.z)
+      break
+    case 'launch': {
+      const p = players.get(msg.p.id)
+      if (!p) { addPlayer(msg.p); break }
+      // queued after the move that stepped onto the trampoline,
+      // so the roll finishes first and the launch starts from the pad
+      enqueueMove(p, msg)
+      break
+    }
+    case 'reset': {
+      restorePlatforms()
+      applyPhase(msg.phase)
+      for (const pd of msg.players || []) {
+        const p = players.get(pd.id) || addPlayer(pd)
+        p.dead = false
+        p.hp = pd.hp
+        p.level = pd.level
+        p.cell = { x: pd.x, z: pd.z }
+        p.queue = []
+        p.anim = null
+        p.deathAnim = null
+        p.pendingDeath = null
+        p.gone = false
+        p.group.position.set(pd.x, levelY(pd.level) + 0.5, pd.z)
+        p.group.scale.set(1, 1, 1)
+        const q = quatForOrient(pd)
+        if (q) p.group.quaternion.copy(q)
+        p.spawnAnim = { t: 0 }
+        drawHpBar(p.bar, p.hp)
+      }
+      sfx.crumble()
+      setStatus('НОВЫЙ РАУНД', 2500)
+      break
+    }
     case 'denied':
-      if (msg.reason === 'dash_cooldown') {
+      if (msg.reason === 'dash_cooldown' || msg.reason === 'jump_cooldown') {
         hapticError()
         sfx.deny()
       }
@@ -1102,17 +1499,19 @@ function handleMessage(msg) {
 connect()
 
 // ---------------------------------------------------------------------------
-// Input: keyboard + swipe, double-tap = dash
+// Input: keyboard + swipe, double-tap = dash, space = jump
 // ---------------------------------------------------------------------------
 const DOUBLE_TAP_MS = 260
 let lastDir = null
 let lastDirAt = 0
+let lastMoveDir = [0, -1]   // direction the jump will use
 
 function inputDir(dx, dz) {
   const now = performance.now()
   const isDouble = lastDir && lastDir[0] === dx && lastDir[1] === dz && (now - lastDirAt) < DOUBLE_TAP_MS
   lastDir = [dx, dz]
   lastDirAt = now
+  lastMoveDir = [dx, dz]
   if (isDouble && now >= dashReadyAt) {
     send({ t: 'dash', dx, dz })
     lastDir = null // don't chain triple-tap into two dashes
@@ -1120,6 +1519,14 @@ function inputDir(dx, dz) {
     send({ t: 'move', dx, dz })
   }
   if (!moved) { moved = true; hint.classList.add('faded') }
+}
+
+function inputJump() {
+  if (performance.now() < jumpReadyAt) {
+    sfx.deny()
+    return
+  }
+  send({ t: 'jump', dx: lastMoveDir[0], dz: lastMoveDir[1] })
 }
 
 const KEYS = {
@@ -1130,18 +1537,24 @@ const KEYS = {
 }
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return
+  if (e.code === 'Space') { e.preventDefault(); inputJump(); return }
   const dir = KEYS[e.code]
   if (dir) { e.preventDefault(); inputDir(dir[0], dir[1]) }
 })
 
 let touchStart = null
-window.addEventListener('pointerdown', (e) => { touchStart = { x: e.clientX, y: e.clientY } })
+window.addEventListener('pointerdown', (e) => { touchStart = { x: e.clientX, y: e.clientY, t: performance.now() } })
 window.addEventListener('pointerup', (e) => {
   if (!touchStart) return
   const dx = e.clientX - touchStart.x
   const dy = e.clientY - touchStart.y
+  const dt = performance.now() - touchStart.t
   touchStart = null
-  if (Math.hypot(dx, dy) < 24) return
+  if (Math.hypot(dx, dy) < 24) {
+    // quick tap without swipe = jump (mobile)
+    if (dt < 220) inputJump()
+    return
+  }
   if (Math.abs(dx) > Math.abs(dy)) inputDir(Math.sign(dx), 0)
   else inputDir(0, Math.sign(dy))
 })
@@ -1165,17 +1578,55 @@ window.addEventListener('resize', resize)
 tg?.onEvent?.('viewportChanged', resize)
 
 const clock = new THREE.Clock()
+let lastTimerText = ''
 
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.05)
   const t = clock.elapsedTime
 
-  // gentle platform hover
-  island.position.y = Math.sin(t * 0.6) * 0.05
+  // platforms above mine are hidden so they don't block the view of the arena
+  const myLevel = players.get(myId)?.level ?? 0
+
+  // gentle platform hover, slightly out of phase per level
+  for (let l = 0; l < platforms.length; l++) {
+    platforms[l].group.visible = l <= myLevel
+    platforms[l].group.position.y = levelY(l) + Math.sin(t * 0.6 + l * 1.3) * 0.05
+  }
+
+  // crumbled pieces tumble down into the void
+  for (let i = fallingPieces.length - 1; i >= 0; i--) {
+    const f = fallingPieces[i]
+    f.t += dt
+    if (f.t < 0) continue
+    f.vy += dt * 9
+    f.obj.position.y -= f.vy * dt
+    f.obj.rotation.x += f.rx * dt
+    f.obj.rotation.z += f.rz * dt
+    if (f.t > 2.2) {
+      f.obj.visible = false
+      f.obj.position.copy(f.pos0)
+      f.obj.quaternion.copy(f.quat0)
+      fallingPieces.splice(i, 1)
+    }
+  }
+
+  // trampolines pulse invitingly; a fresh launch makes the pad dip and flash
+  for (const plat of platforms) {
+    const tr = plat.tramp
+    if (tr.bounce > 0) tr.bounce = Math.max(0, tr.bounce - dt * 2)
+    if (!tr.g.visible) continue
+    const kick = Math.sin(tr.bounce * Math.PI)
+    tr.pad.position.y = 0.17 + Math.abs(Math.sin(t * 5)) * 0.08 - kick * 0.16
+    tr.pad.material.emissiveIntensity = 1.3 + kick * 2.2
+    tr.ring.material.emissiveIntensity = 1.2 + Math.sin(t * 6) * 0.6 + kick * 1.8
+  }
 
   // players: movement, flashes, death/spawn animations, hp bars
   for (const p of players.values()) {
     updatePlayerAnim(p, dt)
+
+    // cubes on hidden (upper) platforms are hidden along with them
+    p.group.visible = !p.gone && p.level <= myLevel
 
     if (p.flash > 0) {
       p.flash = Math.max(0, p.flash - dt * 4)
@@ -1186,18 +1637,30 @@ function tick() {
     }
 
     if (p.deathAnim) {
-      p.deathAnim.t += dt * 1.6
-      const k = Math.min(p.deathAnim.t, 1)
-      p.group.scale.setScalar(1 - k * 0.999)
-      p.group.rotation.y += dt * 10
-      p.group.position.y = 0.5 + k * 1.2
-      if (k >= 1) { p.group.visible = false; p.deathAnim = null }
+      const da = p.deathAnim
+      da.t += dt
+      if (da.mode === 'fall') {
+        // plunge off the platform, tumbling
+        da.vy += dt * 16
+        p.group.position.y -= da.vy * dt
+        p.group.rotation.x += dt * 5
+        p.group.rotation.z += dt * 3.2
+        const k = Math.min(da.t / 1.1, 1)
+        p.group.scale.setScalar(1 - k * 0.5)
+        if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
+      } else {
+        const k = Math.min(da.t * 1.6, 1)
+        p.group.scale.setScalar(Math.max(0.001, 1 - k * 0.999))
+        p.group.rotation.y += dt * 10
+        p.group.position.y = levelY(p.level) + 0.5 + k * 1.2
+        if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
+      }
     }
 
     if (p.spawnAnim) {
       p.spawnAnim.t += dt * 3
       const k = Math.min(p.spawnAnim.t, 1)
-      p.group.scale.setScalar(smoothstep(k))
+      p.group.scale.setScalar(Math.max(0.001, smoothstep(k)))
       if (k >= 1) { p.group.scale.set(1, 1, 1); p.spawnAnim = null }
     }
 
@@ -1211,6 +1674,27 @@ function tick() {
   if (meBar && !meBar.dead) {
     const remainMs = Math.max(0, dashReadyAt - performance.now())
     drawHpBar(meBar.bar, meBar.hp, 1 - remainMs / dashCooldownMs)
+  }
+
+  // round timer HUD
+  {
+    let txt = ''
+    let danger = false
+    if (phase.mode === 'calm') {
+      const remain = Math.max(0, phase.endsAt - performance.now())
+      const s = Math.ceil(remain / 1000)
+      txt = `ПЛАТФОРМА ${phase.level + 1}/3 · РАЗРУШЕНИЕ ЧЕРЕЗ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+    } else {
+      danger = true
+      txt = phase.level < 2
+        ? `⚠ ПЛАТФОРМА ${phase.level + 1} РУШИТСЯ — К БАТУТУ!`
+        : '⚠ ФИНАЛЬНАЯ ПЛАТФОРМА РУШИТСЯ!'
+    }
+    if (txt !== lastTimerText) {
+      timerEl.textContent = txt
+      timerEl.classList.toggle('danger', danger)
+      lastTimerText = txt
+    }
   }
 
   // damage popups float up and fade
@@ -1243,7 +1727,7 @@ function tick() {
   const pos = rainGeo.attributes.position.array
   for (let i = 0; i < RAIN_COUNT; i++) {
     pos[i * 3 + 1] -= rainSpeed[i] * dt
-    if (pos[i * 3 + 1] < -6) pos[i * 3 + 1] = 18
+    if (pos[i * 3 + 1] < -6) pos[i * 3 + 1] = 24
   }
   rainGeo.attributes.position.needsUpdate = true
 
@@ -1260,13 +1744,15 @@ function tick() {
   magentaLight.intensity = 22 + Math.sin(t * 1.7) * 4
   cyanLight.intensity = 22 + Math.cos(t * 1.3) * 4
 
-  // camera smoothly follows my die with a subtle sway + hit shake
+  // camera smoothly follows my die with a subtle sway + hit shake,
+  // riding up together with the platforms
   const me = players.get(myId)
   const fx = me ? me.group.position.x : 0
   const fz = me ? me.group.position.z : 0
+  const myLvlY = me ? levelY(me.level) : 0
   camTarget.set(
     fx * 0.55 + Math.sin(t * 0.25) * 0.6,
-    0,
+    myLvlY,
     fz * 0.55
   ).add(camOffset)
   camera.position.lerp(camTarget, 1 - Math.pow(0.001, dt))
@@ -1275,7 +1761,7 @@ function tick() {
     camera.position.x += (Math.random() - 0.5) * shake * 0.3
     camera.position.y += (Math.random() - 0.5) * shake * 0.3
   }
-  lookGoal.set(fx * 0.6, 0.5, fz * 0.6)
+  lookGoal.set(fx * 0.6, myLvlY + 0.5, fz * 0.6)
   lookTarget.lerp(lookGoal, 1 - Math.pow(0.001, dt))
   camera.lookAt(lookTarget)
 
