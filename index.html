@@ -100,6 +100,79 @@
             96% { opacity: .6; }
             97% { opacity: 1; }
         }
+        .daybtn {
+            position: fixed;
+            top: calc(16px + env(safe-area-inset-top));
+            right: calc(16px + env(safe-area-inset-right));
+            z-index: 20;
+            padding: 8px 14px;
+            font: 700 12px 'Segoe UI', Verdana, sans-serif;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #00f0ff;
+            background: rgba(5, 5, 18, .65);
+            border: 1px solid rgba(0, 240, 255, .55);
+            border-radius: 4px;
+            cursor: pointer;
+            text-shadow: 0 0 8px rgba(0, 240, 255, .8);
+        }
+        .daybtn:hover { background: rgba(0, 240, 255, .12); }
+        .login {
+            position: fixed;
+            inset: 0;
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            background: rgba(4, 2, 12, .88);
+            backdrop-filter: blur(6px);
+        }
+        .login.hidden { display: none; }
+        .login__title {
+            font-size: 34px;
+            font-weight: 800;
+            letter-spacing: 10px;
+            text-transform: uppercase;
+            color: #fcee0a;
+            text-shadow: 0 0 8px rgba(252, 238, 10, .9), 0 0 28px rgba(252, 238, 10, .5);
+        }
+        .login__title span { color: #00f0ff; text-shadow: 0 0 8px rgba(0, 240, 255, .9); }
+        .login__label {
+            font-size: 12px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(0, 240, 255, .8);
+        }
+        .login__input {
+            width: min(300px, 78vw);
+            padding: 13px 16px;
+            font: 700 18px 'Segoe UI', Verdana, sans-serif;
+            letter-spacing: 2px;
+            text-align: center;
+            color: #fff;
+            background: rgba(10, 10, 26, .9);
+            border: 1px solid rgba(0, 240, 255, .6);
+            border-radius: 4px;
+            outline: none;
+            text-transform: uppercase;
+        }
+        .login__input:focus { border-color: #fcee0a; box-shadow: 0 0 14px rgba(252, 238, 10, .35); }
+        .login__btn {
+            width: min(300px, 78vw);
+            padding: 13px 16px;
+            font: 800 16px 'Segoe UI', Verdana, sans-serif;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: #07030f;
+            background: #fcee0a;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 0 18px rgba(252, 238, 10, .5);
+        }
+        .login__btn:hover { box-shadow: 0 0 28px rgba(252, 238, 10, .8); }
     </style>
 </head>
 <body>
@@ -108,6 +181,13 @@
     <div class="hud hud--status hidden" id="status"></div>
     <div class="hud hud--timer" id="timer"></div>
     <div class="hud hud--hint" id="hint">WASD&nbsp;·&nbsp;свайп&nbsp;·&nbsp;двойное&nbsp;нажатие&nbsp;=&nbsp;рывок&nbsp;·&nbsp;пробел&nbsp;=&nbsp;прыжок</div>
+    <button class="daybtn" id="daybtn" type="button">ДЕНЬ</button>
+    <div class="login" id="login">
+        <div class="login__title">CUBE&nbsp;<span>2077</span></div>
+        <div class="login__label">Введи никнейм</div>
+        <input class="login__input" id="nick" maxlength="14" autocomplete="off" spellcheck="false" placeholder="NICKNAME">
+        <button class="login__btn" id="play" type="button">Играть</button>
+    </div>
     <script type="module" src="script.js"></script>
 </body>
 </html>

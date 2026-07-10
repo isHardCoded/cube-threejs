@@ -21,6 +21,7 @@ type Client struct {
 	send   chan []byte
 	hub    *Hub
 	player *Player
+	name   string // nickname passed via ?name= on connect
 }
 
 // trySend drops the message if the client's buffer is full (slow consumer).
@@ -37,7 +38,7 @@ func serveWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println("upgrade:", err)
 		return
 	}
-	c := &Client{conn: conn, send: make(chan []byte, 64), hub: hub}
+	c := &Client{conn: conn, send: make(chan []byte, 64), hub: hub, name: r.URL.Query().Get("name")}
 	hub.register <- c
 	go c.writeLoop()
 	go c.readLoop()

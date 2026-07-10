@@ -6,15 +6,16 @@ import (
 	"encoding/json"
 	"log"
 	mrand "math/rand"
+	"strings"
 	"time"
 )
 
 const (
 	Half   = 4 // each platform spans [-Half..Half] in both axes
 	Levels = 3
-	MaxHP  = 100
+	MaxHP  = 30
 
-	RollCooldown = 260 * time.Millisecond
+	RollCooldown = 130 * time.Millisecond
 	DashCooldown = 5 * time.Second
 	JumpCooldown = 1200 * time.Millisecond
 	RespawnDelay = 3 * time.Second
@@ -48,6 +49,7 @@ var levelBlocked = [Levels]map[[2]int]bool{
 
 type Player struct {
 	ID     string `json:"id"`
+	Name   string `json:"name"`
 	Level  int    `json:"level"`
 	X      int    `json:"x"`
 	Z      int    `json:"z"`
@@ -271,10 +273,29 @@ func (h *Hub) worldSnapshot() map[string]any {
 	return map[string]any{"destroyed": destroyed, "tramps": tramps, "phase": h.phaseInfo()}
 }
 
+// sanitizeName trims and clamps a nickname; falls back to a generated one.
+func sanitizeName(raw string) string {
+	name := strings.TrimSpace(raw)
+	name = strings.Map(func(r rune) rune {
+		if r < 32 { // strip control characters
+			return -1
+		}
+		return r
+	}, name)
+	runes := []rune(name)
+	if len(runes) > 14 {
+		name = string(runes[:14])
+	}
+	if name == "" {
+		name = "PLAYER"
+	}
+	return name
+}
+
 func (h *Hub) onJoin(c *Client) {
 	l, x, z := h.spawnCell()
 	p := &Player{
-		ID: newID(), Level: l, X: x, Z: z,
+		ID: newID(), Name: sanitizeName(c.name), Level: l, X: x, Z: z,
 		Orient: StartOrient(),
 		HP:     MaxHP,
 		client: c,
@@ -480,6 +501,7 @@ func (h *Hub) onCommand(cmd command) {
 	switch cmd.msg.T {
 	case "move":
 		if now.Before(p.nextMoveAt) {
+			h.sendTo(p, map[string]any{"t": "denied", "reason": "cooldown"})
 			return
 		}
 		h.doRoll(p, dx, dz, now)
@@ -502,6 +524,7 @@ func (h *Hub) doRoll(p *Player, dx, dz int, now time.Time) {
 	nx, nz := p.X+dx, p.Z+dz
 	l := p.Level
 	if !inBounds(nx, nz) || h.isBlocked(l, nx, nz) {
+		h.sendTo(p, map[string]any{"t": "denied", "reason": "blocked"})
 		return
 	}
 	if target := h.playerAt(l, nx, nz); target != nil {

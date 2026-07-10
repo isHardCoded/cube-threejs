@@ -64,7 +64,8 @@ composer.addPass(new OutputPass())
 // ---------------------------------------------------------------------------
 // Lights: cold moon + neon accents
 // ---------------------------------------------------------------------------
-scene.add(new THREE.HemisphereLight('#3b2a63', '#141024', 1.0))
+const hemi = new THREE.HemisphereLight('#3b2a63', '#141024', 1.0)
+scene.add(hemi)
 
 const moon = new THREE.DirectionalLight('#7aa6ff', 1.8)
 moon.position.set(12, 26, 10)
@@ -330,6 +331,9 @@ function createTrampoline() {
 
 // platforms[l] = { group, pieces: Map(key -> [{obj, pos0, quat0}]), tramp, trampKey, rimGone }
 const platforms = []
+const platformSpots = []   // per-platform overhead spotlights (dimmed at daytime)
+const windowMats = []      // tower window materials (glow off at daytime)
+const signMats = []        // billboard materials
 const RIM_CELLS = (2 * HALF + 1) * 4 - 4 // outermost ring size
 
 function buildPlatform(level) {
@@ -556,6 +560,7 @@ function buildPlatform(level) {
   spot.position.set(0, 12, 2)
   spot.target.position.set(0, 0, 0)
   group.add(spot, spot.target)
+  platformSpots.push(spot)
 
   // accent light for the upper platforms
   if (level === 1) {
@@ -684,6 +689,7 @@ for (let i = 0; i < 42; i++) {
     map: tex, emissiveMap: tex, emissive: '#ffffff', emissiveIntensity: 0.85,
     color: '#ffffff', roughness: 0.9,
   })
+  windowMats.push(sideMat)
   const tower = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
     [sideMat, sideMat, roofMat, roofMat, sideMat, sideMat]
@@ -704,6 +710,7 @@ for (let i = 0; i < 42; i++) {
     const sign = new THREE.Mesh(signGeo, new THREE.MeshStandardMaterial({
       color, emissive: color, emissiveIntensity: 1.5, side: THREE.DoubleSide,
     }))
+    signMats.push(sign.material)
     sign.position.set(tower.position.x, -22 + h * (0.55 + Math.random() * 0.3), tower.position.z)
     sign.lookAt(0, sign.position.y, 0)
     sign.translateZ(Math.max(w, d) * 0.75)
@@ -755,6 +762,45 @@ const rain = new THREE.Points(rainGeo, new THREE.PointsMaterial({
   color: '#6fe3ff', size: 0.05, transparent: true, opacity: 0.45, depthWrite: false,
 }))
 scene.add(rain)
+
+// ---------------------------------------------------------------------------
+// Day / night toggle
+// ---------------------------------------------------------------------------
+let isDay = localStorage.getItem('cube2077-day') === '1'
+let neonBase = 22             // breathing base for the magenta/cyan accents
+const dayBtn = document.getElementById('daybtn')
+
+function setDayMode(day) {
+  isDay = day
+  localStorage.setItem('cube2077-day', day ? '1' : '0')
+  dayBtn.textContent = day ? 'НОЧЬ' : 'ДЕНЬ'
+
+  scene.background.set(day ? '#8fb8e8' : NIGHT)
+  scene.fog.color.set(day ? '#8fb8e8' : NIGHT)
+  scene.fog.near = day ? 30 : 22
+  scene.fog.far = day ? 110 : 70
+
+  hemi.color.set(day ? '#dfeeff' : '#3b2a63')
+  hemi.groundColor.set(day ? '#8fa0b5' : '#141024')
+  hemi.intensity = day ? 1.25 : 1.0
+
+  // the same directional light acts as sun by day and moon by night
+  moon.color.set(day ? '#fff2d0' : '#7aa6ff')
+  moon.intensity = day ? 3.4 : 1.8
+
+  bloom.strength = day ? 0.12 : 0.32
+  renderer.toneMappingExposure = day ? 1.05 : 1.0
+
+  neonBase = day ? 4 : 22
+  underGlow.intensity = day ? 5 : 28
+  for (const s of platformSpots) s.intensity = day ? 60 : 260
+  for (const m of windowMats) m.emissiveIntensity = day ? 0.05 : 0.85
+  for (const m of signMats) m.emissiveIntensity = day ? 0.5 : 1.5
+  rain.material.opacity = day ? 0.28 : 0.45
+}
+
+dayBtn.addEventListener('click', () => setDayMode(!isDay))
+setDayMode(isDay)
 
 // ---------------------------------------------------------------------------
 // Die factory: black chrome cube with glowing pips (opposite faces sum to 7)
@@ -834,42 +880,56 @@ const orientTable = new Map()
 const quatForOrient = (o) => orientTable.get(`${o.top},${o.east},${o.south}`)
 
 // ---------------------------------------------------------------------------
-// HP bar sprites
+// Nameplate: nickname + HP bar + dash strip on one sprite above the die
 // ---------------------------------------------------------------------------
-function createHpBar() {
+const MAX_HP = 30
+
+function createHpBar(name, isMe) {
   const c = document.createElement('canvas')
-  c.width = 128
-  c.height = 30
+  c.width = 160
+  c.height = 56
   const tex = new THREE.CanvasTexture(c)
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: tex, transparent: true, depthWrite: false,
   }))
-  sprite.scale.set(1.0, 0.235, 1)
+  sprite.scale.set(1.25, 0.4375, 1)
   scene.add(sprite)
-  return { sprite, ctx: c.getContext('2d'), tex }
+  return { sprite, ctx: c.getContext('2d'), tex, name: name || 'PLAYER', isMe }
 }
 
 // dashFrac: 0..1 readiness of the dash; null hides the dash strip (other players)
 function drawHpBar(bar, hp, dashFrac = null) {
   const { ctx, tex } = bar
-  const w = 128
-  ctx.clearRect(0, 0, w, 30)
+  const w = 160
+  ctx.clearRect(0, 0, w, 56)
+
+  // nickname, mine highlighted in yellow
+  ctx.font = 'bold 17px Verdana'
+  ctx.textAlign = 'center'
+  const nameColor = bar.isMe ? '#fcee0a' : '#eaf6ff'
+  ctx.fillStyle = nameColor
+  ctx.shadowColor = nameColor
+  ctx.shadowBlur = 6
+  ctx.fillText(bar.name.toUpperCase(), w / 2, 18)
+  ctx.shadowBlur = 0
+
   ctx.fillStyle = 'rgba(5,5,12,.8)'
-  ctx.fillRect(0, 2, w, 14)
-  const frac = Math.max(0, hp / 100)
+  ctx.fillRect(16, 26, w - 32, 14)
+  const frac = Math.max(0, hp / MAX_HP)
   ctx.fillStyle = frac > 0.5 ? '#39ff14' : frac > 0.25 ? '#fcee0a' : '#ff2a6d'
-  ctx.fillRect(2, 4, (w - 4) * frac, 10)
+  ctx.fillRect(18, 28, (w - 36) * frac, 10)
   ctx.strokeStyle = 'rgba(0,240,255,.7)'
   ctx.lineWidth = 2
-  ctx.strokeRect(1, 3, w - 2, 12)
+  ctx.strokeRect(17, 27, w - 34, 12)
+
   if (dashFrac !== null) {
     ctx.fillStyle = 'rgba(5,5,12,.8)'
-    ctx.fillRect(0, 20, w, 8)
+    ctx.fillRect(16, 44, w - 32, 8)
     ctx.fillStyle = dashFrac >= 1 ? '#fcee0a' : 'rgba(252,238,10,.55)'
-    ctx.fillRect(2, 22, (w - 4) * Math.min(1, dashFrac), 4)
+    ctx.fillRect(18, 46, (w - 36) * Math.min(1, dashFrac), 4)
     ctx.strokeStyle = 'rgba(252,238,10,.6)'
     ctx.lineWidth = 1
-    ctx.strokeRect(0.5, 20.5, w - 1, 7)
+    ctx.strokeRect(16.5, 44.5, w - 33, 7)
   }
   tex.needsUpdate = true
 }
@@ -1114,14 +1174,17 @@ function addPlayer(data) {
   if (q) group.quaternion.copy(q)
   scene.add(group)
 
-  const bar = createHpBar()
+  const bar = createHpBar(data.name, isMe)
   drawHpBar(bar, data.hp)
 
   const p = {
     id: data.id, group, bodyMat, bar,
     cell: { x: data.x, z: data.z },
+    confirmedCell: { x: data.x, z: data.z },
     level: data.level || 0,
     hp: data.hp, dead: data.dead || false,
+    orient: { top: data.top, east: data.east, south: data.south },
+    confirmedOrient: { top: data.top, east: data.east, south: data.south },
     queue: [], anim: null,
     flash: 0, deathAnim: null, spawnAnim: null,
     pendingDeath: null,           // death animation deferred until move anims finish
@@ -1147,10 +1210,65 @@ function removePlayer(id) {
 // ---------------------------------------------------------------------------
 // Movement animation (server events drive everything)
 // ---------------------------------------------------------------------------
-const ROLL_TIME = 0.24
-const DASH_TIME = 0.16
-const JUMP_TIME = 0.5
+const ROLL_TIME = 0.13
+const DASH_TIME = 0.10
+const JUMP_TIME = 0.36
 const smoothstep = t => t * t * (3 - 2 * t)
+
+// mirrors server/dice.go — used for instant local roll prediction
+function rollOrient(o, dx, dz) {
+  switch (true) {
+    case dx === 1: return { top: 7 - o.east, east: o.top, south: o.south }
+    case dx === -1: return { top: o.east, east: 7 - o.top, south: o.south }
+    case dz === 1: return { top: 7 - o.south, east: o.east, south: o.top }
+    case dz === -1: return { top: o.south, east: o.east, south: 7 - o.top }
+    default: return o
+  }
+}
+
+function syncConfirmed(p, data) {
+  p.orient = { top: data.top, east: data.east, south: data.south }
+  p.confirmedCell = { x: data.x, z: data.z }
+  p.confirmedOrient = { ...p.orient }
+}
+
+function rollbackPrediction(p) {
+  if (!p?.confirmedCell) return
+  p.queue = p.queue.filter(m => !m.predicted)
+  p.anim = null
+  p.cell = { ...p.confirmedCell }
+  p.orient = { ...p.confirmedOrient }
+  p.group.position.set(p.cell.x, levelY(p.level) + 0.5, p.cell.z)
+  const q = quatForOrient(p.orient)
+  if (q) p.group.quaternion.copy(q)
+}
+
+function predictRoll(dx, dz) {
+  const me = players.get(myId)
+  if (!me || me.dead || me.gone) return
+  const orient = me.orient || { top: 1, east: 3, south: 2 }
+  const nx = me.cell.x + dx
+  const nz = me.cell.z + dz
+  const next = rollOrient(orient, dx, dz)
+  enqueueMove(me, {
+    predicted: true,
+    p: { id: myId, level: me.level, x: nx, z: nz, ...next },
+  })
+  me.cell = { x: nx, z: nz }
+  me.orient = next
+}
+
+function predictDash(dx, dz) {
+  const me = players.get(myId)
+  if (!me || me.dead || me.gone) return
+  const nx = me.cell.x + dx * 2
+  const nz = me.cell.z + dz * 2
+  enqueueMove(me, {
+    predicted: true, dash: true,
+    p: { id: myId, level: me.level, x: nx, z: nz, ...me.orient },
+  })
+  me.cell = { x: nx, z: nz }
+}
 
 function enqueueMove(p, data) {
   p.queue.push(data)
@@ -1162,6 +1280,7 @@ function applyMoveInstantly(p, m) {
   p.anim = null
   if (m.t === 'launch') p.level = m.p.level
   p.cell = { x: m.p.x, z: m.p.z }
+  if (m.p.top != null) syncConfirmed(p, m.p)
   p.group.position.set(m.p.x, levelY(p.level) + 0.5, m.p.z)
   const q = quatForOrient(m.p)
   if (q) p.group.quaternion.copy(q)
@@ -1296,10 +1415,13 @@ function updatePlayerAnim(p, dt) {
 // ---------------------------------------------------------------------------
 // Network
 // ---------------------------------------------------------------------------
-const WS_URL = import.meta.env.VITE_WS_URL
+const WS_BASE = import.meta.env.VITE_WS_URL
   || (location.hostname === 'localhost' || location.hostname === '127.0.0.1'
     ? 'ws://localhost:8090/ws'
     : 'wss://104-171-132-140.sslip.io/ws') // production game server (VPS)
+
+let myName = ''
+const wsUrl = () => `${WS_BASE}?name=${encodeURIComponent(myName)}`
 
 let ws = null
 let reconnectDelay = 500
@@ -1316,7 +1438,7 @@ function setStatus(text, autoClearMs = 0) {
 
 function connect() {
   setStatus('ПОДКЛЮЧЕНИЕ...')
-  ws = new WebSocket(WS_URL)
+  ws = new WebSocket(wsUrl())
 
   ws.onopen = () => {
     reconnectDelay = 500
@@ -1370,9 +1492,27 @@ function handleMessage(msg) {
     case 'move': {
       const p = players.get(msg.p.id)
       if (!p) { addPlayer(msg.p); break }
+      syncConfirmed(p, msg.p)
+
+      if (msg.p.id === myId) {
+        if (msg.dash) dashReadyAt = performance.now() + dashCooldownMs
+        if (msg.jump) jumpReadyAt = performance.now() + jumpCooldownMs
+
+        const head = p.queue[0]
+        const sameRoll = head?.predicted && !msg.dash && !msg.jump && !msg.knock
+          && head.p.x === msg.p.x && head.p.z === msg.p.z
+        const sameDash = head?.predicted && msg.dash
+          && head.p.x === msg.p.x && head.p.z === msg.p.z
+        if (sameRoll || sameDash) {
+          head.p = msg.p
+          head.predicted = false
+          if (msg.dash) head.dash = true
+          break
+        }
+        if (p.queue.some(m => m.predicted)) rollbackPrediction(p)
+      }
+
       enqueueMove(p, msg)
-      if (msg.p.id === myId && msg.dash) dashReadyAt = performance.now() + dashCooldownMs
-      if (msg.p.id === myId && msg.jump) jumpReadyAt = performance.now() + jumpCooldownMs
       break
     }
     case 'hit': {
@@ -1395,6 +1535,8 @@ function handleMessage(msg) {
         shake = 0.35
         tg?.HapticFeedback?.impactOccurred?.('heavy')
       }
+      // attacker doesn't move on collision — undo a predicted step into the target
+      if (msg.a === myId) rollbackPrediction(players.get(myId))
       break
     }
     case 'death': {
@@ -1492,21 +1634,60 @@ function handleMessage(msg) {
         hapticError()
         sfx.deny()
       }
+      if (msg.reason === 'blocked' || msg.reason === 'cooldown') {
+        rollbackPrediction(players.get(myId))
+        if (msg.reason === 'cooldown') sfx.deny()
+      }
       break
   }
 }
 
-connect()
+// ---------------------------------------------------------------------------
+// Login: nickname gate before joining the arena
+// ---------------------------------------------------------------------------
+const loginEl = document.getElementById('login')
+const nickInput = document.getElementById('nick')
+const playBtn = document.getElementById('play')
+let inGame = false
+
+nickInput.value = localStorage.getItem('cube2077-nick') || ''
+
+function startGame() {
+  const nick = nickInput.value.trim().slice(0, 14)
+  if (!nick) {
+    nickInput.focus()
+    nickInput.placeholder = 'ВВЕДИ НИК!'
+    return
+  }
+  myName = nick
+  localStorage.setItem('cube2077-nick', nick)
+  loginEl.classList.add('hidden')
+  inGame = true
+  ensureAudio()
+  connect()
+}
+
+playBtn.addEventListener('click', startGame)
+nickInput.addEventListener('keydown', (e) => {
+  e.stopPropagation() // typing WASD in the input must not move the cube
+  if (e.key === 'Enter') startGame()
+})
+nickInput.focus()
 
 // ---------------------------------------------------------------------------
 // Input: keyboard + swipe, double-tap = dash, space = jump
 // ---------------------------------------------------------------------------
 const DOUBLE_TAP_MS = 260
+// keep the send rate in lockstep with the server's roll cooldown: extra
+// key presses are dropped instead of queueing up and playing after release
+const MOVE_GATE_MS = 140
+let moveGateAt = 0
 let lastDir = null
 let lastDirAt = 0
 let lastMoveDir = [0, -1]   // direction the jump will use
 
 function inputDir(dx, dz) {
+  if (!inGame) return
   const now = performance.now()
   const isDouble = lastDir && lastDir[0] === dx && lastDir[1] === dz && (now - lastDirAt) < DOUBLE_TAP_MS
   lastDir = [dx, dz]
@@ -1514,14 +1695,21 @@ function inputDir(dx, dz) {
   lastMoveDir = [dx, dz]
   if (isDouble && now >= dashReadyAt) {
     send({ t: 'dash', dx, dz })
+    predictDash(dx, dz)
+    moveGateAt = now + MOVE_GATE_MS
     lastDir = null // don't chain triple-tap into two dashes
   } else {
+    const me = players.get(myId)
+    if (now < moveGateAt || (me && me.queue.length >= 2)) return
+    moveGateAt = now + MOVE_GATE_MS
     send({ t: 'move', dx, dz })
+    predictRoll(dx, dz)
   }
   if (!moved) { moved = true; hint.classList.add('faded') }
 }
 
 function inputJump() {
+  if (!inGame) return
   if (performance.now() < jumpReadyAt) {
     sfx.deny()
     return
@@ -1666,7 +1854,7 @@ function tick() {
 
     // hp bar floats above the die (hidden while dead)
     p.bar.sprite.visible = !p.dead && p.group.visible
-    p.bar.sprite.position.set(p.group.position.x, p.group.position.y + 1.0, p.group.position.z)
+    p.bar.sprite.position.set(p.group.position.x, p.group.position.y + 1.15, p.group.position.z)
   }
 
   // my bar also shows dash readiness, redrawn every frame while recharging
@@ -1741,8 +1929,8 @@ function tick() {
   }
 
   // neon accent lights breathe slightly
-  magentaLight.intensity = 22 + Math.sin(t * 1.7) * 4
-  cyanLight.intensity = 22 + Math.cos(t * 1.3) * 4
+  magentaLight.intensity = neonBase + Math.sin(t * 1.7) * neonBase * 0.18
+  cyanLight.intensity = neonBase + Math.cos(t * 1.3) * neonBase * 0.18
 
   // camera smoothly follows my die with a subtle sway + hit shake,
   // riding up together with the platforms
