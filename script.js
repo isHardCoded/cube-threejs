@@ -133,6 +133,17 @@ const LAYOUTS = [
   },
 ]
 
+// obstacle cells per level, derived from the layouts (mirrors server levelBlocked)
+const blockedSets = LAYOUTS.map(l => {
+  const s = new Set()
+  for (const group of [l.pylons, l.crates, l.barrels, l.columns, l.antennas]) {
+    for (const def of group) s.add(cellKey(def[0], def[1]))
+  }
+  return s
+})
+// crumbled tiles per level, kept in sync with server "tiles" events
+const holeSets = [new Set(), new Set(), new Set()]
+
 // shared materials / geometries
 const tileGeo = new RoundedBoxGeometry(0.96, 0.3, 0.96, 2, 0.06)
 const tileMatA = new THREE.MeshStandardMaterial({ color: '#262638', roughness: 0.5, metalness: 0.45 })
@@ -586,6 +597,7 @@ for (let l = 0; l < 3; l++) buildPlatform(l)
 const fallingPieces = []
 
 function destroyCellVisual(level, x, z, animate = true) {
+  holeSets[level].add(cellKey(x, z))
   const plat = platforms[level]
   const arr = plat.pieces.get(cellKey(x, z))
   if (arr) {
@@ -627,6 +639,7 @@ function destroyCellVisual(level, x, z, animate = true) {
 
 function restorePlatforms() {
   fallingPieces.length = 0
+  for (const s of holeSets) s.clear()
   for (const plat of platforms) {
     for (const arr of plat.pieces.values()) {
       for (const e of arr) {
@@ -1232,42 +1245,78 @@ function syncConfirmed(p, data) {
   p.confirmedOrient = { ...p.orient }
 }
 
+// FIFO of cells my unconfirmed predicted moves should land on
+let myPredictions = []
+
 function rollbackPrediction(p) {
   if (!p?.confirmedCell) return
+  myPredictions = []
   p.queue = p.queue.filter(m => !m.predicted)
   p.anim = null
   p.cell = { ...p.confirmedCell }
   p.orient = { ...p.confirmedOrient }
   p.group.position.set(p.cell.x, levelY(p.level) + 0.5, p.cell.z)
+  p.group.scale.set(1, 1, 1)
   const q = quatForOrient(p.orient)
   if (q) p.group.quaternion.copy(q)
 }
 
+// cell checks mirroring the server, so predictions never phase through walls
+const inArena = (x, z) => x >= -HALF && x <= HALF && z >= -HALF && z <= HALF
+const isBlockedC = (l, x, z) => blockedSets[l].has(cellKey(x, z)) && !holeSets[l].has(cellKey(x, z))
+const isHoleC = (l, x, z) => holeSets[l].has(cellKey(x, z))
+const isTrampC = (l, x, z) => platforms[l].trampKey === cellKey(x, z)
+function playerAtCell(l, x, z) {
+  for (const p of players.values()) {
+    if (p.id !== myId && !p.dead && !p.gone && p.level === l && p.cell.x === x && p.cell.z === z) return p
+  }
+  return null
+}
+
+// returns false when the move must not even be sent (wall/obstacle)
 function predictRoll(dx, dz) {
   const me = players.get(myId)
-  if (!me || me.dead || me.gone) return
-  const orient = me.orient || { top: 1, east: 3, south: 2 }
+  if (!me || me.dead || me.gone) return true
+  const l = me.level
   const nx = me.cell.x + dx
   const nz = me.cell.z + dz
-  const next = rollOrient(orient, dx, dz)
+  if (!inArena(nx, nz) || isBlockedC(l, nx, nz)) return false
+  // an occupied cell means attack: send the move but keep the cube in place
+  if (playerAtCell(l, nx, nz)) return true
+  const next = rollOrient(me.orient || { top: 1, east: 3, south: 2 }, dx, dz)
+  myPredictions.push({ x: nx, z: nz })
   enqueueMove(me, {
     predicted: true,
-    p: { id: myId, level: me.level, x: nx, z: nz, ...next },
+    p: { id: myId, level: l, x: nx, z: nz, ...next },
   })
   me.cell = { x: nx, z: nz }
   me.orient = next
+  return true
 }
 
+// walks up to two cells with the same stop rules as the server
 function predictDash(dx, dz) {
   const me = players.get(myId)
   if (!me || me.dead || me.gone) return
-  const nx = me.cell.x + dx * 2
-  const nz = me.cell.z + dz * 2
+  const l = me.level
+  let { x, z } = me.cell
+  let steps = 0
+  for (let i = 0; i < 2; i++) {
+    const nx = x + dx
+    const nz = z + dz
+    if (!inArena(nx, nz) || isBlockedC(l, nx, nz) || playerAtCell(l, nx, nz)) break
+    x = nx
+    z = nz
+    steps++
+    if (isHoleC(l, nx, nz) || isTrampC(l, nx, nz)) break
+  }
+  if (steps === 0) return
+  myPredictions.push({ x, z })
   enqueueMove(me, {
     predicted: true, dash: true,
-    p: { id: myId, level: me.level, x: nx, z: nz, ...me.orient },
+    p: { id: myId, level: l, x, z, ...me.orient },
   })
-  me.cell = { x: nx, z: nz }
+  me.cell = { x, z }
 }
 
 function enqueueMove(p, data) {
@@ -1454,6 +1503,7 @@ function connect() {
     // wipe everything; the server will resend the world on reconnect
     for (const id of [...players.keys()]) removePlayer(id)
     myId = null
+    myPredictions = []
     setStatus('ПЕРЕПОДКЛЮЧЕНИЕ...')
     setTimeout(connect, reconnectDelay)
     reconnectDelay = Math.min(reconnectDelay * 2, 8000)
@@ -1498,18 +1548,16 @@ function handleMessage(msg) {
         if (msg.dash) dashReadyAt = performance.now() + dashCooldownMs
         if (msg.jump) jumpReadyAt = performance.now() + jumpCooldownMs
 
-        const head = p.queue[0]
-        const sameRoll = head?.predicted && !msg.dash && !msg.jump && !msg.knock
-          && head.p.x === msg.p.x && head.p.z === msg.p.z
-        const sameDash = head?.predicted && msg.dash
-          && head.p.x === msg.p.x && head.p.z === msg.p.z
-        if (sameRoll || sameDash) {
-          head.p = msg.p
-          head.predicted = false
-          if (msg.dash) head.dash = true
+        // regular rolls/dashes were already animated by the prediction:
+        // just confirm them, never enqueue the same move twice
+        if (myPredictions.length > 0 && !msg.knock && !msg.jump) {
+          const pred = myPredictions.shift()
+          if (pred.x === msg.p.x && pred.z === msg.p.z) break
+          rollbackPrediction(p) // server disagreed: snap to its state
           break
         }
-        if (p.queue.some(m => m.predicted)) rollbackPrediction(p)
+        // knockback/jump arrive unpredicted; drop stale predictions first
+        if (myPredictions.length > 0) rollbackPrediction(p)
       }
 
       enqueueMove(p, msg)
@@ -1535,13 +1583,14 @@ function handleMessage(msg) {
         shake = 0.35
         tg?.HapticFeedback?.impactOccurred?.('heavy')
       }
-      // attacker doesn't move on collision — undo a predicted step into the target
-      if (msg.a === myId) rollbackPrediction(players.get(myId))
+      // a predicted step may have raced into a cell someone just occupied
+      if (msg.a === myId && myPredictions.length > 0) rollbackPrediction(players.get(myId))
       break
     }
     case 'death': {
       const p = players.get(msg.id)
       if (!p) break
+      if (msg.id === myId) myPredictions = []
       p.dead = true
       const mode = msg.cause === 'fall' ? 'fall' : 'shrink'
       // let pending move animations (e.g. the jump arc off the platform)
@@ -1556,6 +1605,7 @@ function handleMessage(msg) {
     case 'respawn': {
       const p = players.get(msg.p.id)
       if (!p) { addPlayer(msg.p); break }
+      if (msg.p.id === myId) myPredictions = []
       p.dead = false
       p.hp = msg.p.hp
       p.level = msg.p.level
@@ -1599,12 +1649,14 @@ function handleMessage(msg) {
     case 'launch': {
       const p = players.get(msg.p.id)
       if (!p) { addPlayer(msg.p); break }
+      if (msg.p.id === myId) myPredictions = []
       // queued after the move that stepped onto the trampoline,
       // so the roll finishes first and the launch starts from the pad
       enqueueMove(p, msg)
       break
     }
     case 'reset': {
+      myPredictions = []
       restorePlatforms()
       applyPhase(msg.phase)
       for (const pd of msg.players || []) {
@@ -1634,9 +1686,8 @@ function handleMessage(msg) {
         hapticError()
         sfx.deny()
       }
-      if (msg.reason === 'blocked' || msg.reason === 'cooldown') {
+      if ((msg.reason === 'blocked' || msg.reason === 'cooldown') && myPredictions.length > 0) {
         rollbackPrediction(players.get(myId))
-        if (msg.reason === 'cooldown') sfx.deny()
       }
       break
   }
@@ -1694,16 +1745,17 @@ function inputDir(dx, dz) {
   lastDirAt = now
   lastMoveDir = [dx, dz]
   if (isDouble && now >= dashReadyAt) {
-    send({ t: 'dash', dx, dz })
     predictDash(dx, dz)
+    send({ t: 'dash', dx, dz })
     moveGateAt = now + MOVE_GATE_MS
     lastDir = null // don't chain triple-tap into two dashes
   } else {
     const me = players.get(myId)
     if (now < moveGateAt || (me && me.queue.length >= 2)) return
+    // walls and obstacles are known client-side: don't send a doomed move
+    if (!predictRoll(dx, dz)) return
     moveGateAt = now + MOVE_GATE_MS
     send({ t: 'move', dx, dz })
-    predictRoll(dx, dz)
   }
   if (!moved) { moved = true; hint.classList.add('faded') }
 }
