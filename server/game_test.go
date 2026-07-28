@@ -7,7 +7,7 @@ import (
 
 // test hub without network: broadcast to nobody
 func testHub() *Hub {
-	return NewHub(&Store{})
+	return NewHub(&Store{}, GameMaps[DefaultMapID], NewPresence())
 }
 
 func addTestPlayer(h *Hub, id string, l, x, z int) *Player {

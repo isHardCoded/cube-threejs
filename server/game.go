@@ -1,11 +1,10 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	mrand "math/rand"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -15,6 +14,10 @@ const (
 	Levels = 3
 	MaxHP  = 30
 
+	// Lives are the match currency: dying costs one and you come back, until the
+	// last one is spent and the round is over for you.
+	MaxLives = 5
+
 	// slightly below the client's 140ms send gate so network jitter never
 	// bunches two legit moves into a cooldown denial (which snaps the cube back)
 	RollCooldown = 110 * time.Millisecond
@@ -22,8 +25,8 @@ const (
 	JumpCooldown = 1200 * time.Millisecond
 	RespawnDelay = 3 * time.Second
 
-	CalmDuration = 60 * time.Second        // timer between destruction waves
-	TileInterval = 400 * time.Millisecond  // one tile crumbles per interval
+	CalmDuration = 60 * time.Second       // timer between destruction waves
+	TileInterval = 400 * time.Millisecond // one tile crumbles per interval
 )
 
 const (
@@ -31,43 +34,33 @@ const (
 	modeCrumble
 )
 
-// Obstacle layouts per level; must mirror the client's prop placement.
-var levelBlocked = [Levels]map[[2]int]bool{
-	{ // level 0
-		{-Half, 0}: true, {-Half, 2}: true, {Half, -2}: true, {2, -Half}: true, {-2, Half}: true, {Half, 3}: true,
-		{0, -Half}: true, {Half, 1}: true, {-3, Half}: true, {-Half, -2}: true,
-		{2, 2}: true, {-2, -2}: true, {0, 3}: true,
-	},
-	{ // level 1
-		{3, 3}: true, {-3, -3}: true, {0, -3}: true, {3, 0}: true,
-		{-1, -1}: true, {1, 3}: true, {-3, 1}: true,
-		{-1, 2}: true, {2, -2}: true, {2, 0}: true, {-3, -1}: true,
-	},
-	{ // level 2: sparse final arena with a blocked center
-		{0, 0}: true, {2, 3}: true, {-2, -3}: true,
-		{3, -3}: true, {-3, 3}: true, {1, -1}: true, {-1, 1}: true,
-	},
-}
-
 type Player struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Level  int    `json:"level"`
-	X      int    `json:"x"`
-	Z      int    `json:"z"`
-	Orient        // embedded: top/east/south
-	HP     int    `json:"hp"`
-	Dead   bool   `json:"dead"`
+	ID      string `json:"id"` // account id as text: stable across reconnects
+	Name    string `json:"name"`
+	SkinID  string `json:"skinId"`
+	ClassID string `json:"classId"`
+	Level   int    `json:"level"`
+	X       int    `json:"x"`
+	Z       int    `json:"z"`
+	Orient         // embedded: top/east/south
+	HP      int    `json:"hp"`
+	Lives   int    `json:"lives"`
+	Dead    bool   `json:"dead"`
+	// waiting for the next round: out of lives, or joined mid-fight
+	Spectating bool `json:"spectating"`
 
+	userID      int64
 	client      *Client
 	nextMoveAt  time.Time
 	dashReadyAt time.Time
 	jumpReadyAt time.Time
+	mineReadyAt time.Time
 	respawnAt   time.Time
 
 	kills       int
 	deaths      int
 	damageDealt int
+	roundKills  int
 }
 
 type command struct {
@@ -76,20 +69,29 @@ type command struct {
 }
 
 type clientMsg struct {
-	T  string `json:"t"` // "move" | "dash" | "jump"
+	T  string `json:"t"` // "move" | "dash" | "jump" | "mine"
 	DX int    `json:"dx"`
 	DZ int    `json:"dz"`
 }
 
 type Hub struct {
+	gameMap    *GameMap
 	players    map[string]*Player
 	register   chan *Client
 	unregister chan *Client
 	commands   chan command
+	evict      chan int64 // account claimed by another map
+	awards     chan awardResult
 	store      *Store
+	presence   *Presence
 
 	destroyed [Levels]map[[2]int]bool
 	tramp     [Levels]*[2]int
+	mines     map[[3]int]*Mine // keyed by level and cell
+
+	roundState     int
+	roundStartedAt time.Time
+	roundEndsAt    time.Time // intermission deadline
 
 	phaseMode    int
 	phaseLevel   int
@@ -98,25 +100,25 @@ type Hub struct {
 	nextTileAt   time.Time
 }
 
-func NewHub(store *Store) *Hub {
+// Each map is a separate world: its own hub, round timer and player list.
+func NewHub(store *Store, gameMap *GameMap, presence *Presence) *Hub {
 	h := &Hub{
+		gameMap:    gameMap,
 		players:    make(map[string]*Player),
 		register:   make(chan *Client, 16),
 		unregister: make(chan *Client, 16),
 		commands:   make(chan command, 256),
+		evict:      make(chan int64, 16),
+		awards:     make(chan awardResult, 8),
 		store:      store,
+		presence:   presence,
 	}
 	for l := 0; l < Levels; l++ {
 		h.destroyed[l] = make(map[[2]int]bool)
 	}
+	h.clearMines()
 	h.startCalm(0, false)
 	return h
-}
-
-func newID() string {
-	b := make([]byte, 8)
-	rand.Read(b)
-	return hex.EncodeToString(b)
 }
 
 func (h *Hub) Run() {
@@ -130,6 +132,10 @@ func (h *Hub) Run() {
 			h.onLeave(c)
 		case cmd := <-h.commands:
 			h.onCommand(cmd)
+		case userID := <-h.evict:
+			h.onEvict(userID)
+		case a := <-h.awards:
+			h.onAward(a)
 		case <-ticker.C:
 			h.onTick()
 		}
@@ -172,7 +178,7 @@ func (h *Hub) isHole(l, x, z int) bool {
 
 // isBlocked: an intact obstacle occupies the cell (destroyed obstacles are holes).
 func (h *Hub) isBlocked(l, x, z int) bool {
-	return levelBlocked[l][[2]int{x, z}] && !h.isHole(l, x, z)
+	return h.gameMap.blocked[l][[2]int{x, z}] && !h.isHole(l, x, z)
 }
 
 func (h *Hub) playerAt(l, x, z int) *Player {
@@ -272,7 +278,10 @@ func (h *Hub) worldSnapshot() map[string]any {
 			tramps[l] = []int{h.tramp[l][0], h.tramp[l][1]}
 		}
 	}
-	return map[string]any{"destroyed": destroyed, "tramps": tramps, "phase": h.phaseInfo()}
+	return map[string]any{
+		"destroyed": destroyed, "tramps": tramps,
+		"phase": h.phaseInfo(), "round": h.roundInfo(),
+	}
 }
 
 // sanitizeName trims and clamps a nickname; falls back to a generated one.
@@ -295,16 +304,32 @@ func sanitizeName(raw string) string {
 }
 
 func (h *Hub) onJoin(c *Client) {
+	id := strconv.FormatInt(c.userID, 10)
+
+	// One cube per account: a second tab would otherwise double the farming.
+	if old := h.players[id]; old != nil {
+		h.kickPlayer(old, "another_session")
+	}
+
 	l, x, z := h.spawnCell()
 	p := &Player{
-		ID: newID(), Name: sanitizeName(c.name), Level: l, X: x, Z: z,
+		ID: id, Name: sanitizeName(c.name), SkinID: c.skinID, ClassID: c.classID,
+		Level: l, X: x, Z: z,
 		Orient: StartOrient(),
 		HP:     MaxHP,
+		Lives:  MaxLives,
+		userID: c.userID,
 		client: c,
+	}
+	// a fight in progress is not joinable: watch it out and start with everyone
+	// else in the next round
+	if h.roundState != roundWaiting {
+		p.Spectating = true
+		p.Dead = true
 	}
 	c.player = p
 	h.players[p.ID] = p
-	h.store.SessionStarted(p.ID)
+	h.store.SessionStarted(p.userID)
 
 	others := make([]*Player, 0, len(h.players))
 	for _, pl := range h.players {
@@ -314,6 +339,17 @@ func (h *Hub) onJoin(c *Client) {
 		"t": "welcome", "id": p.ID, "players": others,
 		"dashCooldownMs": DashCooldown.Milliseconds(),
 		"jumpCooldownMs": JumpCooldown.Milliseconds(),
+		"mineCooldownMs": MineCooldown.Milliseconds(),
+		"maxMines":       MaxMinesAlive,
+		"maxLives":       MaxLives,
+		// only my own mines: enemy traps stay hidden until they blow up.
+		// A reconnect gets them back because player ids are per account.
+		"mines": h.minesOf(p.ID),
+		// the client draws obstacles from this, so both sides agree on what blocks
+		"map":    h.gameMap.ID,
+		"layout": h.gameMap.Levels,
+		// every cube is rendered from this catalog, so skins look the same for all
+		"skins": Skins,
 	}
 	for k, v := range h.worldSnapshot() {
 		welcome[k] = v
@@ -324,18 +360,49 @@ func (h *Hub) onJoin(c *Client) {
 			h.sendTo(pl, map[string]any{"t": "join", "p": p})
 		}
 	}
-	log.Printf("join %s at L%d (%d,%d), players=%d", p.ID, l, x, z, len(h.players))
+	role := "playing"
+	if p.Spectating {
+		role = "watching"
+	}
+	log.Printf("join %s on %s at L%d (%d,%d) %s, players=%d",
+		p.ID, h.gameMap.ID, l, x, z, role, len(h.players))
+}
+
+// dropPlayer takes a player out of the world and tells the remaining ones.
+// It deliberately leaves Presence alone: a kicked player is usually being
+// replaced right away, either here or on another map.
+func (h *Hub) dropPlayer(p *Player) {
+	delete(h.players, p.ID)
+	h.store.SessionEnded(p.userID, p.kills, p.deaths, p.damageDealt)
+	h.broadcast(map[string]any{"t": "leave", "id": p.ID})
+}
+
+// kickPlayer retires a connection that lost its claim on the account.
+func (h *Hub) kickPlayer(p *Player, reason string) {
+	h.sendTo(p, map[string]any{"t": "kicked", "reason": reason})
+	h.dropPlayer(p)
+	if p.client != nil {
+		p.client.closeAfterFlush()
+	}
+}
+
+// onEvict runs when the account showed up on a different map.
+func (h *Hub) onEvict(userID int64) {
+	if p := h.players[strconv.FormatInt(userID, 10)]; p != nil {
+		h.kickPlayer(p, "another_session")
+		log.Printf("%s: %s left for another map", h.gameMap.ID, p.ID)
+	}
 }
 
 func (h *Hub) onLeave(c *Client) {
 	p := c.player
-	if p == nil || h.players[p.ID] == nil {
+	// a reconnect may already have replaced this player: only the live one leaves
+	if p == nil || h.players[p.ID] != p {
 		return
 	}
-	delete(h.players, p.ID)
-	h.store.SessionEnded(p.ID, p.kills, p.deaths, p.damageDealt)
-	h.broadcast(map[string]any{"t": "leave", "id": p.ID})
-	log.Printf("leave %s, players=%d", p.ID, len(h.players))
+	h.dropPlayer(p)
+	h.presence.Leave(p.userID, h)
+	log.Printf("leave %s on %s, players=%d", p.ID, h.gameMap.ID, len(h.players))
 }
 
 // ---------------------------------------------------------------------------
@@ -395,7 +462,7 @@ func (h *Hub) startCrumble() {
 	}
 
 	h.broadcast(map[string]any{"t": "phase", "mode": "crumble", "level": l})
-	log.Printf("crumble started on level %d", l)
+	log.Printf("%s: crumble started on level %d", h.gameMap.ID, l)
 }
 
 func (h *Hub) crumbleTick(now time.Time) {
@@ -414,7 +481,9 @@ func (h *Hub) crumbleTick(now time.Time) {
 		}
 		if l < Levels-1 {
 			h.startCalm(l+1, true)
-		} else {
+		} else if h.roundState == roundWaiting {
+			// practice loops forever; a match instead ends with its last survivor,
+			// which the round machine notices as the final tiles take everyone out
 			h.resetRound()
 		}
 		return
@@ -428,6 +497,9 @@ func (h *Hub) crumbleTick(now time.Time) {
 func (h *Hub) destroyCell(l, x, z int, now time.Time) {
 	h.destroyed[l][[2]int{x, z}] = true
 	h.broadcast(map[string]any{"t": "tiles", "level": l, "cells": [][2]int{{x, z}}})
+	if m := h.mineAt(l, x, z); m != nil {
+		h.removeMine(m) // the tile it sat on is gone
+	}
 	if p := h.playerAt(l, x, z); p != nil {
 		h.fallDeath(p, now)
 	}
@@ -438,12 +510,16 @@ func (h *Hub) resetRound() {
 		h.destroyed[l] = make(map[[2]int]bool)
 		h.tramp[l] = nil
 	}
+	h.clearMines() // clients drop their own on "reset"
 	h.startCalm(0, false)
 	now := time.Now()
 	for _, p := range h.players {
 		p.Level = 0
 		p.HP = MaxHP
+		p.Lives = MaxLives
 		p.Dead = false
+		p.Spectating = false
+		p.roundKills = 0
 		p.Orient = StartOrient()
 		p.nextMoveAt = now
 		p.X, p.Z = 0, 0
@@ -457,25 +533,37 @@ func (h *Hub) resetRound() {
 	}
 	h.broadcast(map[string]any{
 		"t": "reset", "players": list,
-		"phase": h.phaseInfo(),
+		"phase": h.phaseInfo(), "round": h.roundInfo(),
 	})
-	log.Println("round reset: everyone back to level 0")
 }
 
 func (h *Hub) onTick() {
 	now := time.Now()
-	for _, p := range h.players {
-		if p.Dead && now.After(p.respawnAt) {
-			l, x, z := h.spawnCell()
-			p.Dead = false
-			p.HP = MaxHP
-			p.Level, p.X, p.Z = l, x, z
-			p.Orient = StartOrient()
-			p.nextMoveAt = now
-			h.broadcast(map[string]any{"t": "respawn", "p": p})
+
+	// respawns while lives remain (practice never spends them); the intermission
+	// leaves the board frozen, so nobody comes back during it
+	if h.roundState != roundOver {
+		for _, p := range h.players {
+			// spectators are the ones out of lives (or waiting for the next round)
+			if p.Dead && !p.Spectating && now.After(p.respawnAt) {
+				l, x, z := h.spawnCell()
+				p.Dead = false
+				p.HP = MaxHP
+				p.Level, p.X, p.Z = l, x, z
+				p.Orient = StartOrient()
+				p.nextMoveAt = now
+				h.broadcast(map[string]any{"t": "respawn", "p": p})
+			}
 		}
 	}
 
+	h.expireMines(now)
+	h.roundTick(now)
+
+	// the arena holds still while the result is on screen
+	if h.roundState == roundOver {
+		return
+	}
 	switch h.phaseMode {
 	case modeCalm:
 		if now.After(h.phaseEndsAt) {
@@ -492,14 +580,21 @@ func (h *Hub) onTick() {
 
 func (h *Hub) onCommand(cmd command) {
 	p := cmd.client.player
-	if p == nil || p.Dead {
+	// input from a retired connection (kicked or already gone) is ignored
+	if p == nil || p.Dead || h.players[p.ID] != p {
 		return
 	}
+	now := time.Now()
+	// abilities carry no direction, so they skip the movement validation below
+	if cmd.msg.T == "mine" {
+		h.placeMine(p, now)
+		return
+	}
+
 	dx, dz := cmd.msg.DX, cmd.msg.DZ
 	if !((dx == 0) != (dz == 0)) || dx < -1 || dx > 1 || dz < -1 || dz > 1 {
 		return
 	}
-	now := time.Now()
 	switch cmd.msg.T {
 	case "move":
 		if now.Before(p.nextMoveAt) {
@@ -542,7 +637,7 @@ func (h *Hub) doRoll(p *Player, dx, dz int, now time.Time) {
 		h.fallDeath(p, now)
 		return
 	}
-	h.trampCheck(p)
+	h.landed(p, now)
 }
 
 func (h *Hub) doDash(p *Player, dx, dz int, now time.Time) {
@@ -568,6 +663,10 @@ func (h *Hub) doDash(p *Player, dx, dz int, now time.Time) {
 		if h.isTramp(l, nx, nz) {
 			break
 		}
+		// dashing over a mine sets it off instead of gliding past it
+		if m := h.mineAt(l, nx, nz); m != nil && m.Owner != p.ID {
+			break
+		}
 	}
 	p.dashReadyAt = now.Add(DashCooldown)
 	p.nextMoveAt = now.Add(RollCooldown)
@@ -582,7 +681,7 @@ func (h *Hub) doDash(p *Player, dx, dz int, now time.Time) {
 		return
 	}
 	if !p.Dead {
-		h.trampCheck(p)
+		h.landed(p, now)
 	}
 }
 
@@ -611,7 +710,7 @@ func (h *Hub) doJump(p *Player, dx, dz int, now time.Time) {
 		h.broadcast(map[string]any{"t": "move", "p": p, "jump": true})
 		h.resolveHit(p, t, dx, dz, now)
 		if !p.Dead {
-			h.trampCheck(p)
+			h.landed(p, now)
 		}
 		return
 	}
@@ -625,7 +724,7 @@ func (h *Hub) doJump(p *Player, dx, dz int, now time.Time) {
 				h.fallDeath(p, now)
 				return
 			}
-			h.trampCheck(p)
+			h.landed(p, now)
 		}
 		return
 	}
@@ -636,7 +735,7 @@ func (h *Hub) doJump(p *Player, dx, dz int, now time.Time) {
 		h.fallDeath(p, now)
 		return
 	}
-	h.trampCheck(p)
+	h.landed(p, now)
 }
 
 // ---------------------------------------------------------------------------
@@ -665,7 +764,7 @@ func (h *Hub) resolveHit(a, d *Player, dx, dz int, now time.Time) {
 			if fell {
 				h.fallDeath(d, now)
 			} else {
-				h.trampCheck(d)
+				h.landed(d, now)
 			}
 		}
 	}
@@ -675,17 +774,19 @@ func (h *Hub) resolveHit(a, d *Player, dx, dz int, now time.Time) {
 			if fell {
 				h.fallDeath(a, now)
 			} else {
-				h.trampCheck(a)
+				h.landed(a, now)
 			}
 		}
 	}
 
 	if d.HP <= 0 && !d.Dead {
 		a.kills++
+		a.roundKills++
 		h.kill(d, now)
 	}
 	if a.HP <= 0 && !a.Dead {
 		d.kills++
+		d.roundKills++
 		h.kill(a, now)
 	}
 }
@@ -711,6 +812,17 @@ func (h *Hub) knockback(p *Player, dx, dz int) (bool, bool) {
 	return true, h.isHole(l, nx, nz)
 }
 
+// landed runs everything that reacts to a player standing on a cell. Every kind
+// of movement — roll, dash, jump, knockback — ends here, so a new cell effect
+// cannot be dodged by arriving through a path someone forgot to patch.
+func (h *Hub) landed(p *Player, now time.Time) {
+	h.mineTrigger(p, now)
+	if p.Dead {
+		return
+	}
+	h.trampCheck(p)
+}
+
 // trampCheck launches the player to the next level when standing on the trampoline.
 func (h *Hub) trampCheck(p *Player) {
 	if !h.isTramp(p.Level, p.X, p.Z) {
@@ -727,22 +839,38 @@ func (h *Hub) trampCheck(p *Player) {
 	h.broadcast(map[string]any{"t": "launch", "p": p})
 }
 
-func (h *Hub) fallDeath(p *Player, now time.Time) {
+// die takes a player off the board. During a match that is final — they watch
+// the rest of the round; in practice mode they come back after a short delay.
+func (h *Hub) die(p *Player, cause string, now time.Time) {
 	p.Dead = true
 	p.HP = 0
 	p.deaths++
-	p.respawnAt = now.Add(RespawnDelay)
-	h.store.Death(p.ID)
-	h.broadcast(map[string]any{"t": "death", "id": p.ID, "cause": "fall", "respawnMs": RespawnDelay.Milliseconds()})
+	h.store.Death(p.userID)
+
+	msg := map[string]any{"t": "death", "id": p.ID, "cause": cause}
+	// practice costs nothing; in a match every death burns a life
+	if h.roundState == roundLive {
+		p.Lives--
+		msg["lives"] = p.Lives
+	}
+
+	if p.Lives <= 0 && h.roundState == roundLive {
+		p.Spectating = true
+		msg["eliminated"] = true
+		msg["alive"] = h.aliveCount()
+	} else {
+		p.respawnAt = now.Add(RespawnDelay)
+		msg["respawnMs"] = RespawnDelay.Milliseconds()
+	}
+	h.broadcast(msg)
+}
+
+func (h *Hub) fallDeath(p *Player, now time.Time) {
+	h.die(p, "fall", now)
 }
 
 func (h *Hub) kill(p *Player, now time.Time) {
-	p.Dead = true
-	p.HP = 0
-	p.deaths++
-	p.respawnAt = now.Add(RespawnDelay)
-	h.store.Death(p.ID)
-	h.broadcast(map[string]any{"t": "death", "id": p.ID, "cause": "hit", "respawnMs": RespawnDelay.Milliseconds()})
+	h.die(p, "hit", now)
 }
 
 func abs(v int) int {

@@ -17,18 +17,35 @@ func main() {
 		}
 	}
 
-	store := NewStore(os.Getenv("DATABASE_URL"))
-	hub := NewHub(store)
-	go hub.Run()
+	initAuth()
 
+	store, err := NewStore(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatalln("store:", err)
+	}
+	defer store.Close()
+
+	// One world per map, each with its own round timer and player list.
+	// Presence is shared so an account can only hold a cube on one of them.
+	presence := NewPresence()
+	hubs := make(map[string]*Hub, len(MapOrder))
+	for _, id := range MapOrder {
+		hub := NewHub(store, GameMaps[id], presence)
+		hubs[id] = hub
+		go hub.Run()
+	}
+	log.Println("hubs running:", MapOrder)
+
+	api := NewAPI(store)
+	http.Handle("/api/", api.Handler())
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWS(hub, w, r)
+		serveWS(hubs[MapByID(r.URL.Query().Get("map")).ID], store, w, r)
 	})
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
-	log.Println("cube2077 server listening on", addr)
+	log.Println("cube game server listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

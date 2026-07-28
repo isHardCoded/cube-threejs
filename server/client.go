@@ -12,7 +12,8 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
-	// The game has no accounts or secrets; allow the Vercel frontend and local dev.
+	// Identity comes from the JWT in the query string, not from the origin,
+	// so the Vercel frontend and local dev can both connect.
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
@@ -21,24 +22,64 @@ type Client struct {
 	send   chan []byte
 	hub    *Hub
 	player *Player
-	name   string // nickname passed via ?name= on connect
+
+	// resolved from the ?token= JWT before the upgrade
+	userID  int64
+	name    string
+	skinID  string
+	classID string
+
+	closing bool // set by the hub goroutine when this connection is being retired
 }
 
 // trySend drops the message if the client's buffer is full (slow consumer).
+// Only the hub goroutine calls this, so the closing check needs no lock.
 func (c *Client) trySend(data []byte) {
+	if c.closing {
+		return
+	}
 	select {
 	case c.send <- data:
 	default:
 	}
 }
 
-func serveWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
+// closeAfterFlush stops accepting new messages and lets writeLoop deliver
+// what is already queued before the connection drops. Closing the socket
+// directly would race with the write and swallow the last message.
+func (c *Client) closeAfterFlush() {
+	if c.closing {
+		return
+	}
+	c.closing = true
+	close(c.send)
+}
+
+func serveWS(hub *Hub, store *Store, w http.ResponseWriter, r *http.Request) {
+	// authenticate before upgrading so the client gets a real 401
+	userID, err := userIDFromToken(r.URL.Query().Get("token"))
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	u, err := store.UserByID(userID)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("upgrade:", err)
 		return
 	}
-	c := &Client{conn: conn, send: make(chan []byte, 64), hub: hub, name: r.URL.Query().Get("name")}
+	c := &Client{
+		conn: conn, send: make(chan []byte, 64), hub: hub,
+		userID: u.ID, name: u.Username, skinID: u.SkinID, classID: u.ClassID,
+	}
+	// claim the account for this world before joining, so a cube on another
+	// map is released instead of running in parallel
+	hub.presence.Enter(u.ID, hub)
 	hub.register <- c
 	go c.writeLoop()
 	go c.readLoop()
