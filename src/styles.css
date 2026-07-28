@@ -28,6 +28,43 @@
 
   /* one bouncy curve for every cartoon motion in the UI */
   --hop: cubic-bezier(.34, 1.7, .64, 1);
+
+  /* Device notch + Telegram chrome (Close / ···). JS mirrors TG insets into
+     --tg-* vars; without TMA those stay 0 and we only use env(safe-area). */
+  --tg-safe-area-inset-top: 0px;
+  --tg-safe-area-inset-right: 0px;
+  --tg-safe-area-inset-bottom: 0px;
+  --tg-safe-area-inset-left: 0px;
+  --tg-content-safe-area-inset-top: 0px;
+  --tg-content-safe-area-inset-right: 0px;
+  --tg-content-safe-area-inset-bottom: 0px;
+  --tg-content-safe-area-inset-left: 0px;
+
+  --pad-top: calc(
+    max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top))
+    + var(--tg-content-safe-area-inset-top)
+  );
+  --pad-right: calc(
+    max(env(safe-area-inset-right, 0px), var(--tg-safe-area-inset-right))
+    + var(--tg-content-safe-area-inset-right)
+  );
+  --pad-bottom: calc(
+    max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom))
+    + var(--tg-content-safe-area-inset-bottom)
+  );
+  --pad-left: calc(
+    max(env(safe-area-inset-left, 0px), var(--tg-safe-area-inset-left))
+    + var(--tg-content-safe-area-inset-left)
+  );
+}
+
+/* Older Telegram clients may not report contentSafeAreaInset — keep a reserve
+   under the floating Close / more buttons so HUD never sits under them. */
+html.is-tma:not(.has-tg-content-inset) {
+  --pad-top: calc(
+    max(env(safe-area-inset-top, 0px), var(--tg-safe-area-inset-top))
+    + 56px
+  );
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -183,7 +220,11 @@ canvas.webgl {
   align-items: center;
   justify-content: center;
   gap: 22px;
-  padding: 24px;
+  padding:
+    calc(24px + var(--pad-top))
+    calc(24px + var(--pad-right))
+    calc(24px + var(--pad-bottom))
+    calc(24px + var(--pad-left));
   overflow-y: auto;
   background:
     radial-gradient(90% 60% at 15% 0%, #fff, transparent 60%),
@@ -502,7 +543,7 @@ canvas.webgl {
 
 .hud--title {
   left: 50%;
-  top: calc(12px + env(safe-area-inset-top));
+  top: calc(12px + var(--pad-top));
   transform: translateX(-50%);
   z-index: 2;
 }
@@ -511,7 +552,7 @@ canvas.webgl {
 .hud-top {
   position: absolute;
   left: 50%;
-  top: calc(52px + env(safe-area-inset-top));
+  top: calc(52px + var(--pad-top));
   transform: translateX(-50%);
   z-index: 2;
   display: flex;
@@ -519,7 +560,7 @@ canvas.webgl {
   align-items: center;
   gap: 8px;
   /* leave the Day/Menu cluster alone on the right */
-  width: min(calc(100vw - 168px - env(safe-area-inset-left) - env(safe-area-inset-right)), 520px);
+  width: min(calc(100vw - 120px - var(--pad-left) - var(--pad-right)), 520px);
   pointer-events: none;
 }
 
@@ -557,8 +598,8 @@ canvas.webgl {
 /* Corner controls share one arcade family with the Mine button. */
 .hud-btns {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
-  right: calc(12px + env(safe-area-inset-right));
+  top: calc(12px + var(--pad-top));
+  right: calc(12px + var(--pad-right));
   z-index: 20;
   display: flex;
   gap: 8px;
@@ -638,11 +679,21 @@ canvas.webgl {
   box-shadow: 0 1px 0 var(--coral-deep), 0 3px 8px rgba(0, 0, 0, .2);
 }
 
+.arcade-btn--icon {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+.arcade-btn--icon .icon {
+  display: block;
+}
+
 /* Mine ability lives bottom-right so the left corner can hold the controls. */
 .ability {
   position: absolute;
-  right: calc(14px + env(safe-area-inset-right));
-  bottom: calc(54px + env(safe-area-inset-bottom));
+  right: calc(14px + var(--pad-right));
+  bottom: calc(54px + var(--pad-bottom));
   z-index: 20;
   min-width: 104px;
   min-height: 56px;
@@ -666,8 +717,8 @@ canvas.webgl {
 /* Bottom-left stack: lives above the control list. */
 .hud-bl {
   position: absolute;
-  left: calc(12px + env(safe-area-inset-left));
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: calc(12px + var(--pad-left));
+  bottom: calc(16px + var(--pad-bottom));
   z-index: 12;
   display: flex;
   flex-direction: column;
@@ -913,17 +964,17 @@ canvas.webgl {
     justify-content: flex-start;
     gap: 16px;
     padding:
-      calc(18px + env(safe-area-inset-top))
-      calc(14px + env(safe-area-inset-right))
-      calc(22px + env(safe-area-inset-bottom))
-      calc(14px + env(safe-area-inset-left));
+      calc(18px + var(--pad-top))
+      calc(14px + var(--pad-right))
+      calc(22px + var(--pad-bottom))
+      calc(14px + var(--pad-left));
   }
   .logo {
     font-size: clamp(28px, 9.5vw, 40px);
     margin-top: 6px;
   }
   .logo--small {
-    font-size: clamp(16px, 4.6vw, 20px);
+    font-size: clamp(15px, 4.2vw, 18px);
   }
   .screen__box,
   .screen__box--wide {
@@ -953,60 +1004,86 @@ canvas.webgl {
     gap: 8px;
   }
 
-  /* In-game HUD on a phone / Telegram Mini App */
+  /* In-game HUD on a phone / Telegram Mini App — keep chrome compact so
+     corner buttons don't sit on top of each other. */
   .hud--title {
-    top: calc(10px + env(safe-area-inset-top));
+    top: calc(8px + var(--pad-top));
   }
   .hud-top {
-    top: calc(46px + env(safe-area-inset-top));
-    gap: 6px;
-    width: min(calc(100vw - 132px - env(safe-area-inset-left) - env(safe-area-inset-right)), 420px);
+    top: calc(40px + var(--pad-top));
+    gap: 5px;
+    width: min(calc(100vw - 100px - var(--pad-left) - var(--pad-right)), 420px);
   }
   .badge {
-    padding: 8px 12px;
-    font-size: 12px;
-    border-radius: 14px;
-    box-shadow: 0 4px 0 var(--green-deep), 0 8px 14px rgba(0, 0, 0, .28);
+    padding: 6px 10px;
+    font-size: 11px;
+    border-radius: 12px;
+    box-shadow: 0 3px 0 var(--green-deep), 0 6px 12px rgba(0, 0, 0, .28);
   }
+  .badge--alive { padding: 5px 10px; font-size: 11px; }
   .badge--status {
-    box-shadow: 0 4px 0 var(--sun-deep), 0 8px 14px rgba(0, 0, 0, .28);
+    font-size: 11px;
+    box-shadow: 0 3px 0 var(--sun-deep), 0 6px 12px rgba(0, 0, 0, .28);
   }
   .badge--timer.is-danger {
-    box-shadow: 0 4px 0 var(--coral-deep), 0 8px 14px rgba(0, 0, 0, .28);
+    box-shadow: 0 3px 0 var(--coral-deep), 0 6px 12px rgba(0, 0, 0, .28);
   }
   .hud-btns {
-    top: calc(10px + env(safe-area-inset-top));
-    right: calc(10px + env(safe-area-inset-right));
+    top: calc(8px + var(--pad-top));
+    right: calc(8px + var(--pad-right));
     gap: 6px;
   }
   .arcade-btn {
-    min-height: 40px;
-    padding: 8px 12px;
-    font-size: 12px;
-    border-radius: 14px;
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 11px;
+    border-radius: 12px;
+    box-shadow: 0 3px 0 var(--green-deep), 0 6px 12px rgba(0, 0, 0, .25);
+  }
+  .arcade-btn--sun { box-shadow: 0 3px 0 var(--sun-deep), 0 6px 12px rgba(0, 0, 0, .25); }
+  .arcade-btn--ghost { box-shadow: 0 3px 0 rgba(15, 42, 29, .22), 0 6px 12px rgba(0, 0, 0, .22); }
+  .arcade-btn--coral { box-shadow: 0 3px 0 var(--coral-deep), 0 6px 12px rgba(0, 0, 0, .25); }
+  .arcade-btn--icon {
+    width: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+  }
+  .arcade-btn--icon .icon {
+    width: 16px;
+    height: 16px;
   }
   .ability {
-    right: calc(10px + env(safe-area-inset-right));
-    bottom: calc(48px + env(safe-area-inset-bottom));
-    min-width: 92px;
-    min-height: 52px;
-    font-size: 13px;
+    right: calc(8px + var(--pad-right));
+    bottom: calc(14px + var(--pad-bottom));
+    min-width: 76px;
+    min-height: 42px;
+    padding: 8px 12px;
+    font-size: 11px;
+    letter-spacing: .04em;
   }
   .hud-bl {
-    left: calc(10px + env(safe-area-inset-left));
-    bottom: calc(12px + env(safe-area-inset-bottom));
-    max-width: min(58vw, 210px);
-    gap: 6px;
+    left: calc(8px + var(--pad-left));
+    bottom: calc(10px + var(--pad-bottom));
+    max-width: min(46vw, 168px);
+    gap: 5px;
   }
-  .hint__panel { padding: 10px 10px 8px; font-size: 11px; }
-  .hint__fab { width: 40px; height: 40px; font-size: 18px; border-radius: 12px; }
+  .hint { min-height: 36px; }
+  .hint__panel { padding: 8px 8px 6px; font-size: 10px; border-radius: 12px; }
+  .hint__list { gap: 4px; padding-right: 18px; }
+  .hint__close { width: 24px; height: 24px; font-size: 16px; }
+  .hint__fab { width: 36px; height: 36px; font-size: 16px; border-radius: 11px; }
   .hud-lives {
-    padding: 6px 10px;
+    padding: 5px 8px;
+    border-radius: 11px;
+    gap: 4px;
   }
+  .lives__label { font-size: 9px; }
+  .life { width: 9px; height: 9px; }
   .hud--banner {
     top: 38%;
-    padding: 14px 16px;
-    font-size: clamp(16px, 5vw, 22px);
+    padding: 12px 14px;
+    font-size: clamp(15px, 4.6vw, 20px);
   }
 }
 
@@ -1015,7 +1092,7 @@ canvas.webgl {
 @media (max-height: 560px) and (orientation: landscape) {
   .screen {
     justify-content: flex-start;
-    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-top: calc(12px + var(--pad-top));
   }
   .logo {
     font-size: 28px;
@@ -1028,17 +1105,18 @@ canvas.webgl {
   /* Landscape game: collapse the control list and shrink corner chrome so the
      arena stays readable. */
   .hud-top {
-    top: calc(40px + env(safe-area-inset-top));
+    top: calc(40px + var(--pad-top));
     gap: 4px;
   }
   .badge { padding: 6px 10px; font-size: 11px; }
   .arcade-btn { min-height: 36px; padding: 6px 10px; font-size: 12px; }
+  .arcade-btn--icon { width: 36px; min-width: 36px; min-height: 36px; padding: 0; }
   .ability {
-    min-height: 44px;
-    min-width: 84px;
-    bottom: calc(12px + env(safe-area-inset-bottom));
+    min-height: 40px;
+    min-width: 72px;
+    bottom: calc(10px + var(--pad-bottom));
   }
   .hint__panel { font-size: 10px; padding: 8px; }
   .hint__fab { width: 36px; height: 36px; font-size: 16px; }
-  .hud-bl { max-width: min(42vw, 200px); }
+  .hud-bl { max-width: min(38vw, 180px); }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Logo from './Logo.jsx'
+import { HomeIcon, MoonIcon, SunIcon } from './HudIcons.jsx'
 
 const CONTROLS = [
   ['WASD / свайп', 'ход'],
@@ -10,6 +11,7 @@ const CONTROLS = [
 ]
 
 const HINT_HOLD_MS = 10000
+const isPhone = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 480px)').matches
 
 // Overlay above the canvas. Everything here is driven by onHud patches
 // coming out of the game loop, so React only re-renders when text changes.
@@ -17,9 +19,10 @@ export default function Hud({
   status, timer, timerDanger, alive, banner, isDay, onToggleDay,
   mine, mineReady, onMine, lives, maxLives = 5,
 }) {
-  // open on join, auto-collapses once after HINT_HOLD_MS; later opens are manual
-  const [hintOpen, setHintOpen] = useState(true)
-  const [autoHide, setAutoHide] = useState(true)
+  // Phones start collapsed so the mine button isn't crushed by the cheatsheet.
+  // Desktop still opens once for HINT_HOLD_MS.
+  const [hintOpen, setHintOpen] = useState(() => !isPhone())
+  const [autoHide, setAutoHide] = useState(() => !isPhone())
 
   useEffect(() => {
     if (!hintOpen || !autoHide) return
@@ -50,10 +53,23 @@ export default function Hud({
       </div>
 
       <div className="hud-btns">
-        <button className="arcade-btn arcade-btn--sun" type="button" onClick={onToggleDay}>
-          {isDay ? 'Ночь' : 'День'}
+        <button
+          className="arcade-btn arcade-btn--sun arcade-btn--icon"
+          type="button"
+          onClick={onToggleDay}
+          aria-label={isDay ? 'Ночь' : 'День'}
+          title={isDay ? 'Ночь' : 'День'}
+        >
+          {isDay ? <MoonIcon /> : <SunIcon />}
         </button>
-        <Link className="arcade-btn arcade-btn--ghost" to="/">Меню</Link>
+        <Link
+          className="arcade-btn arcade-btn--ghost arcade-btn--icon"
+          to="/"
+          aria-label="Меню"
+          title="Меню"
+        >
+          <HomeIcon />
+        </Link>
       </div>
 
       <div className="hud-bl">

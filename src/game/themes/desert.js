@@ -434,7 +434,7 @@ export default {
     sunColor: '#b9c9ff', sunIntensity: 1.5,
     accentIntensity: 9,
     underGlow: '#d9915a', underGlowIntensity: 8,
-    spot: '#e6eeff', spotIntensity: 85,
+    spot: '#e6eeff', spotIntensity: 12,
     bloom: 0.16, exposure: 1.0,
   },
 
@@ -444,7 +444,7 @@ export default {
     sunColor: '#fff0c4', sunIntensity: 2.7,
     accentIntensity: 2.5,
     underGlow: '#e0a468', underGlowIntensity: 2.5,
-    spot: '#ffffff', spotIntensity: 30,
+    spot: '#ffffff', spotIntensity: 6,
     bloom: 0.06, exposure: 1.0,
   },
 

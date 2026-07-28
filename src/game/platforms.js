@@ -227,9 +227,13 @@ export function createArena(env) {
       }
     }
 
-    // overhead light so the arena reads clearly whatever the sky is doing
-    const spot = new THREE.SpotLight('#ffffff', 110, 34, Math.PI / 4.2, 0.7, 1.4)
-    spot.position.set(0, 12, 2)
+    // overhead light so the arena reads clearly whatever the sky is doing.
+    // Intensity is in candela (three r155+): the old 110 value blew a white
+    // hotspot into the platform centre, especially at night / with several
+    // levels visible at once.
+    const mode = env.isDay() ? theme.day : theme.night
+    const spot = new THREE.SpotLight(mode.spot, mode.spotIntensity, 28, Math.PI / 3.6, 0.85, 2)
+    spot.position.set(0, 14, 0)
     spot.target.position.set(0, 0, 0)
     group.add(spot, spot.target)
     fx.platformSpots.push(spot)
@@ -242,7 +246,7 @@ export function createArena(env) {
     const tramp = props.trampoline()
     group.add(tramp.g)
 
-    platforms.push({ group, pieces, tramp, trampKey: null, rimGone: 0 })
+    platforms.push({ group, pieces, tramp, trampKey: null, rimGone: 0, spot })
   }
 
   // Called from the welcome handler with the server's layout. Reconnects send
@@ -333,7 +337,11 @@ export function createArena(env) {
   // visibleUpTo: platforms above the local player are hidden so they don't block the view
   function update(dt, t, visibleUpTo) {
     for (let l = 0; l < platforms.length; l++) {
-      platforms[l].group.visible = l <= visibleUpTo
+      const show = l <= visibleUpTo
+      platforms[l].group.visible = show
+      // Hide the light too: some three builds still sample lights under an
+      // invisible parent, which stacked three centre spots into a white beam.
+      if (platforms[l].spot) platforms[l].spot.visible = show
       // gentle platform hover, slightly out of phase per level
       platforms[l].group.position.y = levelY(l) + Math.sin(t * 0.6 + l * 1.3) * 0.05
     }
