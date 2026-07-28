@@ -2,7 +2,10 @@ import { Suspense, lazy } from 'react'
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import AuthPage from './pages/AuthPage.jsx'
 import MenuPage from './pages/MenuPage.jsx'
-import MapPage from './pages/MapPage.jsx'
+import ModePage from './pages/ModePage.jsx'
+import TrainingMapPage from './pages/TrainingMapPage.jsx'
+import PvpMapPage from './pages/PvpMapPage.jsx'
+import PvePage from './pages/PvePage.jsx'
 import ProfilePage from './pages/ProfilePage.jsx'
 import RatingPage from './pages/RatingPage.jsx'
 import PageFade from './components/PageFade.jsx'
@@ -43,7 +46,10 @@ export default function App() {
             <Route element={<MenuShell />}>
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/" element={<RequireAuth><MenuPage /></RequireAuth>} />
-              <Route path="/play" element={<RequireAuth><MapPage /></RequireAuth>} />
+              <Route path="/play" element={<RequireAuth><ModePage /></RequireAuth>} />
+              <Route path="/play/training" element={<RequireAuth><TrainingMapPage /></RequireAuth>} />
+              <Route path="/play/pvp" element={<RequireAuth><PvpMapPage /></RequireAuth>} />
+              <Route path="/play/pve" element={<RequireAuth><PvePage /></RequireAuth>} />
               <Route path="/character" element={<RequireAuth><CharacterPage /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
               <Route path="/rating" element={<RequireAuth><RatingPage /></RequireAuth>} />

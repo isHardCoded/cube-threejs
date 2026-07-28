@@ -32,22 +32,15 @@ func main() {
 		}
 	}
 
-	// One world per map, each with its own round timer and player list.
-	// Presence is shared so an account can only hold a cube on one of them.
 	presence := NewPresence()
-	hubs := make(map[string]*Hub, len(MapOrder))
-	for _, id := range MapOrder {
-		hub := NewHub(store, GameMaps[id], presence)
-		hubs[id] = hub
-		go hub.Run()
-	}
-	log.Println("hubs running:", MapOrder)
+	arena := NewArena(store, presence)
+	log.Println("arena ready (training + pvp matchmaking)")
 
-	api := NewAPI(store)
+	api := NewAPI(store, arena)
 	http.Handle("/api/", api.Handler())
 	http.HandleFunc("/avatars/", serveAvatars)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWS(hubs[MapByID(r.URL.Query().Get("map")).ID], store, w, r)
+		serveWS(arena, store, w, r)
 	})
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

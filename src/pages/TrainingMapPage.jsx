@@ -4,7 +4,8 @@ import { ArrowLeft, Gamepad2 } from 'lucide-react'
 import { DEFAULT_MAP, MAPS } from '../config/maps.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
-export default function MapPage() {
+/** Solo training: pick one map and enter a private room. */
+export default function TrainingMapPage() {
   const [mapId, setMapId] = useState(DEFAULT_MAP)
   const navigate = useNavigate()
   const { t } = useLocale()
@@ -12,6 +13,8 @@ export default function MapPage() {
 
   return (
     <div className="screen">
+      <div className="screen__title">{t('modes.training.name')}</div>
+
       <div className="screen__box">
         <div className="maps maps--pick">
           {MAPS.map((m, i) => (
@@ -44,7 +47,7 @@ export default function MapPage() {
         <div className="pick-actions">
           <Link
             className="btn btn--ghost btn--icon"
-            to="/"
+            to="/play"
             aria-label={t('map.back')}
             title={t('map.back')}
           >
@@ -54,7 +57,7 @@ export default function MapPage() {
             className="btn btn--with-icon"
             type="button"
             disabled={!ready}
-            onClick={() => navigate(`/game?map=${mapId}`)}
+            onClick={() => navigate(`/game?map=${mapId}&mode=training`)}
           >
             <Gamepad2 className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
             <span>{t('map.start')}</span>

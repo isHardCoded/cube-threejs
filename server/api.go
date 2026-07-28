@@ -14,11 +14,12 @@ import (
 
 type API struct {
 	store   *Store
+	arena   *Arena
 	limiter *rateLimiter
 	origins []string // empty means "reflect any origin"
 }
 
-func NewAPI(store *Store) *API {
+func NewAPI(store *Store, arena *Arena) *API {
 	var origins []string
 	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
 		if o = strings.TrimSpace(o); o != "" {
@@ -30,7 +31,7 @@ func NewAPI(store *Store) *API {
 	}
 	// 30/min still makes brute force pointless against bcrypt, while leaving
 	// room for several real players sharing one NAT address.
-	return &API{store: store, limiter: newRateLimiter(30, time.Minute), origins: origins}
+	return &API{store: store, arena: arena, limiter: newRateLimiter(30, time.Minute), origins: origins}
 }
 
 func (a *API) Handler() http.Handler {
@@ -45,6 +46,9 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/skins", a.skins)
 	mux.HandleFunc("GET /api/mine-skins", a.mineSkins)
 	mux.HandleFunc("GET /api/rating", a.rating)
+	mux.HandleFunc("POST /api/match/queue", a.matchQueue)
+	mux.HandleFunc("DELETE /api/match/queue", a.matchCancel)
+	mux.HandleFunc("GET /api/match/status", a.matchStatus)
 	return a.withCORS(mux)
 }
 
@@ -348,6 +352,58 @@ func (a *API) rating(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"players": list, "me": me})
+}
+
+func (a *API) matchQueue(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	var body struct {
+		Maps []string `json:"maps"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	match, err := a.arena.Enqueue(u.ID, body.Maps)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if match != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"state": "matched", "matchId": match.ID, "mapId": match.MapID, "mode": match.Mode,
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"state": "searching"})
+}
+
+func (a *API) matchCancel(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	a.arena.Dequeue(u.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"state": "idle"})
+}
+
+func (a *API) matchStatus(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	state, match, maps := a.arena.Status(u.ID)
+	out := map[string]any{"state": state}
+	if maps != nil {
+		out["maps"] = maps
+	}
+	if match != nil {
+		out["matchId"] = match.ID
+		out["mapId"] = match.MapID
+		out["mode"] = match.Mode
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // --- rate limiting ----------------------------------------------------------

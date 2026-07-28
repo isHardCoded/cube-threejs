@@ -15,7 +15,7 @@ import { t } from '../i18n/t.js'
 // Boots the whole 3D game onto a canvas. onHud receives partial HUD updates
 // so React can render the overlay without touching Three.js.
 // onAuthLost fires when the server refuses the token or another session wins.
-export function startGame({ canvas, token, mapId, onHud = () => {}, onAuthLost, onCubes }) {
+export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {}, onAuthLost, onCubes }) {
   initTelegram()
 
   const env = createEnvironment(canvas, mapId)
@@ -47,7 +47,12 @@ export function startGame({ canvas, token, mapId, onHud = () => {}, onAuthLost, 
   const net = createNet({
     url: () => {
       const params = new URLSearchParams({ token })
-      if (mapId) params.set('map', mapId)
+      if (matchId) {
+        params.set('match', matchId)
+      } else {
+        if (mapId) params.set('map', mapId)
+        params.set('mode', mode || 'training')
+      }
       return `${WS_BASE}?${params}`
     },
     onMessage: protocol.handleMessage,

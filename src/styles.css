@@ -508,7 +508,180 @@ canvas.webgl {
   border-radius: var(--r-sm);
 }
 
-/* --- rating list --------------------------------------------------------- */
+/* --- play modes ---------------------------------------------------------- */
+
+.modes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mode {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 16px;
+  text-decoration: none;
+  color: inherit;
+  background: var(--paper-2);
+  border: 3px solid var(--edge);
+  border-radius: 22px;
+  box-shadow: 0 5px 0 var(--edge);
+  opacity: 0;
+  animation: podiumRise .45s var(--hop) forwards;
+  transition: transform .2s var(--hop), box-shadow .2s var(--hop);
+}
+@media (hover: hover) {
+  .mode:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 9px 0 var(--edge);
+  }
+}
+.mode:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--edge);
+}
+
+.mode__icon {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  border: 3px solid var(--edge);
+  color: var(--green-dark);
+  background: var(--green-soft);
+}
+
+.mode__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mode__name {
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.mode__desc {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+
+.pvp-hint {
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--ink-dim);
+  text-align: center;
+  padding: 0 4px;
+}
+
+.pvp-maps {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows .38s cubic-bezier(.22, 1, .36, 1),
+    opacity .3s ease,
+    transform .38s cubic-bezier(.22, 1, .36, 1);
+  opacity: 1;
+  transform: translateY(0);
+}
+.pvp-maps__inner {
+  /* overflow clips the chunky card shadows — pad so borders stay visible */
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 2px 6px 14px;
+  margin: 0 -6px;
+}
+.pvp-box.is-searching .pvp-maps {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-12px);
+  pointer-events: none;
+}
+.pvp-box.is-searching .pvp-maps__inner {
+  padding-bottom: 0;
+}
+
+.pvp-search-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(14px);
+  pointer-events: none;
+  transition:
+    grid-template-rows .38s cubic-bezier(.22, 1, .36, 1),
+    opacity .32s ease .06s,
+    transform .38s cubic-bezier(.22, 1, .36, 1);
+}
+.pvp-search-slot__inner {
+  overflow: hidden;
+  min-height: 0;
+  padding: 0 8px;
+  margin: 0 -8px;
+}
+.pvp-search-slot.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.pvp-search-slot.is-open .pvp-search-slot__inner {
+  padding: 6px 8px 22px;
+}
+
+.pvp-search {
+  align-items: center;
+  gap: 14px;
+  padding: 20px 16px;
+}
+
+.pvp-actions {
+  transition: opacity .25s ease, transform .3s ease;
+}
+.pvp-actions.is-hidden {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.pve-soon {
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 28px 18px;
+}
+.pve-soon__icon {
+  color: var(--ink-dim);
+}
+.pve-soon__title {
+  font-size: 22px;
+  font-weight: 900;
+}
+.pve-soon__text {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+
+@keyframes podiumRise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 
 .rating-empty {
   padding: 28px 16px;

@@ -17,6 +17,23 @@ export const ru = {
   'menu.looks': 'Внешний вид',
   'menu.settings': 'Настройки',
 
+  'modes.title': 'Режим',
+  'modes.back': 'Назад',
+  'modes.pvp.name': 'PvP',
+  'modes.pvp.desc': 'Поиск соперника',
+  'modes.pve.name': 'PvE',
+  'modes.pve.desc': 'Против ботов',
+  'modes.training.name': 'Тренировка',
+  'modes.training.desc': 'Один на карте',
+
+  'pvp.hint': 'Выбери одну или несколько карт — найдём соперника с пересечением',
+  'pvp.find': 'Найти игру',
+  'pvp.searching': 'Ищем соперника…',
+  'pvp.cancel': 'Отмена',
+
+  'pve.soonTitle': 'Скоро',
+  'pve.soonText': 'Этот режим ещё в разработке. Загляни позже.',
+
   'rating.title': 'Рейтинг',
   'rating.back': 'Назад',
   'rating.top': 'Топ игроков',
@@ -152,6 +169,23 @@ export const en = {
   'menu.rating': 'Rating',
   'menu.looks': 'Looks',
   'menu.settings': 'Settings',
+
+  'modes.title': 'Mode',
+  'modes.back': 'Back',
+  'modes.pvp.name': 'PvP',
+  'modes.pvp.desc': 'Find an opponent',
+  'modes.pve.name': 'PvE',
+  'modes.pve.desc': 'Vs bots',
+  'modes.training.name': 'Training',
+  'modes.training.desc': 'Solo on a map',
+
+  'pvp.hint': 'Pick one or more maps — we match when choices overlap',
+  'pvp.find': 'Find match',
+  'pvp.searching': 'Searching…',
+  'pvp.cancel': 'Cancel',
+
+  'pve.soonTitle': 'Coming soon',
+  'pve.soonText': 'This mode is still in development. Check back later.',
 
   'rating.title': 'Rating',
   'rating.back': 'Back',

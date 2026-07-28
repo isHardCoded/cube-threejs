@@ -76,6 +76,14 @@ type clientMsg struct {
 }
 
 type Hub struct {
+	id         string
+	mode       string // training | pvp | ""
+	maxPlayers int    // 0 = unlimited
+	allowed    map[int64]bool
+	onEmpty    func(*Hub)
+	onJoined   func(userID int64)
+	quit       chan struct{}
+
 	gameMap    *GameMap
 	players    map[string]*Player
 	register   chan *Client
@@ -113,6 +121,7 @@ func NewHub(store *Store, gameMap *GameMap, presence *Presence) *Hub {
 		awards:     make(chan awardResult, 8),
 		store:      store,
 		presence:   presence,
+		quit:       make(chan struct{}),
 	}
 	for l := 0; l < Levels; l++ {
 		h.destroyed[l] = make(map[[2]int]bool)
@@ -127,6 +136,8 @@ func (h *Hub) Run() {
 	defer ticker.Stop()
 	for {
 		select {
+		case <-h.quit:
+			return
 		case c := <-h.register:
 			h.onJoin(c)
 		case c := <-h.unregister:
@@ -140,6 +151,14 @@ func (h *Hub) Run() {
 		case <-ticker.C:
 			h.onTick()
 		}
+	}
+}
+
+func (h *Hub) stop() {
+	select {
+	case <-h.quit:
+	default:
+		close(h.quit)
 	}
 }
 
@@ -304,12 +323,34 @@ func sanitizeName(raw string) string {
 	return name
 }
 
+func (h *Hub) rejectJoin(c *Client, reason string) {
+	h.sendRaw(c, map[string]any{"t": "kicked", "reason": reason})
+	c.closeAfterFlush()
+	h.presence.Leave(c.userID, h)
+}
+
+func (h *Hub) sendRaw(c *Client, v any) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	c.trySend(data)
+}
+
 func (h *Hub) onJoin(c *Client) {
 	id := strconv.FormatInt(c.userID, 10)
+
+	if h.allowed != nil && !h.allowed[c.userID] {
+		h.rejectJoin(c, "not_invited")
+		return
+	}
 
 	// One cube per account: a second tab would otherwise double the farming.
 	if old := h.players[id]; old != nil {
 		h.kickPlayer(old, "another_session")
+	} else if h.maxPlayers > 0 && len(h.players) >= h.maxPlayers {
+		h.rejectJoin(c, "room_full")
+		return
 	}
 
 	l, x, z := h.spawnCell()
@@ -371,6 +412,9 @@ func (h *Hub) onJoin(c *Client) {
 	}
 	log.Printf("join %s on %s at L%d (%d,%d) %s, players=%d",
 		p.ID, h.gameMap.ID, l, x, z, role, len(h.players))
+	if h.onJoined != nil {
+		h.onJoined(c.userID)
+	}
 }
 
 // dropPlayer takes a player out of the world and tells the remaining ones.
@@ -408,6 +452,9 @@ func (h *Hub) onLeave(c *Client) {
 	h.dropPlayer(p)
 	h.presence.Leave(p.userID, h)
 	log.Printf("leave %s on %s, players=%d", p.ID, h.gameMap.ID, len(h.players))
+	if len(h.players) == 0 && h.onEmpty != nil {
+		h.onEmpty(h)
+	}
 }
 
 // ---------------------------------------------------------------------------

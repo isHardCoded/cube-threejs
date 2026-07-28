@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -56,7 +57,7 @@ func (c *Client) closeAfterFlush() {
 	close(c.send)
 }
 
-func serveWS(hub *Hub, store *Store, w http.ResponseWriter, r *http.Request) {
+func serveWS(arena *Arena, store *Store, w http.ResponseWriter, r *http.Request) {
 	// authenticate before upgrading so the client gets a real 401
 	userID, err := userIDFromToken(r.URL.Query().Get("token"))
 	if err != nil {
@@ -72,6 +73,21 @@ func serveWS(hub *Hub, store *Store, w http.ResponseWriter, r *http.Request) {
 	// reload so MineSkinID is valid if it was empty/legacy
 	if u.MineSkinID == "" || !mineSkinExists(u.MineSkinID) {
 		u.MineSkinID = DefaultMineSkin
+	}
+
+	q := r.URL.Query()
+	var hub *Hub
+	if matchID := strings.TrimSpace(q.Get("match")); matchID != "" {
+		hub = arena.MatchHub(matchID)
+		if hub == nil {
+			http.Error(w, "match not found", http.StatusNotFound)
+			return
+		}
+	} else if q.Get("mode") == ModeTraining {
+		hub = arena.TrainingHub(q.Get("map"), u.ID)
+	} else {
+		http.Error(w, "mode required", http.StatusBadRequest)
+		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

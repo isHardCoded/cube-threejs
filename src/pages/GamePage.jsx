@@ -20,12 +20,16 @@ export default function GamePage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const mapId = resolveMapId(params.get('map'))
+  const mode = params.get('mode') || ''
+  const matchId = params.get('match') || ''
 
   useEffect(() => {
     const game = startGame({
       canvas: canvasRef.current,
       token: getToken(),
       mapId,
+      mode,
+      matchId,
       onHud: (patch) => setHud((prev) => ({ ...prev, ...patch })),
       // a win is paid out server-side; keep the menu balance in sync
       onCubes: (cubes) => patchUser({ cubes }),
