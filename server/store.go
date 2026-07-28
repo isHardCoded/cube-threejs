@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
 	telegram_id   BIGINT UNIQUE,
 	cubes         INT NOT NULL DEFAULT 0,
 	skin_id       TEXT NOT NULL DEFAULT 'chrome-yellow',
+	mine_skin_id  TEXT NOT NULL DEFAULT 'classic',
 	class_id      TEXT NOT NULL DEFAULT 'universal',
 	avatar_url    TEXT,
 	avatar_custom BOOLEAN NOT NULL DEFAULT false,
@@ -33,12 +34,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(usern
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_custom BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS mine_skin_id TEXT NOT NULL DEFAULT 'classic';
 
 CREATE TABLE IF NOT EXISTS user_skins (
 	user_id  BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
 	skin_id  TEXT NOT NULL,
 	owned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY (user_id, skin_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_mine_skins (
+	user_id       BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	mine_skin_id  TEXT NOT NULL,
+	owned_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (user_id, mine_skin_id)
 );
 
 CREATE TABLE IF NOT EXISTS match_wins (

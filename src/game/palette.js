@@ -5,6 +5,8 @@
 export const NEON_YELLOW = '#ffd54a'
 export const NEON_CYAN = '#5fe6ff'
 export const NEON_MAGENTA = '#ff4d6d'
+// poop-mine damage numbers / blast tint
+export const POOP_BROWN = '#8b5a2b'
 
 // Cube colors are no longer assigned by id hash: every player picks a skin and
 // the server sends the catalog, so see dice.js and the skin ids instead.

@@ -40,8 +40,11 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/telegram", a.telegramLogin)
 	mux.HandleFunc("GET /api/me", a.me)
 	mux.HandleFunc("POST /api/me/skin", a.setSkin)
+	mux.HandleFunc("POST /api/me/mine-skin", a.setMineSkin)
 	mux.HandleFunc("POST /api/me/avatar", a.setAvatar)
 	mux.HandleFunc("GET /api/skins", a.skins)
+	mux.HandleFunc("GET /api/mine-skins", a.mineSkins)
+	mux.HandleFunc("GET /api/rating", a.rating)
 	return a.withCORS(mux)
 }
 
@@ -136,12 +139,20 @@ func (a *API) authOK(w http.ResponseWriter, u *User) {
 		writeErr(w, http.StatusInternalServerError, "не удалось выдать токен")
 		return
 	}
+	a.store.EnsureMineSkins(u.ID)
 	owned, err := a.store.OwnedSkins(u.ID)
 	if err != nil {
 		log.Println("api auth owned:", err)
 		owned = []string{u.SkinID}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"token": token, "user": u, "ownedSkins": owned})
+	mineOwned, err := a.store.OwnedMineSkins(u.ID)
+	if err != nil {
+		log.Println("api auth mine owned:", err)
+		mineOwned = []string{u.MineSkinID}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token": token, "user": u, "ownedSkins": owned, "ownedMineSkins": mineOwned,
+	})
 }
 
 func (a *API) register(w http.ResponseWriter, r *http.Request) {
@@ -226,12 +237,20 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
+	a.store.EnsureMineSkins(u.ID)
 	owned, err := a.store.OwnedSkins(u.ID)
 	if err != nil {
 		log.Println("api me:", err)
 		owned = []string{u.SkinID}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": u, "ownedSkins": owned})
+	mineOwned, err := a.store.OwnedMineSkins(u.ID)
+	if err != nil {
+		log.Println("api me mine:", err)
+		mineOwned = []string{u.MineSkinID}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user": u, "ownedSkins": owned, "ownedMineSkins": mineOwned,
+	})
 }
 
 func (a *API) setSkin(w http.ResponseWriter, r *http.Request) {
@@ -257,6 +276,30 @@ func (a *API) setSkin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
+func (a *API) setMineSkin(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	a.store.EnsureMineSkins(u.ID)
+	var body struct {
+		MineSkinID string `json:"mineSkinId"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if !mineSkinExists(body.MineSkinID) {
+		writeErr(w, http.StatusBadRequest, "неизвестный скин мины")
+		return
+	}
+	if err := a.store.SetMineSkin(u.ID, body.MineSkinID); err != nil {
+		writeErr(w, http.StatusBadRequest, "скин недоступен")
+		return
+	}
+	u.MineSkinID = body.MineSkinID
+	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+}
+
 func (a *API) setAvatar(w http.ResponseWriter, r *http.Request) {
 	u := a.authUser(w, r)
 	if u == nil {
@@ -278,6 +321,33 @@ func (a *API) setAvatar(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) skins(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"skins": Skins, "default": DefaultSkin})
+}
+
+func (a *API) mineSkins(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"skins": MineSkins, "default": DefaultMineSkin})
+}
+
+func (a *API) rating(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	list, err := a.store.TopByCubes(50)
+	if err != nil {
+		log.Println("api rating:", err)
+		writeErr(w, http.StatusInternalServerError, "ошибка сервера")
+		return
+	}
+	if list == nil {
+		list = []RatingEntry{}
+	}
+	me, err := a.store.RatingOf(u.ID)
+	if err != nil {
+		log.Println("api rating me:", err)
+		writeErr(w, http.StatusInternalServerError, "ошибка сервера")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"players": list, "me": me})
 }
 
 // --- rate limiting ----------------------------------------------------------

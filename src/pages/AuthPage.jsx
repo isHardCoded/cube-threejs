@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import Logo from '../components/Logo.jsx'
+import LangSwitch from '../components/LangSwitch.jsx'
 import Spinner from '../components/Spinner.jsx'
 import { useAuth } from '../auth/context.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
@@ -47,6 +48,7 @@ export default function AuthPage() {
 
   return (
     <div className="screen">
+      <LangSwitch />
       <Logo />
 
       <div className="screen__box">
@@ -92,10 +94,6 @@ export default function AuthPage() {
               {busy ? <Spinner /> : mode === 'login' ? t('auth.submitLogin') : t('auth.submitRegister')}
             </button>
           </form>
-        </div>
-
-        <div className="soon-note">
-          {mode === 'login' ? t('auth.hintLogin') : t('auth.hintRegister')}
         </div>
       </div>
     </div>

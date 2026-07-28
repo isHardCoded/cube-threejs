@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { resolveAvatarUrl } from '../auth/avatar.js'
+import { sfx } from '../game/sfx.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 import Spinner from './Spinner.jsx'
 
@@ -31,7 +32,10 @@ export default function AvatarModal({ user, open, onClose, onUpload }) {
   useEffect(() => {
     if (!open) return
     function onKey(e) {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        sfx.modalClose()
+        onClose()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -145,7 +149,7 @@ export default function AvatarModal({ user, open, onClose, onUpload }) {
           <button className="btn" type="button" onClick={save} disabled={saving || !file}>
             {saving ? <Spinner /> : t('avatar.save')}
           </button>
-          <button className="btn btn--ghost" type="button" onClick={onClose} disabled={saving}>
+          <button className="btn btn--ghost" type="button" data-sfx="close" onClick={onClose} disabled={saving}>
             {t('avatar.cancel')}
           </button>
         </div>

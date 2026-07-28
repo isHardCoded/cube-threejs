@@ -4,11 +4,13 @@ import App from './App.jsx'
 import { AuthProvider } from './auth/AuthContext.jsx'
 import { LocaleProvider } from './i18n/LocaleContext.jsx'
 import { initTelegram } from './game/telegram.js'
+import { bindUiSfx } from './game/sfx.js'
 import './styles.css'
 
 // Expand the Mini App shell before React paints, so the first menu already
 // fills the Telegram viewport instead of sitting in a tiny card.
 initTelegram()
+bindUiSfx()
 
 // No StrictMode on purpose: it double-mounts effects, which would spin up
 // a second WebGL context and a second websocket on every navigation.

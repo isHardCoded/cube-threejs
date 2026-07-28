@@ -45,7 +45,9 @@ export const auth = {
 
 export const profile = {
   skins: () => api('/api/skins', { auth: false }),
+  mineSkins: () => api('/api/mine-skins', { auth: false }),
   setSkin: (skinId) => api('/api/me/skin', { method: 'POST', body: { skinId } }),
+  setMineSkin: (mineSkinId) => api('/api/me/mine-skin', { method: 'POST', body: { mineSkinId } }),
   setAvatar: async (file) => {
     const headers = {}
     const token = getToken()
@@ -74,4 +76,8 @@ export const profile = {
     if (!res.ok) throw new ApiError(data?.error || t('common.error', { status: res.status }), res.status)
     return data
   },
+}
+
+export const rating = {
+  top: () => api('/api/rating'),
 }

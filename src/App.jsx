@@ -4,8 +4,8 @@ import AuthPage from './pages/AuthPage.jsx'
 import MenuPage from './pages/MenuPage.jsx'
 import MapPage from './pages/MapPage.jsx'
 import ProfilePage from './pages/ProfilePage.jsx'
+import RatingPage from './pages/RatingPage.jsx'
 import PageFade from './components/PageFade.jsx'
-import LangSwitch from './components/LangSwitch.jsx'
 import Spinner from './components/Spinner.jsx'
 import { useAuth } from './auth/context.js'
 import { useLocale } from './i18n/LocaleContext.jsx'
@@ -29,14 +29,9 @@ function RequireAuth({ children }) {
   return user ? children : <Navigate to="/auth" replace />
 }
 
-/** Menu chrome (language switch) — never shown on the in-match screen. */
+/** Menu routes share this shell; in-match /game stays outside. */
 function MenuShell() {
-  return (
-    <>
-      <LangSwitch />
-      <Outlet />
-    </>
-  )
+  return <Outlet />
 }
 
 export default function App() {
@@ -51,6 +46,7 @@ export default function App() {
               <Route path="/play" element={<RequireAuth><MapPage /></RequireAuth>} />
               <Route path="/character" element={<RequireAuth><CharacterPage /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+              <Route path="/rating" element={<RequireAuth><RatingPage /></RequireAuth>} />
             </Route>
             <Route path="/game" element={<RequireAuth><GamePage /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -13,6 +13,7 @@ const KINDS = {
   cyberpunk: ['pylon', 'crate', 'barrel', 'column', 'antenna'],
   lava: ['spire', 'boulder', 'vent', 'basalt'],
   desert: ['cactus', 'palm', 'rock', 'ruin'],
+  kawaii: ['bow', 'gift', 'heart', 'cloud'],
 }
 
 const SKINS = [

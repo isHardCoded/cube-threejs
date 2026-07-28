@@ -27,6 +27,12 @@ const (
 	KindPalm   = "palm"
 	KindRock   = "rock"
 	KindRuin   = "ruin"
+
+	// kawaii
+	KindBow   = "bow"
+	KindGift  = "gift"
+	KindHeart = "heart"
+	KindCloud = "cloud"
 )
 
 type Obstacle struct {
@@ -47,7 +53,7 @@ type GameMap struct {
 }
 
 // MapOrder keeps hub creation and logging deterministic.
-var MapOrder = []string{"cyberpunk", "lava", "desert"}
+var MapOrder = []string{"cyberpunk", "lava", "desert", "kawaii"}
 
 const DefaultMapID = "cyberpunk"
 
@@ -165,6 +171,39 @@ var GameMaps = map[string]*GameMap{
 					obs(KindCactus, [2]int{0, 4}, [2]int{0, -4}, [2]int{4, 0}, [2]int{-4, 0}),
 					obs(KindRock, [2]int{1, 1}, [2]int{-1, -1}),
 					obs(KindPalm, [2]int{3, -3}, [2]int{-3, 3}),
+				),
+				Decals: [][2]int{{0, 0}, {3, 3}, {-3, -3}},
+			},
+		},
+	},
+
+	"kawaii": {
+		ID: "kawaii",
+		Levels: [Levels]LevelLayout{
+			{ // level 0: gifts in the corners, bows along the lanes; centre free for trampoline
+				Obstacles: join(
+					obs(KindGift, [2]int{-4, -4}, [2]int{4, 4}, [2]int{-4, 4}, [2]int{4, -4}),
+					obs(KindBow, [2]int{-2, 0}, [2]int{2, 0}, [2]int{0, -3}, [2]int{0, 3}),
+					obs(KindHeart, [2]int{-3, 2}, [2]int{3, -2}, [2]int{3, 2}, [2]int{-3, -2}),
+					obs(KindCloud, [2]int{2, 3}, [2]int{-2, -3}),
+				),
+				Decals: [][2]int{{1, 1}, {-1, -1}, {0, 4}},
+			},
+			{ // level 1: big bow at centre, gifts and hearts around
+				Obstacles: join(
+					obs(KindBow, [2]int{0, 0}),
+					obs(KindGift, [2]int{-3, -1}, [2]int{3, 1}, [2]int{-1, 3}, [2]int{1, -3}),
+					obs(KindHeart, [2]int{-2, 2}, [2]int{2, -2}, [2]int{4, -4}, [2]int{-4, 4}),
+					obs(KindCloud, [2]int{-4, -1}, [2]int{4, 1}),
+				),
+				Decals: [][2]int{{0, -2}, {2, 2}, {-2, -2}},
+			},
+			{ // level 2: heart bouquet arena, no trampoline out of here
+				Obstacles: join(
+					obs(KindHeart, [2]int{2, 2}, [2]int{-2, -2}, [2]int{2, -2}, [2]int{-2, 2}),
+					obs(KindBow, [2]int{0, 4}, [2]int{0, -4}, [2]int{4, 0}, [2]int{-4, 0}),
+					obs(KindGift, [2]int{1, 1}, [2]int{-1, -1}),
+					obs(KindCloud, [2]int{3, -3}, [2]int{-3, 3}),
 				),
 				Decals: [][2]int{{0, 0}, {3, 3}, {-3, -3}},
 			},

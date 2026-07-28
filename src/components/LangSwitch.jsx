@@ -1,10 +1,11 @@
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
-export default function LangSwitch() {
+export default function LangSwitch({ variant = 'floating' }) {
   const { locale, setLocale } = useLocale()
+  const className = variant === 'inline' ? 'lang-switch lang-switch--inline' : 'lang-switch'
 
   return (
-    <div className="lang-switch" role="group" aria-label="Language">
+    <div className={className} role="group" aria-label={variant === 'inline' ? undefined : 'Language'}>
       <button
         type="button"
         className={`lang-switch__btn${locale === 'ru' ? ' is-active' : ''}`}

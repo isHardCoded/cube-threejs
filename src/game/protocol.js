@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { NEON_MAGENTA } from './palette.js'
+import { NEON_MAGENTA, POOP_BROWN } from './palette.js'
 import { quatForOrient } from './dice.js'
 import { levelY } from './layouts.js'
 import { sfx } from './sfx.js'
@@ -69,6 +69,7 @@ export function createProtocol({
       case 'welcome': {
         pm.state.myId = msg.id
         pm.setSkins(msg.skins) // before any cube is built
+        mines.setSkin(msg.mineSkinId)
         pm.local.dashCooldownMs = msg.dashCooldownMs || 5000
         pm.local.jumpCooldownMs = msg.jumpCooldownMs || 1200
         pm.local.mineCooldownMs = msg.mineCooldownMs || 8000
@@ -212,7 +213,8 @@ export function createProtocol({
       case 'mine':
         mines.add(msg.level, msg.x, msg.z)
         pm.local.mineReadyAt = performance.now() + pm.local.mineCooldownMs
-        sfx.arm()
+        if ((msg.skinId || '') === 'poop') sfx.poopArm()
+        else sfx.arm()
         break
 
       case 'mineGone':
@@ -220,15 +222,18 @@ export function createProtocol({
         break
 
       case 'mineBoom': {
-        mines.boom(msg.level, msg.x, msg.z)
+        const boomSkin = msg.skinId || 'classic'
+        mines.boom(msg.level, msg.x, msg.z, boomSkin)
         const victim = pm.players.get(msg.id)
         if (victim) {
           victim.hp = msg.hp
           victim.flash = 1
           pm.paintPlate(victim)
-          popups.spawn(`-${msg.dmg}`, NEON_MAGENTA, victim.group.position.clone().add(POPUP_OFFSET))
+          const dmgColor = boomSkin === 'poop' ? POOP_BROWN : NEON_MAGENTA
+          popups.spawn(`-${msg.dmg}`, dmgColor, victim.group.position.clone().add(POPUP_OFFSET))
         }
-        sfx.hit()
+        if (boomSkin === 'poop') sfx.fart()
+        else sfx.hit()
         const viewer = pm.me()
         if (viewer && (msg.id === myId() || viewer.level === msg.level)) env.addShake(0.3)
         if (msg.id === myId()) hapticHeavy()

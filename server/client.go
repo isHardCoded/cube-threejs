@@ -24,10 +24,11 @@ type Client struct {
 	player *Player
 
 	// resolved from the ?token= JWT before the upgrade
-	userID  int64
-	name    string
-	skinID  string
-	classID string
+	userID     int64
+	name       string
+	skinID     string
+	mineSkinID string
+	classID    string
 
 	closing bool // set by the hub goroutine when this connection is being retired
 }
@@ -67,6 +68,11 @@ func serveWS(hub *Hub, store *Store, w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	store.EnsureMineSkins(u.ID)
+	// reload so MineSkinID is valid if it was empty/legacy
+	if u.MineSkinID == "" || !mineSkinExists(u.MineSkinID) {
+		u.MineSkinID = DefaultMineSkin
+	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -75,7 +81,7 @@ func serveWS(hub *Hub, store *Store, w http.ResponseWriter, r *http.Request) {
 	}
 	c := &Client{
 		conn: conn, send: make(chan []byte, 64), hub: hub,
-		userID: u.ID, name: u.Username, skinID: u.SkinID, classID: u.ClassID,
+		userID: u.ID, name: u.Username, skinID: u.SkinID, mineSkinID: u.MineSkinID, classID: u.ClassID,
 	}
 	// claim the account for this world before joining, so a cube on another
 	// map is released instead of running in parallel

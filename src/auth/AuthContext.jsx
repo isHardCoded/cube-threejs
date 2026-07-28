@@ -7,12 +7,14 @@ import { AuthContext } from './context.js'
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [ownedSkins, setOwnedSkins] = useState([])
+  const [ownedMineSkins, setOwnedMineSkins] = useState([])
   const [loading, setLoading] = useState(true)
 
   const accept = useCallback((res) => {
     setToken(res.token)
     setUser(res.user)
     setOwnedSkins(res.ownedSkins || [])
+    setOwnedMineSkins(res.ownedMineSkins || [])
     return res.user
   }, [])
 
@@ -27,6 +29,7 @@ export function AuthProvider({ children }) {
           if (!cancelled) {
             setUser(res.user)
             setOwnedSkins(res.ownedSkins || [])
+            setOwnedMineSkins(res.ownedMineSkins || [])
           }
           return
         } catch {
@@ -53,6 +56,7 @@ export function AuthProvider({ children }) {
   const value = useMemo(() => ({
     user,
     ownedSkins,
+    ownedMineSkins,
     loading,
     login: async (username, password) => accept(await authApi.login(username, password)),
     register: async (username, password) => accept(await authApi.register(username, password)),
@@ -60,15 +64,17 @@ export function AuthProvider({ children }) {
       setToken('')
       setUser(null)
       setOwnedSkins([])
+      setOwnedMineSkins([])
     },
     refresh: async () => {
       const res = await authApi.me()
       setUser(res.user)
       setOwnedSkins(res.ownedSkins || [])
+      setOwnedMineSkins(res.ownedMineSkins || [])
       return res.user
     },
     patchUser: (patch) => setUser((u) => (u ? { ...u, ...patch } : u)),
-  }), [user, ownedSkins, loading, accept])
+  }), [user, ownedSkins, ownedMineSkins, loading, accept])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

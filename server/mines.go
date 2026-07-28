@@ -20,10 +20,11 @@ const (
 // A mine is only ever sent to the player who placed it: a trap everyone can see
 // is just a wall. Victims learn about it from the explosion.
 type Mine struct {
-	Level int    `json:"level"`
-	X     int    `json:"x"`
-	Z     int    `json:"z"`
-	Owner string `json:"owner"`
+	Level  int    `json:"level"`
+	X      int    `json:"x"`
+	Z      int    `json:"z"`
+	Owner  string `json:"owner"`
+	SkinID string `json:"skinId"` // cosmetic at place time; boom carries it to everyone
 
 	expires time.Time
 }
@@ -66,12 +67,16 @@ func (h *Hub) placeMine(p *Player, now time.Time) {
 		return
 	}
 
-	m := &Mine{Level: l, X: x, Z: z, Owner: p.ID, expires: now.Add(MineLifetime)}
+	skin := p.MineSkinID
+	if skin == "" || !mineSkinExists(skin) {
+		skin = DefaultMineSkin
+	}
+	m := &Mine{Level: l, X: x, Z: z, Owner: p.ID, SkinID: skin, expires: now.Add(MineLifetime)}
 	h.mines[mineKey(l, x, z)] = m
 	p.mineReadyAt = now.Add(MineCooldown)
 	h.sendTo(p, map[string]any{
 		"t": "mine", "level": l, "x": x, "z": z,
-		"expiresMs": MineLifetime.Milliseconds(),
+		"skinId": skin, "expiresMs": MineLifetime.Milliseconds(),
 	})
 }
 
@@ -91,7 +96,7 @@ func (h *Hub) mineTrigger(p *Player, now time.Time) {
 	}
 	h.broadcast(map[string]any{
 		"t": "mineBoom", "level": m.Level, "x": m.X, "z": m.Z,
-		"id": p.ID, "dmg": MineDamage, "hp": p.HP,
+		"id": p.ID, "dmg": MineDamage, "hp": p.HP, "skinId": m.SkinID,
 	})
 
 	if p.HP <= 0 && !p.Dead {

@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -24,6 +25,12 @@ func main() {
 		log.Fatalln("store:", err)
 	}
 	defer store.Close()
+
+	if shouldSeedDemo() {
+		if err := store.SeedDemoPlayers(); err != nil {
+			log.Println("seed:", err)
+		}
+	}
 
 	// One world per map, each with its own round timer and player list.
 	// Presence is shared so an account can only hold a cube on one of them.
@@ -51,4 +58,12 @@ func main() {
 
 	log.Println("cube game server listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
+}
+
+func shouldSeedDemo() bool {
+	if v := strings.TrimSpace(os.Getenv("SEED_DEMO")); v == "1" || strings.EqualFold(v, "true") {
+		return true
+	}
+	// local docker-compose sets JWT_SECRET to something containing "local"
+	return strings.Contains(strings.ToLower(os.Getenv("JWT_SECRET")), "local")
 }

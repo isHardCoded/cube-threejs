@@ -51,6 +51,7 @@ type Player struct {
 
 	userID      int64
 	client      *Client
+	MineSkinID  string // armed onto each mine at place time; not broadcast on the cube
 	nextMoveAt  time.Time
 	dashReadyAt time.Time
 	jumpReadyAt time.Time
@@ -315,11 +316,12 @@ func (h *Hub) onJoin(c *Client) {
 	p := &Player{
 		ID: id, Name: sanitizeName(c.name), SkinID: c.skinID, ClassID: c.classID,
 		Level: l, X: x, Z: z,
-		Orient: StartOrient(),
-		HP:     MaxHP,
-		Lives:  MaxLives,
-		userID: c.userID,
-		client: c,
+		Orient:     StartOrient(),
+		HP:         MaxHP,
+		Lives:      MaxLives,
+		userID:     c.userID,
+		client:     c,
+		MineSkinID: c.mineSkinID,
 	}
 	// a fight in progress is not joinable: watch it out and start with everyone
 	// else in the next round
@@ -350,6 +352,9 @@ func (h *Hub) onJoin(c *Client) {
 		"layout": h.gameMap.Levels,
 		// every cube is rendered from this catalog, so skins look the same for all
 		"skins": Skins,
+		// only I see my mines, so one mineSkinId is enough
+		"mineSkinId": c.mineSkinID,
+		"mineSkins":  MineSkins,
 	}
 	for k, v := range h.worldSnapshot() {
 		welcome[k] = v

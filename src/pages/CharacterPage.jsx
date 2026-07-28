@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import DiePreview from '../components/DiePreview.jsx'
+import MinePreview from '../components/MinePreview.jsx'
 import Spinner from '../components/Spinner.jsx'
 import { profile } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
 import { DEFAULT_SKIN } from '../game/dice.js'
+import { DEFAULT_MINE_SKIN } from '../game/mineModels.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
 /** Soft resistance past the edge — feels like a trampoline, not a wall. */
@@ -12,15 +14,20 @@ function rubber(over, size) {
   const dim = Math.max(size, 1)
   const sign = Math.sign(over)
   const x = Math.abs(over)
-  // gentler curve: more give, less of a hard stop
   return sign * (1 - 1 / ((x * 0.28) / dim + 1)) * dim * 1.15
 }
 
+const DEFAULT_MINE = { id: DEFAULT_MINE_SKIN, name: 'Классика', swatch: '#4a3a3a', emoji: '💣' }
+
 export default function CharacterPage() {
-  const { user, ownedSkins, patchUser } = useAuth()
+  const { user, ownedSkins, ownedMineSkins, patchUser } = useAuth()
   const { t, translateError } = useLocale()
+  const [tab, setTab] = useState('cube') // cube | mine
+
   const [catalog, setCatalog] = useState([])
+  const [mineCatalog, setMineCatalog] = useState([])
   const [picked, setPicked] = useState(user?.skinId || DEFAULT_SKIN.id)
+  const [pickedMine, setPickedMine] = useState(user?.mineSkinId || DEFAULT_MINE.id)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -31,8 +38,11 @@ export default function CharacterPage() {
   const springRaf = useRef(0)
 
   useEffect(() => {
-    profile.skins()
-      .then((res) => setCatalog(res.skins || []))
+    Promise.all([profile.skins(), profile.mineSkins()])
+      .then(([dice, mines]) => {
+        setCatalog(dice.skins || [])
+        setMineCatalog(mines.skins || [])
+      })
       .catch((err) => setError(translateError(err.message)))
       .finally(() => setLoading(false))
   }, [translateError])
@@ -60,7 +70,6 @@ export default function CharacterPage() {
       stopSpring()
       let v = 0
       const tick = () => {
-        // soft settle — low stiffness, high damping, almost no overshoot slap
         const stiff = 0.08
         const damp = 0.82
         v = (v + (0 - pull.current) * stiff) * damp
@@ -132,21 +141,25 @@ export default function CharacterPage() {
       el.removeEventListener('pointerup', endDrag)
       el.removeEventListener('pointercancel', endDrag)
     }
-  }, [loading, catalog.length])
+  }, [loading, catalog.length, mineCatalog.length, tab])
 
-  function pickSkin(id) {
+  function pick(id) {
     if (drag.current?.suppressClick) {
       drag.current = null
       return
     }
-    setPicked(id)
+    if (tab === 'cube') setPicked(id)
+    else setPickedMine(id)
   }
 
   const skin = catalog.find((s) => s.id === picked) || DEFAULT_SKIN
-  const equipped = user?.skinId
-  const owns = (id) => ownedSkins.includes(id)
-  const skinName = (s) => {
-    const key = `skins.${s.id}`
+  const mineSkin = mineCatalog.find((s) => s.id === pickedMine) || DEFAULT_MINE
+  const equipped = tab === 'cube' ? user?.skinId : user?.mineSkinId
+  const activeId = tab === 'cube' ? picked : pickedMine
+  const owns = (id) => (tab === 'cube' ? ownedSkins : ownedMineSkins).includes(id)
+
+  const skinName = (s, kind) => {
+    const key = kind === 'mine' ? `mineSkins.${s.id}` : `skins.${s.id}`
     const label = t(key)
     return label === key ? (s.name || t('looks.skin')) : label
   }
@@ -155,8 +168,13 @@ export default function CharacterPage() {
     setSaving(true)
     setError('')
     try {
-      const res = await profile.setSkin(picked)
-      patchUser({ skinId: res.user.skinId })
+      if (tab === 'cube') {
+        const res = await profile.setSkin(picked)
+        patchUser({ skinId: res.user.skinId, mineSkinId: res.user.mineSkinId })
+      } else {
+        const res = await profile.setMineSkin(pickedMine)
+        patchUser({ skinId: res.user.skinId, mineSkinId: res.user.mineSkinId })
+      }
     } catch (err) {
       setError(translateError(err.message))
     } finally {
@@ -164,32 +182,69 @@ export default function CharacterPage() {
     }
   }
 
+  const list = tab === 'cube' ? catalog : mineCatalog
+
   return (
     <div className="screen">
       <div className="screen__box">
         <div className="screen__card">
-          <DiePreview skin={skin} />
-          <div className="label">{skinName(skin)}</div>
+          <div className="tabs">
+            <button
+              type="button"
+              className={`tab${tab === 'cube' ? ' is-active' : ''}`}
+              onClick={() => setTab('cube')}
+            >
+              {t('looks.tabCube')}
+            </button>
+            <button
+              type="button"
+              className={`tab${tab === 'mine' ? ' is-active' : ''}`}
+              onClick={() => setTab('mine')}
+            >
+              {t('looks.tabMine')}
+            </button>
+          </div>
+
+          {tab === 'cube' ? (
+            <>
+              <DiePreview skin={skin} />
+              <div className="label">{skinName(skin, 'cube')}</div>
+            </>
+          ) : (
+            <>
+              <MinePreview skinId={mineSkin.id} />
+              <div className="label">{skinName(mineSkin, 'mine')}</div>
+            </>
+          )}
 
           {loading ? (
             <Spinner />
           ) : (
             <div className="skins" ref={stripRef}>
               <div className="skins__track" role="list" ref={trackRef}>
-                {catalog.map((s) => (
+                {list.map((s) => (
                   <button
                     key={s.id}
                     type="button"
                     role="listitem"
-                    className={`skin${s.id === picked ? ' skin--picked' : ''}`}
-                    onClick={() => pickSkin(s.id)}
+                    className={`skin${s.id === activeId ? ' skin--picked' : ''}`}
+                    onClick={() => pick(s.id)}
                     disabled={!owns(s.id)}
                   >
-                    <div
-                      className="skin__swatch"
-                      style={{ color: s.pip, background: s.body }}
-                    />
-                    {skinName(s)}
+                    {tab === 'cube' ? (
+                      <div
+                        className="skin__swatch"
+                        style={{ color: s.pip, background: s.body }}
+                      />
+                    ) : (
+                      <div
+                        className="skin__swatch skin__swatch--emoji"
+                        style={{ background: s.swatch }}
+                      >
+                        {s.emoji}
+                      </div>
+                    )}
+                    {skinName(s, tab)}
                     {s.id === equipped && <div className="skin__tag">{t('looks.equipped')}</div>}
                   </button>
                 ))}
@@ -203,9 +258,9 @@ export default function CharacterPage() {
             className="btn"
             type="button"
             onClick={equip}
-            disabled={saving || loading || picked === equipped || !owns(picked)}
+            disabled={saving || loading || activeId === equipped || !owns(activeId)}
           >
-            {saving ? <Spinner /> : picked === equipped ? t('looks.already') : t('looks.equip')}
+            {saving ? <Spinner /> : activeId === equipped ? t('looks.already') : t('looks.equip')}
           </button>
         </div>
 
