@@ -33,6 +33,18 @@ const (
 	KindGift  = "gift"
 	KindHeart = "heart"
 	KindCloud = "cloud"
+
+	// jungle
+	KindTree  = "tree"
+	KindVine  = "vine"
+	KindStump = "stump"
+	KindFern  = "fern"
+
+	// ocean (underwater)
+	KindCoral   = "coral"
+	KindKelp    = "kelp"
+	KindSeRock  = "serock"
+	KindAnemone = "anemone"
 )
 
 type Obstacle struct {
@@ -53,7 +65,7 @@ type GameMap struct {
 }
 
 // MapOrder keeps hub creation and logging deterministic.
-var MapOrder = []string{"cyberpunk", "lava", "desert", "kawaii"}
+var MapOrder = []string{"cyberpunk", "lava", "desert", "kawaii", "jungle", "ocean"}
 
 const DefaultMapID = "cyberpunk"
 
@@ -204,6 +216,72 @@ var GameMaps = map[string]*GameMap{
 					obs(KindBow, [2]int{0, 4}, [2]int{0, -4}, [2]int{4, 0}, [2]int{-4, 0}),
 					obs(KindGift, [2]int{1, 1}, [2]int{-1, -1}),
 					obs(KindCloud, [2]int{3, -3}, [2]int{-3, 3}),
+				),
+				Decals: [][2]int{{0, 0}, {3, 3}, {-3, -3}},
+			},
+		},
+	},
+
+	"jungle": {
+		ID: "jungle",
+		Levels: [Levels]LevelLayout{
+			{
+				Obstacles: join(
+					obs(KindTree, [2]int{-4, -4}, [2]int{4, 4}, [2]int{-4, 4}, [2]int{4, -4}),
+					obs(KindVine, [2]int{-2, 0}, [2]int{2, 0}, [2]int{0, -3}, [2]int{0, 3}),
+					obs(KindStump, [2]int{-3, 2}, [2]int{3, -2}, [2]int{3, 2}, [2]int{-3, -2}),
+					obs(KindFern, [2]int{2, 3}, [2]int{-2, -3}),
+				),
+				Decals: [][2]int{{1, 1}, {-1, -1}, {0, 4}},
+			},
+			{
+				Obstacles: join(
+					obs(KindTree, [2]int{0, 0}),
+					obs(KindFern, [2]int{-3, -1}, [2]int{3, 1}, [2]int{-1, 3}, [2]int{1, -3}),
+					obs(KindStump, [2]int{-2, 2}, [2]int{2, -2}, [2]int{4, -4}, [2]int{-4, 4}),
+					obs(KindVine, [2]int{-4, -1}, [2]int{4, 1}),
+				),
+				Decals: [][2]int{{0, -2}, {2, 2}, {-2, -2}},
+			},
+			{
+				Obstacles: join(
+					obs(KindStump, [2]int{2, 2}, [2]int{-2, -2}, [2]int{2, -2}, [2]int{-2, 2}),
+					obs(KindTree, [2]int{0, 4}, [2]int{0, -4}, [2]int{4, 0}, [2]int{-4, 0}),
+					obs(KindFern, [2]int{1, 1}, [2]int{-1, -1}),
+					obs(KindVine, [2]int{3, -3}, [2]int{-3, 3}),
+				),
+				Decals: [][2]int{{0, 0}, {3, 3}, {-3, -3}},
+			},
+		},
+	},
+
+	"ocean": {
+		ID: "ocean",
+		Levels: [Levels]LevelLayout{
+			{
+				Obstacles: join(
+					obs(KindCoral, [2]int{-4, -4}, [2]int{4, 4}, [2]int{-4, 4}, [2]int{4, -4}),
+					obs(KindKelp, [2]int{-2, 0}, [2]int{2, 0}, [2]int{0, -3}, [2]int{0, 3}),
+					obs(KindSeRock, [2]int{-3, 2}, [2]int{3, -2}, [2]int{3, 2}, [2]int{-3, -2}),
+					obs(KindAnemone, [2]int{2, 3}, [2]int{-2, -3}),
+				),
+				Decals: [][2]int{{1, 1}, {-1, -1}, {0, 4}},
+			},
+			{
+				Obstacles: join(
+					obs(KindCoral, [2]int{0, 0}),
+					obs(KindAnemone, [2]int{-3, -1}, [2]int{3, 1}, [2]int{-1, 3}, [2]int{1, -3}),
+					obs(KindSeRock, [2]int{-2, 2}, [2]int{2, -2}, [2]int{4, -4}, [2]int{-4, 4}),
+					obs(KindKelp, [2]int{-4, -1}, [2]int{4, 1}),
+				),
+				Decals: [][2]int{{0, -2}, {2, 2}, {-2, -2}},
+			},
+			{
+				Obstacles: join(
+					obs(KindAnemone, [2]int{2, 2}, [2]int{-2, -2}, [2]int{2, -2}, [2]int{-2, 2}),
+					obs(KindCoral, [2]int{0, 4}, [2]int{0, -4}, [2]int{4, 0}, [2]int{-4, 0}),
+					obs(KindSeRock, [2]int{1, 1}, [2]int{-1, -1}),
+					obs(KindKelp, [2]int{3, -3}, [2]int{-3, 3}),
 				),
 				Decals: [][2]int{{0, 0}, {3, 3}, {-3, -3}},
 			},

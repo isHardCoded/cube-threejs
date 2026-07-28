@@ -14,6 +14,8 @@ const KINDS = {
   lava: ['spire', 'boulder', 'vent', 'basalt'],
   desert: ['cactus', 'palm', 'rock', 'ruin'],
   kawaii: ['bow', 'gift', 'heart', 'cloud'],
+  jungle: ['tree', 'vine', 'stump', 'fern'],
+  ocean: ['coral', 'kelp', 'serock', 'anemone'],
 }
 
 const SKINS = [

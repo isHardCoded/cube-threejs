@@ -62,6 +62,10 @@ export const ru = {
   'maps.desert.desc': 'Оазис',
   'maps.kawaii.name': 'Китти',
   'maps.kawaii.desc': 'Сладкий мир',
+  'maps.jungle.name': 'Джунгли',
+  'maps.jungle.desc': 'Густой лес',
+  'maps.ocean.name': 'Океан',
+  'maps.ocean.desc': 'Под водой',
 
   'looks.skin': 'Скин',
   'looks.equipped': 'надет',
@@ -215,6 +219,10 @@ export const en = {
   'maps.desert.desc': 'Oasis',
   'maps.kawaii.name': 'Kitty',
   'maps.kawaii.desc': 'Candy world',
+  'maps.jungle.name': 'Jungle',
+  'maps.jungle.desc': 'Dense forest',
+  'maps.ocean.name': 'Ocean',
+  'maps.ocean.desc': 'Underwater',
 
   'looks.skin': 'Skin',
   'looks.equipped': 'equipped',

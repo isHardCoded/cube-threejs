@@ -1219,6 +1219,8 @@ canvas.webgl {
 .map--lava .map__art { background-color: #1b0f14; }
 .map--desert .map__art { background-color: #a9d6f2; }
 .map--kawaii .map__art { background-color: #ffd0e8; }
+.map--jungle .map__art { background-color: #7ec8a0; }
+.map--ocean .map__art { background-color: #3aa8c8; }
 .map.is-active {
   border-color: var(--green);
   box-shadow: 0 5px 0 var(--green-deep);

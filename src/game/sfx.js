@@ -241,37 +241,78 @@ export const sfx = {
     o2.start(t0 + 0.2)
     o2.stop(t0 + 0.45)
   },
-  // short UI tap
+  // tactile UI click — plastic/metal contact, not a soft beep
   click() {
     ensureAudio()
     if (!ready()) return
     const t0 = audioCtx.currentTime
-    const o = audioCtx.createOscillator()
-    o.type = 'triangle'
-    o.frequency.setValueAtTime(720, t0)
-    o.frequency.exponentialRampToValueAtTime(380, t0 + 0.04)
-    o.connect(envGain(t0, 0.07, 0.05))
-    o.start(t0)
-    o.stop(t0 + 0.06)
+    const jitter = 0.92 + Math.random() * 0.16
+
+    // sharp contact transient (what makes it feel like a real button)
+    const noise = makeNoise(0.03)
+    const hp = audioCtx.createBiquadFilter()
+    hp.type = 'bandpass'
+    hp.frequency.value = 2800 * jitter
+    hp.Q.value = 1.1
+    const ng = audioCtx.createGain()
+    ng.gain.setValueAtTime(0.55, t0)
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.018)
+    noise.connect(hp).connect(ng).connect(audioCtx.destination)
+    noise.start(t0)
+
+    // mechanical snap — short bright tick
+    const tick = audioCtx.createOscillator()
+    tick.type = 'square'
+    tick.frequency.setValueAtTime(2100 * jitter, t0)
+    tick.frequency.exponentialRampToValueAtTime(900 * jitter, t0 + 0.022)
+    const tg = audioCtx.createGain()
+    tg.gain.setValueAtTime(0.09, t0)
+    tg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.028)
+    const tfilt = audioCtx.createBiquadFilter()
+    tfilt.type = 'bandpass'
+    tfilt.frequency.value = 1600
+    tfilt.Q.value = 0.8
+    tick.connect(tfilt).connect(tg).connect(audioCtx.destination)
+    tick.start(t0)
+    tick.stop(t0 + 0.03)
+
+    // soft body thump under the press
+    const body = audioCtx.createOscillator()
+    body.type = 'sine'
+    body.frequency.setValueAtTime(180 * jitter, t0)
+    body.frequency.exponentialRampToValueAtTime(70, t0 + 0.04)
+    const bg = audioCtx.createGain()
+    bg.gain.setValueAtTime(0.12, t0)
+    bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.045)
+    body.connect(bg).connect(audioCtx.destination)
+    body.start(t0)
+    body.stop(t0 + 0.05)
   },
-  // soft whoosh when a modal collapses
+  // quieter release click when a modal collapses
   modalClose() {
     ensureAudio()
     if (!ready()) return
     const t0 = audioCtx.currentTime
-    const o = audioCtx.createOscillator()
-    o.type = 'sine'
-    o.frequency.setValueAtTime(420, t0)
-    o.frequency.exponentialRampToValueAtTime(160, t0 + 0.1)
-    o.connect(envGain(t0, 0.06, 0.12))
-    o.start(t0)
-    o.stop(t0 + 0.13)
-    const src = makeNoise(0.08)
+    const noise = makeNoise(0.04)
     const f = audioCtx.createBiquadFilter()
-    f.type = 'highpass'
-    f.frequency.value = 900
-    src.connect(f).connect(envGain(t0, 0.04, 0.08))
-    src.start(t0)
+    f.type = 'bandpass'
+    f.frequency.value = 1800
+    f.Q.value = 0.9
+    const ng = audioCtx.createGain()
+    ng.gain.setValueAtTime(0.28, t0)
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.035)
+    noise.connect(f).connect(ng).connect(audioCtx.destination)
+    noise.start(t0)
+    const o = audioCtx.createOscillator()
+    o.type = 'triangle'
+    o.frequency.setValueAtTime(520, t0)
+    o.frequency.exponentialRampToValueAtTime(180, t0 + 0.07)
+    const g = audioCtx.createGain()
+    g.gain.setValueAtTime(0.05, t0)
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.08)
+    o.connect(g).connect(audioCtx.destination)
+    o.start(t0)
+    o.stop(t0 + 0.09)
   },
   // short double blip for a denied action
   deny() {

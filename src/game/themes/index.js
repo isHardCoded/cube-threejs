@@ -2,6 +2,8 @@ import cyberpunk from './cyberpunk.js'
 import lava from './lava.js'
 import desert from './desert.js'
 import kawaii from './kawaii.js'
+import jungle from './jungle.js'
+import ocean from './ocean.js'
 
 // A theme owns everything that makes one map look like itself. The arena
 // geometry, the rules and the animations are shared by all maps; only colours,
@@ -41,7 +43,7 @@ import kawaii from './kawaii.js'
 //
 // fx is the shared animation registry: { blinkers, holos, platformSpots }.
 // Anything a theme animates itself belongs in its own update().
-const THEMES = { cyberpunk, lava, desert, kawaii }
+const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean }
 
 export function themeFor(id) {
   return THEMES[id] || cyberpunk
