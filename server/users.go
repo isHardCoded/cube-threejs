@@ -100,6 +100,8 @@ func (s *Store) UserByTelegram(telegramID int64, name string) (*User, error) {
 	u, err := scanUser(s.pool.QueryRow(ctx,
 		`SELECT `+userCols+` FROM users WHERE telegram_id = $1`, telegramID))
 	if err == nil {
+		// MVP: keep the wardrobe in sync if new free skins were added later.
+		_ = s.grantAllSkins(ctx, u.ID)
 		return u, nil
 	}
 	if !errors.Is(err, ErrNoUser) {

@@ -135,7 +135,12 @@ func (a *API) authOK(w http.ResponseWriter, u *User) {
 		writeErr(w, http.StatusInternalServerError, "не удалось выдать токен")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"token": token, "user": u})
+	owned, err := a.store.OwnedSkins(u.ID)
+	if err != nil {
+		log.Println("api auth owned:", err)
+		owned = []string{u.SkinID}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": token, "user": u, "ownedSkins": owned})
 }
 
 func (a *API) register(w http.ResponseWriter, r *http.Request) {

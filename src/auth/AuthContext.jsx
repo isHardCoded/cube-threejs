@@ -12,6 +12,7 @@ export function AuthProvider({ children }) {
   const accept = useCallback((res) => {
     setToken(res.token)
     setUser(res.user)
+    setOwnedSkins(res.ownedSkins || [])
     return res.user
   }, [])
 
