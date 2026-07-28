@@ -25,9 +25,14 @@ CREATE TABLE IF NOT EXISTS users (
 	cubes         INT NOT NULL DEFAULT 0,
 	skin_id       TEXT NOT NULL DEFAULT 'chrome-yellow',
 	class_id      TEXT NOT NULL DEFAULT 'universal',
+	avatar_url    TEXT,
+	avatar_custom BOOLEAN NOT NULL DEFAULT false,
 	created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(username));
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_custom BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS user_skins (
 	user_id  BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,

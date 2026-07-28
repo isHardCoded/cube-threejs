@@ -1,22 +1,19 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import Logo from '../components/Logo.jsx'
 import { DEFAULT_MAP, MAPS } from '../config/maps.js'
+import { useLocale } from '../i18n/LocaleContext.jsx'
 
 // Dedicated map pick: the home screen stays a hub, this page is only "which
 // world" + one green Start that actually enters the match.
 export default function MapPage() {
   const [mapId, setMapId] = useState(DEFAULT_MAP)
   const navigate = useNavigate()
+  const { t } = useLocale()
   const ready = MAPS.some((m) => m.id === mapId && m.ready)
 
   return (
     <div className="screen">
-      <Logo />
-
       <div className="screen__box screen__box--wide">
-        <div className="screen__title">Выбери карту</div>
-
         <div className="maps maps--pick">
           {MAPS.map((m) => (
             <button
@@ -35,8 +32,8 @@ export default function MapPage() {
                 style={m.banner ? { backgroundImage: `url(${m.banner})` } : undefined}
               />
               <div className="map__meta">
-                <span className="map__name">{m.name}</span>
-                <span className="map__soon">{m.ready ? m.desc : 'скоро'}</span>
+                <span className="map__name">{t(`maps.${m.id}.name`)}</span>
+                <span className="map__soon">{m.ready ? t(`maps.${m.id}.desc`) : t('map.soon')}</span>
               </div>
             </button>
           ))}
@@ -48,9 +45,9 @@ export default function MapPage() {
           disabled={!ready}
           onClick={() => navigate(`/game?map=${mapId}`)}
         >
-          Начать
+          {t('map.start')}
         </button>
-        <Link className="btn btn--ghost" to="/">Назад</Link>
+        <Link className="btn btn--ghost" to="/">{t('map.back')}</Link>
       </div>
     </div>
   )

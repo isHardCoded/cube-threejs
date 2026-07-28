@@ -1,5 +1,6 @@
 import { API_BASE } from '../config/env.js'
 import { getToken } from '../auth/tokenStore.js'
+import { t } from '../i18n/t.js'
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -22,7 +23,7 @@ export async function api(path, { method = 'GET', body, auth = true } = {}) {
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
-    throw new ApiError('Сервер недоступен', 0)
+    throw new ApiError(t('common.serverDown'), 0)
   }
 
   let data = null
@@ -31,7 +32,7 @@ export async function api(path, { method = 'GET', body, auth = true } = {}) {
   } catch {
     // empty or non-JSON body is fine for some responses
   }
-  if (!res.ok) throw new ApiError(data?.error || `Ошибка ${res.status}`, res.status)
+  if (!res.ok) throw new ApiError(data?.error || t('common.error', { status: res.status }), res.status)
   return data
 }
 
@@ -45,4 +46,32 @@ export const auth = {
 export const profile = {
   skins: () => api('/api/skins', { auth: false }),
   setSkin: (skinId) => api('/api/me/skin', { method: 'POST', body: { skinId } }),
+  setAvatar: async (file) => {
+    const headers = {}
+    const token = getToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+
+    const form = new FormData()
+    form.append('file', file)
+
+    let res
+    try {
+      res = await fetch(`${API_BASE}/api/me/avatar`, {
+        method: 'POST',
+        headers,
+        body: form,
+      })
+    } catch {
+      throw new ApiError(t('common.serverDown'), 0)
+    }
+
+    let data = null
+    try {
+      data = await res.json()
+    } catch {
+      // ignore
+    }
+    if (!res.ok) throw new ApiError(data?.error || t('common.error', { status: res.status }), res.status)
+    return data
+  },
 }

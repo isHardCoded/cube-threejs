@@ -4,6 +4,7 @@ import { quatForOrient } from './dice.js'
 import { levelY } from './layouts.js'
 import { sfx } from './sfx.js'
 import { hapticError, hapticHeavy } from './telegram.js'
+import { t } from '../i18n/t.js'
 
 const POPUP_OFFSET = new THREE.Vector3(0, 1.4, 0)
 
@@ -89,7 +90,7 @@ export function createProtocol({
         applyPhase(msg.phase)
         applyRound(msg.round)
         for (const pd of msg.players) pm.addPlayer(pd)
-        if (pm.me()?.spectating) setStatus('РАУНД УЖЕ ИДЁТ — СМОТРИМ')
+        if (pm.me()?.spectating) setStatus(t('game.spectate'))
         break
       }
 
@@ -165,9 +166,10 @@ export function createProtocol({
         if (p.anim || p.queue.length > 0) p.pendingDeath = mode
         else pm.startDeathAnim(p, mode)
         if (msg.id === myId()) {
-          if (msg.eliminated) setStatus('ЖИЗНИ КОНЧИЛИСЬ — ДОСМАТРИВАЕМ РАУНД')
-          else if (msg.lives != null) setStatus(`МИНУС ЖИЗНЬ — ОСТАЛОСЬ ${msg.lives}`)
-          else setStatus(msg.cause === 'fall' ? 'ПАДЕНИЕ — РЕСПАУН...' : 'УНИЧТОЖЕН — РЕСПАУН...')
+          if (msg.eliminated) setStatus(t('game.eliminated'))
+          else if (msg.lives == null) {
+            setStatus(msg.cause === 'fall' ? t('game.fall') : t('game.destroyed'))
+          }
         }
         break
       }
@@ -255,7 +257,7 @@ export function createProtocol({
           reviveInto(p, pd)
         }
         sfx.crumble()
-        setStatus(round.state === 'live' ? 'РАУНД НАЧАЛСЯ' : 'ТРЕНИРОВКА', 2500)
+        setStatus(round.state === 'live' ? t('game.roundStart') : t('game.practice'), 2500)
         break
       }
 
@@ -287,7 +289,7 @@ export function createProtocol({
 
       // the account signed in somewhere else and took over the cube
       case 'kicked':
-        setStatus('СЕССИЯ ОТКРЫТА В ДРУГОМ ОКНЕ')
+        setStatus(t('game.otherSession'))
         onKicked?.()
         break
 

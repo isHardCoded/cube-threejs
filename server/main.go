@@ -38,6 +38,7 @@ func main() {
 
 	api := NewAPI(store)
 	http.Handle("/api/", api.Handler())
+	http.HandleFunc("/avatars/", serveAvatars)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		serveWS(hubs[MapByID(r.URL.Query().Get("map")).ID], store, w, r)
 	})
@@ -45,6 +46,8 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+
+	_ = ensureAvatarDir()
 
 	log.Println("cube game server listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))

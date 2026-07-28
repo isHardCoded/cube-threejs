@@ -7,7 +7,7 @@ import { useAuth } from '../auth/context.js'
 import { resolveMapId } from '../config/maps.js'
 
 const EMPTY_HUD = {
-  status: '', timer: '', timerDanger: false, alive: '', banner: '',
+  status: '', timer: '', timerKind: '', timerDanger: false, alive: '', banner: '',
   mine: '', mineReady: false,
 }
 

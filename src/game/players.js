@@ -45,11 +45,9 @@ export function createPlayers(env, arena) {
     maxLives: 5,
   }
 
-  // The lives row only appears once someone has actually lost one, so a fresh
-  // round stays clean and a wounded cube is visibly wounded.
+  // Nameplate is nickname + HP (+ dash for me). Lives live only in the HUD strip.
   function paintPlate(p, dashFrac = null) {
-    const lives = p.lives != null && p.lives < local.maxLives ? p.lives : null
-    drawNameplate(p.bar, p.hp, dashFrac, lives, local.maxLives)
+    drawNameplate(p.bar, p.hp, dashFrac)
   }
 
   // FIFO of cells my unconfirmed predicted moves should land on.

@@ -6,6 +6,8 @@ dist/
 dist-ssr/
 server/server
 server/*.exe
+server/data/
+data/
 
 # Vite
 .vite/

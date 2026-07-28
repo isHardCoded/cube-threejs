@@ -3,11 +3,13 @@ import { Navigate } from 'react-router-dom'
 import Logo from '../components/Logo.jsx'
 import Spinner from '../components/Spinner.jsx'
 import { useAuth } from '../auth/context.js'
+import { useLocale } from '../i18n/LocaleContext.jsx'
 
 const MAX_NICK = 14
 
 export default function AuthPage() {
   const { user, loading, login, register } = useAuth()
+  const { t, translateError } = useLocale()
   const [mode, setMode] = useState('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -18,7 +20,7 @@ export default function AuthPage() {
     return (
       <div className="screen">
         <Logo />
-        <Spinner />
+        <Spinner label={t('common.loading')} />
       </div>
     )
   }
@@ -32,7 +34,7 @@ export default function AuthPage() {
       if (mode === 'login') await login(username, password)
       else await register(username, password)
     } catch (err) {
-      setError(err.message)
+      setError(translateError(err.message))
     } finally {
       setBusy(false)
     }
@@ -55,14 +57,14 @@ export default function AuthPage() {
               className={`tab${mode === 'login' ? ' is-active' : ''}`}
               onClick={() => switchMode('login')}
             >
-              Вход
+              {t('auth.login')}
             </button>
             <button
               type="button"
               className={`tab${mode === 'register' ? ' is-active' : ''}`}
               onClick={() => switchMode('register')}
             >
-              Регистрация
+              {t('auth.register')}
             </button>
           </div>
 
@@ -74,7 +76,7 @@ export default function AuthPage() {
               maxLength={MAX_NICK}
               autoComplete="username"
               spellCheck={false}
-              placeholder="Никнейм"
+              placeholder={t('auth.username')}
               autoFocus
             />
             <input
@@ -83,19 +85,17 @@ export default function AuthPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              placeholder="Пароль"
+              placeholder={t('auth.password')}
             />
             {error && <div className="screen__error">{error}</div>}
             <button className="btn" type="submit" disabled={busy}>
-              {busy ? <Spinner /> : mode === 'login' ? 'Войти' : 'Создать аккаунт'}
+              {busy ? <Spinner /> : mode === 'login' ? t('auth.submitLogin') : t('auth.submitRegister')}
             </button>
           </form>
         </div>
 
         <div className="soon-note">
-          {mode === 'login'
-            ? 'Нет аккаунта? Достаточно ника и пароля.'
-            : 'Ник от 3 до 14 символов, пароль от 6.'}
+          {mode === 'login' ? t('auth.hintLogin') : t('auth.hintRegister')}
         </div>
       </div>
     </div>

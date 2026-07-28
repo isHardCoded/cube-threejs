@@ -1,3 +1,5 @@
+# Local full stack: Postgres + game API + web UI.
+# Usage: docker compose up --build
 services:
   postgres:
     image: postgres:17-alpine
@@ -17,5 +19,37 @@ services:
       timeout: 3s
       retries: 10
 
+  game:
+    build: ./server
+    container_name: cube2077-game
+    ports:
+      - "8090:8090"
+    environment:
+      ADDR: ":8090"
+      DATABASE_URL: postgres://cube:cube2077@postgres:5432/cube2077
+      JWT_SECRET: local-dev-jwt-secret-change-me
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      ALLOWED_ORIGINS: http://localhost:3080,http://127.0.0.1:3080,http://localhost:5173,http://127.0.0.1:5173
+    volumes:
+      - avatars:/app/data/avatars
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8090
+        VITE_WS_URL: ws://localhost:8090/ws
+    container_name: cube2077-web
+    ports:
+      - "3080:80"
+    depends_on:
+      - game
+
 volumes:
   pgdata:
+  avatars:

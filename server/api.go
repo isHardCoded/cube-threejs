@@ -40,6 +40,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/telegram", a.telegramLogin)
 	mux.HandleFunc("GET /api/me", a.me)
 	mux.HandleFunc("POST /api/me/skin", a.setSkin)
+	mux.HandleFunc("POST /api/me/avatar", a.setAvatar)
 	mux.HandleFunc("GET /api/skins", a.skins)
 	return a.withCORS(mux)
 }
@@ -211,7 +212,7 @@ func (a *API) telegramLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "Telegram: подпись не прошла проверку")
 		return
 	}
-	u, err := a.store.UserByTelegram(tu.ID, telegramNickname(tu))
+	u, err := a.store.UserByTelegram(tu.ID, telegramNickname(tu), tu.PhotoURL)
 	if err != nil {
 		log.Println("api telegram:", err)
 		writeErr(w, http.StatusInternalServerError, "ошибка сервера")
@@ -254,6 +255,25 @@ func (a *API) setSkin(w http.ResponseWriter, r *http.Request) {
 	}
 	u.SkinID = body.SkinID
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+}
+
+func (a *API) setAvatar(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	url, err := saveAvatarUpload(r, u.ID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := a.store.SetAvatar(u.ID, url)
+	if err != nil {
+		log.Println("api avatar:", err)
+		writeErr(w, http.StatusInternalServerError, "ошибка сервера")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
 }
 
 func (a *API) skins(w http.ResponseWriter, r *http.Request) {

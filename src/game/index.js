@@ -10,6 +10,7 @@ import { createInput } from './input.js'
 import { ensureAudio } from './sfx.js'
 import { initTelegram, tg } from './telegram.js'
 import { WS_BASE } from '../config/env.js'
+import { t } from '../i18n/t.js'
 
 // Boots the whole 3D game onto a canvas. onHud receives partial HUD updates
 // so React can render the overlay without touching Three.js.
@@ -80,16 +81,16 @@ export function startGame({ canvas, token, mapId, onHud = () => {}, onAuthLost, 
   const clock = new THREE.Clock()
   let raf = 0
   const lastHud = {
-    timer: '', alive: '', banner: '', mine: '', mineReady: null, lives: null,
+    timer: '', timerKind: '', alive: '', banner: '', mine: '', mineReady: null, lives: null,
   }
 
   function resultText(r) {
-    if (r.draw) return 'НИЧЬЯ — НИКТО НЕ ВЫЖИЛ'
+    if (r.draw) return t('game.draw')
     if (r.mine) {
-      if (r.tooShort) return 'ПОБЕДА! РАУНД СЛИШКОМ КОРОТКИЙ — БЕЗ НАГРАДЫ'
-      return `ПОБЕДА! +${r.reward} CUBES`
+      if (r.tooShort) return t('game.winShort')
+      return t('game.winReward', { reward: r.reward })
     }
-    return `ПОБЕДИЛ ${r.name}`
+    return t('game.winner', { name: r.name })
   }
 
   function secondsLeft(endsAt) {
@@ -99,47 +100,55 @@ export function startGame({ canvas, token, mapId, onHud = () => {}, onAuthLost, 
   function updateHud() {
     const { phase, round } = protocol
     let timer = ''
+    let timerKind = ''
     let danger = false
 
     if (round.state === 'waiting') {
-      timer = `ТРЕНИРОВКА · ИГРОКОВ ${round.players}/${round.minPlayers} ДЛЯ БОЯ`
+      timerKind = 'wait'
+      timer = t('game.training', { players: round.players, min: round.minPlayers })
     } else if (round.state === 'over') {
-      timer = `СЛЕДУЮЩИЙ РАУНД ЧЕРЕЗ ${secondsLeft(round.endsAt)}`
+      timerKind = 'next'
+      timer = t('game.nextRound', { sec: secondsLeft(round.endsAt) })
     } else if (phase.mode === 'calm') {
+      timerKind = 'calm'
       const s = secondsLeft(phase.endsAt)
-      timer = `ПЛАТФОРМА ${phase.level + 1}/3 · РАЗРУШЕНИЕ ЧЕРЕЗ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+      const time = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+      timer = t('game.calm', { level: phase.level + 1, time })
     } else {
+      timerKind = 'danger'
       danger = true
       timer = phase.level < 2
-        ? `⚠ ПЛАТФОРМА ${phase.level + 1} РУШИТСЯ — К БАТУТУ!`
-        : '⚠ ФИНАЛЬНАЯ ПЛАТФОРМА РУШИТСЯ!'
+        ? t('game.crumble', { level: phase.level + 1 })
+        : t('game.finalCrumble')
     }
 
-    const alive = round.state === 'live' ? `В ЖИВЫХ ${round.alive}` : ''
+    const alive = round.state === 'live' ? `${round.alive}` : ''
     const banner = round.result ? resultText(round.result) : ''
 
-    // ability button: counts my armed mines, or the seconds until the next one
+    // ability button: countdown, or armed/out of max
     const cooling = Math.max(0, players.local.mineReadyAt - performance.now())
     const out = mines.count()
     const mineReady = cooling === 0 && out < players.local.maxMines && players.canPlay()
     const mine = cooling > 0
-      ? `МИНА ${Math.ceil(cooling / 1000)}`
-      : `МИНА ${out}/${players.local.maxMines}`
+      ? `${Math.ceil(cooling / 1000)}`
+      : `${out}/${players.local.maxMines}`
 
     // lives are a match thing: practice would just show a permanent 5/5
     const lives = round.state === 'live' ? (players.me()?.lives ?? null) : null
 
-    if (timer !== lastHud.timer || alive !== lastHud.alive || banner !== lastHud.banner
+    if (timer !== lastHud.timer || timerKind !== lastHud.timerKind
+      || alive !== lastHud.alive || banner !== lastHud.banner
       || mine !== lastHud.mine || mineReady !== lastHud.mineReady
       || lives !== lastHud.lives) {
       lastHud.timer = timer
+      lastHud.timerKind = timerKind
       lastHud.alive = alive
       lastHud.banner = banner
       lastHud.mine = mine
       lastHud.mineReady = mineReady
       lastHud.lives = lives
       onHud({
-        timer, timerDanger: danger, alive, banner, mine, mineReady,
+        timer, timerKind, timerDanger: danger, alive, banner, mine, mineReady,
         lives, maxLives: players.local.maxLives,
       })
     }

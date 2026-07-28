@@ -6,7 +6,9 @@ COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /server .
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates \
+	&& mkdir -p /app/data/avatars
+WORKDIR /app
 COPY --from=build /server /server
 EXPOSE 8090
 ENTRYPOINT ["/server"]

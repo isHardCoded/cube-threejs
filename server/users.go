@@ -16,20 +16,28 @@ var (
 )
 
 type User struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
-	Cubes    int    `json:"cubes"`
-	SkinID   string `json:"skinId"`
-	ClassID  string `json:"classId"`
+	ID          int64     `json:"id"`
+	Username    string    `json:"username"`
+	Cubes       int       `json:"cubes"`
+	SkinID      string    `json:"skinId"`
+	ClassID     string    `json:"classId"`
+	AvatarURL   string    `json:"avatarUrl,omitempty"`
+	CreatedAt   time.Time `json:"createdAt"`
+	ViaTelegram bool      `json:"viaTelegram"`
 
-	passwordHash string
+	passwordHash  string
+	avatarCustom  bool
 }
 
-const userCols = `id, username, coalesce(password_hash, ''), cubes, skin_id, class_id`
+const userCols = `id, username, coalesce(password_hash, ''), cubes, skin_id, class_id,
+	coalesce(avatar_url, ''), avatar_custom, created_at, (telegram_id IS NOT NULL)`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Username, &u.passwordHash, &u.Cubes, &u.SkinID, &u.ClassID)
+	err := row.Scan(
+		&u.ID, &u.Username, &u.passwordHash, &u.Cubes, &u.SkinID, &u.ClassID,
+		&u.AvatarURL, &u.avatarCustom, &u.CreatedAt, &u.ViaTelegram,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNoUser
 	}
@@ -93,15 +101,22 @@ func (s *Store) UserByID(id int64) (*User, error) {
 }
 
 // UserByTelegram finds or creates the account bound to a Telegram id.
-func (s *Store) UserByTelegram(telegramID int64, name string) (*User, error) {
+// photoURL from initData is kept in sync until the user uploads a custom avatar.
+func (s *Store) UserByTelegram(telegramID int64, name, photoURL string) (*User, error) {
 	ctx, cancel := dbCtx()
 	defer cancel()
 
 	u, err := scanUser(s.pool.QueryRow(ctx,
 		`SELECT `+userCols+` FROM users WHERE telegram_id = $1`, telegramID))
 	if err == nil {
-		// MVP: keep the wardrobe in sync if new free skins were added later.
 		_ = s.grantAllSkins(ctx, u.ID)
+		if photoURL != "" && !u.avatarCustom && u.AvatarURL != photoURL {
+			if _, err := s.pool.Exec(ctx,
+				`UPDATE users SET avatar_url = $2 WHERE id = $1 AND avatar_custom = false`,
+				u.ID, photoURL); err == nil {
+				u.AvatarURL = photoURL
+			}
+		}
 		return u, nil
 	}
 	if !errors.Is(err, ErrNoUser) {
@@ -114,9 +129,13 @@ func (s *Store) UserByTelegram(telegramID int64, name string) (*User, error) {
 		if attempt > 0 {
 			candidate = uniqueSuffix(name, attempt)
 		}
+		var avatar any
+		if photoURL != "" {
+			avatar = photoURL
+		}
 		u, err := scanUser(s.pool.QueryRow(ctx,
-			`INSERT INTO users (username, telegram_id, skin_id) VALUES ($1, $2, $3)
-			 RETURNING `+userCols, candidate, telegramID, DefaultSkin))
+			`INSERT INTO users (username, telegram_id, skin_id, avatar_url) VALUES ($1, $2, $3, $4)
+			 RETURNING `+userCols, candidate, telegramID, DefaultSkin, avatar))
 		if isUniqueViolation(err) {
 			continue
 		}
@@ -129,6 +148,14 @@ func (s *Store) UserByTelegram(telegramID int64, name string) (*User, error) {
 		return u, nil
 	}
 	return nil, errors.New("could not allocate a nickname")
+}
+
+func (s *Store) SetAvatar(userID int64, avatarURL string) (*User, error) {
+	ctx, cancel := dbCtx()
+	defer cancel()
+	return scanUser(s.pool.QueryRow(ctx,
+		`UPDATE users SET avatar_url = $2, avatar_custom = true WHERE id = $1
+		 RETURNING `+userCols, userID, avatarURL))
 }
 
 func (s *Store) SetSkin(userID int64, skinID string) error {

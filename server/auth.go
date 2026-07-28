@@ -134,6 +134,7 @@ type telegramUser struct {
 	ID        int64  `json:"id"`
 	FirstName string `json:"first_name"`
 	Username  string `json:"username"`
+	PhotoURL  string `json:"photo_url"`
 }
 
 // verifyTelegramInitData checks the HMAC signature Telegram puts on initData.

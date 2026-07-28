@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import { AuthProvider } from './auth/AuthContext.jsx'
+import { LocaleProvider } from './i18n/LocaleContext.jsx'
 import { initTelegram } from './game/telegram.js'
 import './styles.css'
 
@@ -13,8 +14,10 @@ initTelegram()
 // a second WebGL context and a second websocket on every navigation.
 createRoot(document.getElementById('root')).render(
   <BrowserRouter>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <LocaleProvider>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </LocaleProvider>
   </BrowserRouter>
 )

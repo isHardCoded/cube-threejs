@@ -25,3 +25,68 @@ export function HomeIcon({ size = 18 }) {
     </svg>
   )
 }
+
+export function BombIcon({ size = 20 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="14" r="7" />
+      <path d="M12 7V5M14.5 5.5 16 4M12 5c1.2-.2 2.2.4 3 1.5" />
+      <path d="M10 13h4M12 11v4" opacity=".35" />
+    </svg>
+  )
+}
+
+export function LayersIcon({ size = 14 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3 3 8l9 5 9-5-9-5Z" />
+      <path d="M3 12l9 5 9-5M3 16l9 5 9-5" />
+    </svg>
+  )
+}
+
+export function WarnIcon({ size = 14 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3 2 20h20L12 3Z" />
+      <path d="M12 10v5M12 17.5v.5" />
+    </svg>
+  )
+}
+
+export function ClockIcon({ size = 14 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v6l4 2" />
+    </svg>
+  )
+}
+
+export function UsersIcon({ size = 14 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5S14 16 14.5 19" />
+      <circle cx="17" cy="9" r="2.4" />
+      <path d="M15 19c.3-2 1.5-3.2 3.5-3.5 1.6.2 2.8 1.2 3 3.5" />
+    </svg>
+  )
+}
+
+export function BoltIcon({ size = 14 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+    </svg>
+  )
+}
+
+export function FlagIcon({ size = 14 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 21V4" />
+      <path d="M5 4h11l-2 4 2 4H5" />
+    </svg>
+  )
+}

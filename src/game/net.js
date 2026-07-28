@@ -1,3 +1,5 @@
+import { t } from '../i18n/t.js'
+
 // WebSocket link to the game server with exponential-backoff reconnect.
 export function createNet({ url, onMessage, onOpen, onClose, onStatus, onAuthFailure }) {
   let ws = null
@@ -9,7 +11,7 @@ export function createNet({ url, onMessage, onOpen, onClose, onStatus, onAuthFai
 
   function connect() {
     if (disposed) return
-    onStatus?.('ПОДКЛЮЧЕНИЕ...')
+    onStatus?.(t('game.connecting'))
     ws = new WebSocket(url())
     let opened = false
 
@@ -39,7 +41,7 @@ export function createNet({ url, onMessage, onOpen, onClose, onStatus, onAuthFai
         onAuthFailure?.()
         return
       }
-      onStatus?.('ПЕРЕПОДКЛЮЧЕНИЕ...')
+      onStatus?.(t('game.reconnecting'))
       retryTimer = setTimeout(connect, reconnectDelay)
       reconnectDelay = Math.min(reconnectDelay * 2, 8000)
     }

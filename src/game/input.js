@@ -72,10 +72,12 @@ export function createInput({ canvas, players: pm, send }) {
 
   let touchStart = null
   function onPointerDown(e) {
+    // Mouse must not drive movement — desktop uses the keyboard only.
+    if (e.pointerType === 'mouse') return
     touchStart = { x: e.clientX, y: e.clientY, t: performance.now() }
   }
   function onPointerUp(e) {
-    if (!touchStart) return
+    if (e.pointerType === 'mouse' || !touchStart) return
     const dx = e.clientX - touchStart.x
     const dy = e.clientY - touchStart.y
     const dt = performance.now() - touchStart.t
