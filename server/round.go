@@ -12,6 +12,15 @@ const (
 	MinRoundPlayers  = 2
 	IntermissionTime = 7 * time.Second
 
+	// How long a match room tolerates being short of players before it gives up.
+	// Long enough for a slow phone to finish loading the arena, short enough that
+	// a no-show does not cost the other player a real wait.
+	MatchWaitWindow = 30 * time.Second
+
+	// A room with seats left holds the first round back this long, so a ten-player
+	// lobby does not kick off as a duel the moment the second player walks in.
+	LobbyFillWait = 15 * time.Second
+
 	// Wins faster than this pay nothing. Otherwise two friends could take turns
 	// jumping off the edge and print Cubes a few seconds at a time.
 	MinRewardedRound = 30 * time.Second
@@ -53,12 +62,30 @@ func (h *Hub) lastAlive() *Player {
 	return nil
 }
 
+// readyToStart: two players are enough to fight, but a lobby with seats left
+// waits a little for the rest, so latecomers get a round instead of a spectator
+// seat. A full room — or a practice world with no size at all — starts at once.
+func (h *Hub) readyToStart(now time.Time) bool {
+	if len(h.players) < MinRoundPlayers {
+		h.readySince = time.Time{}
+		return false
+	}
+	if h.maxPlayers <= 0 || len(h.players) >= h.maxPlayers {
+		return true
+	}
+	if h.readySince.IsZero() {
+		h.readySince = now
+	}
+	return now.Sub(h.readySince) >= LobbyFillWait
+}
+
 func (h *Hub) roundInfo() map[string]any {
 	info := map[string]any{
 		"state":      roundStateNames[h.roundState],
 		"alive":      h.aliveCount(),
 		"players":    len(h.players),
 		"minPlayers": MinRoundPlayers,
+		"room":       h.maxPlayers, // lobby size, so the HUD can show 3/8
 	}
 	if h.roundState == roundOver {
 		info["nextInMs"] = time.Until(h.roundEndsAt).Milliseconds()
@@ -69,6 +96,7 @@ func (h *Hub) roundInfo() map[string]any {
 func (h *Hub) startRound() {
 	h.roundState = roundLive
 	h.roundStartedAt = time.Now()
+	h.readySince = time.Time{}
 	h.resetRound() // rebuilds the arena and revives everyone, spectators included
 	log.Printf("%s: round started with %d players", h.gameMap.ID, len(h.players))
 }
@@ -110,7 +138,7 @@ func (h *Hub) endRound(winner *Player, now time.Time) {
 func (h *Hub) roundTick(now time.Time) {
 	switch h.roundState {
 	case roundWaiting:
-		if len(h.players) >= MinRoundPlayers {
+		if h.readyToStart(now) {
 			h.startRound()
 		}
 	case roundLive:
@@ -119,9 +147,13 @@ func (h *Hub) roundTick(now time.Time) {
 		}
 	case roundOver:
 		if now.After(h.roundEndsAt) {
-			if len(h.players) >= MinRoundPlayers {
+			switch {
+			case len(h.players) >= MinRoundPlayers:
 				h.startRound()
-			} else {
+			case h.mode == ModePvP:
+				// nobody to fight and nobody who can join: send them searching
+				h.closeMatch(h.thinReason())
+			default:
 				h.enterWaiting()
 			}
 		}

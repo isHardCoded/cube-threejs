@@ -19,7 +19,12 @@ func drain(c *Client) []map[string]any {
 	var out []map[string]any
 	for {
 		select {
-		case data := <-c.send:
+		case data, ok := <-c.send:
+			// a retired connection has a closed channel: everything it was told
+			// is already in the buffer
+			if !ok {
+				return out
+			}
 			var m map[string]any
 			if json.Unmarshal(data, &m) == nil {
 				out = append(out, m)

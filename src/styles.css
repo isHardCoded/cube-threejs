@@ -642,6 +642,54 @@ canvas.webgl {
   gap: 14px;
   padding: 20px 16px;
 }
+.pvp-search__meta {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-dim);
+  text-align: center;
+}
+
+/* room size picker: how many cubes share the arena */
+.sizes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.size {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 18px 10px;
+  font: 900 13px var(--font);
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 3px solid var(--edge);
+  border-radius: var(--r);
+  box-shadow: 0 4px 0 var(--edge);
+  cursor: pointer;
+  opacity: 0;
+  animation: mapPop .4s var(--hop) both;
+  transition: transform .2s var(--hop), border-color .15s ease, box-shadow .15s ease;
+}
+@media (hover: hover) {
+  .size:hover { transform: translateY(-2px); }
+}
+.size:active { transform: translateY(2px); }
+.size.is-active {
+  border-color: var(--green);
+  box-shadow: 0 5px 0 var(--green-deep);
+}
+.size__num {
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1;
+}
+.size__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
 
 .pvp-actions {
   transition: opacity .25s ease, transform .3s ease;

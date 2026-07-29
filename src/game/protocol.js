@@ -8,6 +8,13 @@ import { t } from '../i18n/t.js'
 
 const POPUP_OFFSET = new THREE.Vector3(0, 1.4, 0)
 
+const KICK_MESSAGES = {
+  another_session: 'game.otherSession',
+  opponent_left: 'game.opponentLeft',
+  opponent_missing: 'game.opponentMissing',
+  lobby_closed: 'game.opponentLeft',
+}
+
 // Server messages -> scene state. The server is authoritative for everything;
 // the client only predicts my own rolls and dashes.
 export function createProtocol({
@@ -18,7 +25,7 @@ export function createProtocol({
 
   // match state: waiting (practice, too few players), live (elimination), over
   const round = {
-    state: 'waiting', alive: 0, players: 0, minPlayers: 2,
+    state: 'waiting', alive: 0, players: 0, minPlayers: 2, room: 0,
     endsAt: 0,   // intermission deadline
     result: null, // { draw, name, reward, tooShort, mine } while state === 'over'
   }
@@ -36,6 +43,7 @@ export function createProtocol({
     round.alive = r.alive
     round.players = r.players
     round.minPlayers = r.minPlayers || 2
+    round.room = r.room || 0
     round.endsAt = r.nextInMs != null ? performance.now() + r.nextInMs : 0
     if (r.state !== 'over') round.result = null
   }
@@ -292,10 +300,11 @@ export function createProtocol({
         onCubes?.(msg.total)
         break
 
-      // the account signed in somewhere else and took over the cube
+      // the room let us go: another session took the cube, or the match ended
+      // because the other side never showed up
       case 'kicked':
-        setStatus(t('game.otherSession'))
-        onKicked?.()
+        setStatus(t(KICK_MESSAGES[msg.reason] || 'game.matchClosed'))
+        onKicked?.(msg.reason || '')
         break
 
       case 'denied':

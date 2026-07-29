@@ -361,22 +361,24 @@ func (a *API) matchQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Maps []string `json:"maps"`
+		Size int      `json:"size"`
 	}
 	if !readJSON(w, r, &body) {
 		return
 	}
-	match, err := a.arena.Enqueue(u.ID, body.Maps)
+	match, err := a.arena.Enqueue(u.ID, body.Maps, body.Size)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if match != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"state": "matched", "matchId": match.ID, "mapId": match.MapID, "mode": match.Mode,
+			"state": "matched", "matchId": match.ID, "mapId": match.MapID,
+			"mode": match.Mode, "size": match.Size,
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"state": "searching"})
+	writeJSON(w, http.StatusOK, map[string]any{"state": "searching", "size": body.Size})
 }
 
 func (a *API) matchCancel(w http.ResponseWriter, r *http.Request) {
@@ -393,15 +395,18 @@ func (a *API) matchStatus(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
-	state, match, maps := a.arena.Status(u.ID)
-	out := map[string]any{"state": state}
-	if maps != nil {
-		out["maps"] = maps
+	s := a.arena.Status(u.ID)
+	out := map[string]any{"state": s.State}
+	if s.Maps != nil {
+		out["maps"] = s.Maps
 	}
-	if match != nil {
-		out["matchId"] = match.ID
-		out["mapId"] = match.MapID
-		out["mode"] = match.Mode
+	if s.Size > 0 {
+		out["size"] = s.Size
+	}
+	if s.Match != nil {
+		out["matchId"] = s.Match.ID
+		out["mapId"] = s.Match.MapID
+		out["mode"] = s.Match.Mode
 	}
 	writeJSON(w, http.StatusOK, out)
 }

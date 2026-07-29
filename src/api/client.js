@@ -83,7 +83,7 @@ export const rating = {
 }
 
 export const matchmaking = {
-  queue: (maps) => api('/api/match/queue', { method: 'POST', body: { maps } }),
+  queue: (maps, size) => api('/api/match/queue', { method: 'POST', body: { maps, size } }),
   cancel: () => api('/api/match/queue', { method: 'DELETE' }),
   status: () => api('/api/match/status'),
 }

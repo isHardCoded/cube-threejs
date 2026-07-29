@@ -33,12 +33,22 @@ export default function GamePage() {
       onHud: (patch) => setHud((prev) => ({ ...prev, ...patch })),
       // a win is paid out server-side; keep the menu balance in sync
       onCubes: (cubes) => patchUser({ cubes }),
-      onAuthLost: (reason) => {
-        if (reason === 'kicked') navigate('/', { replace: true })
-        else {
-          logout()
-          navigate('/auth', { replace: true })
+      onAuthLost: (kind, reason) => {
+        if (kind === 'kicked') {
+          // a match that ended without us is not a reason to leave PvP: drop
+          // the player back on the search screen so they can queue again
+          const backToSearch = !!matchId && reason !== 'another_session'
+          navigate(backToSearch ? '/play/pvp' : '/', { replace: true, state: { reason } })
+          return
         }
+        // a match room that is gone answers the socket with 404, which is not an
+        // auth problem: keep the session and let them search for another one
+        if (matchId) {
+          navigate('/play/pvp', { replace: true, state: { reason: 'match_gone' } })
+          return
+        }
+        logout()
+        navigate('/auth', { replace: true })
       },
     })
     gameRef.current = game

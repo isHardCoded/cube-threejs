@@ -102,7 +102,12 @@ func serveWS(arena *Arena, store *Store, w http.ResponseWriter, r *http.Request)
 	// claim the account for this world before joining, so a cube on another
 	// map is released instead of running in parallel
 	hub.presence.Enter(u.ID, hub)
-	hub.register <- c
+	// the room can be reaped between the lookup and the join
+	if !hub.enqueueClient(c) {
+		hub.presence.Leave(u.ID, hub)
+		conn.Close()
+		return
+	}
 	go c.writeLoop()
 	go c.readLoop()
 }

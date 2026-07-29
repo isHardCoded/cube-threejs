@@ -308,3 +308,10 @@ func MapByID(id string) *GameMap {
 	}
 	return GameMaps[DefaultMapID]
 }
+
+// MapExists is the strict answer MapByID deliberately does not give, for callers
+// like matchmaking where a silent fallback would pick a map for the players.
+func MapExists(id string) bool {
+	_, ok := GameMaps[id]
+	return ok
+}

@@ -6,6 +6,7 @@ import (
 	mrand "math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -79,10 +80,25 @@ type Hub struct {
 	id         string
 	mode       string // training | pvp | ""
 	maxPlayers int    // 0 = unlimited
-	allowed    map[int64]bool
 	onEmpty    func(*Hub)
 	onJoined   func(userID int64)
+	onLeft     func(userID int64)
 	quit       chan struct{}
+	dismiss    chan string // the arena asks a match room to end, with a reason
+	closing    bool
+
+	// allowed is the guest list. The arena writes it as it seats players into a
+	// filling lobby while the hub goroutine reads it on join, so it is the one
+	// piece of hub state that needs a lock. A nil list lets anyone in.
+	guests  sync.Mutex
+	allowed map[int64]bool
+
+	// a match room needs players to be worth running: these track how long it has
+	// been short of them, whether it ever had enough, and since when it could
+	// start — a lobby with seats left waits a moment for the rest to arrive
+	thinSince  time.Time
+	readySince time.Time
+	everFull   bool
 
 	gameMap    *GameMap
 	players    map[string]*Player
@@ -122,6 +138,7 @@ func NewHub(store *Store, gameMap *GameMap, presence *Presence) *Hub {
 		store:      store,
 		presence:   presence,
 		quit:       make(chan struct{}),
+		dismiss:    make(chan string, 1),
 	}
 	for l := 0; l < Levels; l++ {
 		h.destroyed[l] = make(map[[2]int]bool)
@@ -148,6 +165,8 @@ func (h *Hub) Run() {
 			h.onEvict(userID)
 		case a := <-h.awards:
 			h.onAward(a)
+		case reason := <-h.dismiss:
+			h.closeMatch(reason)
 		case <-ticker.C:
 			h.onTick()
 		}
@@ -160,6 +179,102 @@ func (h *Hub) stop() {
 	default:
 		close(h.quit)
 	}
+}
+
+// allow adds an account to the guest list of a room that is already running.
+func (h *Hub) allow(userID int64) {
+	h.guests.Lock()
+	defer h.guests.Unlock()
+	if h.allowed == nil {
+		h.allowed = map[int64]bool{}
+	}
+	h.allowed[userID] = true
+}
+
+func (h *Hub) isAllowed(userID int64) bool {
+	h.guests.Lock()
+	defer h.guests.Unlock()
+	return h.allowed == nil || h.allowed[userID]
+}
+
+// enqueueClient hands a connection to the hub goroutine, unless the room has
+// already shut down: a socket parked on a stopped hub would never be answered.
+func (h *Hub) enqueueClient(c *Client) bool {
+	select {
+	case <-h.quit:
+		return false
+	case h.register <- c:
+		return true
+	}
+}
+
+// dismissMatch asks the room to end from outside the hub goroutine.
+func (h *Hub) dismissMatch(reason string) {
+	select {
+	case h.dismiss <- reason:
+	default: // one dismissal is enough
+	}
+}
+
+// closeMatch ends the room for everyone still in it and hands it back to the
+// arena. Players are told why, so the client can put them back into the search
+// instead of leaving them staring at an arena that will never fill up.
+func (h *Hub) closeMatch(reason string) {
+	if h.closing {
+		return
+	}
+	h.closing = true
+
+	leaving := make([]*Player, 0, len(h.players))
+	for _, p := range h.players {
+		leaving = append(leaving, p)
+	}
+	for _, p := range leaving {
+		h.sendTo(p, map[string]any{"t": "kicked", "reason": reason})
+		// the world is going away, so the account is free again: leaving the
+		// stale claim behind would misroute the player's next join
+		h.presence.Leave(p.userID, h)
+		h.dropPlayer(p)
+		if p.client != nil {
+			p.client.closeAfterFlush()
+		}
+	}
+	log.Printf("%s: match %s closed: %s", h.gameMap.ID, h.id, reason)
+	if h.onEmpty != nil {
+		h.onEmpty(h)
+	}
+	h.stop()
+}
+
+// watchMatch keeps a match room honest. Its guest list is fixed at two accounts,
+// so nobody else can ever fill it: an opponent who never connects, or who walks
+// out, has to end the room instead of leaving the other player rolling around an
+// empty arena with no way back to the menu.
+func (h *Hub) watchMatch(now time.Time) {
+	if h.mode != ModePvP || h.closing {
+		return
+	}
+	if len(h.players) >= MinRoundPlayers {
+		h.thinSince = time.Time{}
+		return
+	}
+	if h.thinSince.IsZero() {
+		h.thinSince = now
+		return
+	}
+	// the result of the fight stays on screen first; roundTick closes the room
+	// when the intermission runs out with nobody left to play against
+	if h.roundState == roundOver || now.Sub(h.thinSince) < MatchWaitWindow {
+		return
+	}
+	h.closeMatch(h.thinReason())
+}
+
+func (h *Hub) thinReason() string {
+	if h.everFull {
+		return "opponent_left"
+	}
+	return "opponent_missing"
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +455,7 @@ func (h *Hub) sendRaw(c *Client, v any) {
 func (h *Hub) onJoin(c *Client) {
 	id := strconv.FormatInt(c.userID, 10)
 
-	if h.allowed != nil && !h.allowed[c.userID] {
+	if !h.isAllowed(c.userID) {
 		h.rejectJoin(c, "not_invited")
 		return
 	}
@@ -372,6 +487,9 @@ func (h *Hub) onJoin(c *Client) {
 	}
 	c.player = p
 	h.players[p.ID] = p
+	if len(h.players) >= MinRoundPlayers {
+		h.everFull = true
+	}
 	h.store.SessionStarted(p.userID)
 
 	others := make([]*Player, 0, len(h.players))
@@ -437,9 +555,19 @@ func (h *Hub) kickPlayer(p *Player, reason string) {
 
 // onEvict runs when the account showed up on a different map.
 func (h *Hub) onEvict(userID int64) {
-	if p := h.players[strconv.FormatInt(userID, 10)]; p != nil {
-		h.kickPlayer(p, "another_session")
-		log.Printf("%s: %s left for another map", h.gameMap.ID, p.ID)
+	p := h.players[strconv.FormatInt(userID, 10)]
+	if p == nil {
+		return
+	}
+	h.kickPlayer(p, "another_session")
+	log.Printf("%s: %s left for another map", h.gameMap.ID, p.ID)
+	if h.onLeft != nil {
+		h.onLeft(userID)
+	}
+	// the evicted socket never reaches onLeave, so this is the only chance to
+	// hand an emptied world back instead of leaving its ticker running
+	if len(h.players) == 0 && h.onEmpty != nil {
+		h.onEmpty(h)
 	}
 }
 
@@ -452,6 +580,10 @@ func (h *Hub) onLeave(c *Client) {
 	h.dropPlayer(p)
 	h.presence.Leave(p.userID, h)
 	log.Printf("leave %s on %s, players=%d", p.ID, h.gameMap.ID, len(h.players))
+	// the seat is free again, so the lobby can take somebody else
+	if h.onLeft != nil {
+		h.onLeft(p.userID)
+	}
 	if len(h.players) == 0 && h.onEmpty != nil {
 		h.onEmpty(h)
 	}
@@ -611,9 +743,10 @@ func (h *Hub) onTick() {
 
 	h.expireMines(now)
 	h.roundTick(now)
+	h.watchMatch(now)
 
 	// the arena holds still while the result is on screen
-	if h.roundState == roundOver {
+	if h.closing || h.roundState == roundOver {
 		return
 	}
 	switch h.phaseMode {

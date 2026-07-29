@@ -37,9 +37,9 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
 
   const protocol = createProtocol({
     env, arena, players, mines, popups, setStatus,
-    onKicked: () => {
+    onKicked: (reason) => {
       net.dispose()
-      onAuthLost?.('kicked')
+      onAuthLost?.('kicked', reason)
     },
     onCubes,
   })
@@ -110,7 +110,10 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
 
     if (round.state === 'waiting') {
       timerKind = 'wait'
-      timer = t('game.training', { players: round.players, min: round.minPlayers })
+      // a lobby is filling up towards its own size; a practice world just needs two
+      timer = round.room >= round.minPlayers
+        ? t('game.lobby', { players: round.players, room: round.room })
+        : t('game.training', { players: round.players, min: round.minPlayers })
     } else if (round.state === 'over') {
       timerKind = 'next'
       timer = t('game.nextRound', { sec: secondsLeft(round.endsAt) })
