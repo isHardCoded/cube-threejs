@@ -42,13 +42,16 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/me", a.me)
 	mux.HandleFunc("POST /api/me/skin", a.setSkin)
 	mux.HandleFunc("POST /api/me/mine-skin", a.setMineSkin)
+	mux.HandleFunc("POST /api/me/hat", a.setHat)
 	mux.HandleFunc("POST /api/me/avatar", a.setAvatar)
 	mux.HandleFunc("GET /api/skins", a.skins)
 	mux.HandleFunc("GET /api/mine-skins", a.mineSkins)
+	mux.HandleFunc("GET /api/hats", a.hats)
 	mux.HandleFunc("GET /api/rating", a.rating)
 	mux.HandleFunc("POST /api/match/queue", a.matchQueue)
 	mux.HandleFunc("DELETE /api/match/queue", a.matchCancel)
 	mux.HandleFunc("GET /api/match/status", a.matchStatus)
+	a.registerFriendRoutes(mux)
 	return a.withCORS(mux)
 }
 
@@ -80,7 +83,7 @@ func (a *API) withCORS(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 		if r.Method == http.MethodOptions {
@@ -144,6 +147,10 @@ func (a *API) authOK(w http.ResponseWriter, u *User) {
 		return
 	}
 	a.store.EnsureMineSkins(u.ID)
+	a.store.EnsureHats(u.ID)
+	if refreshed, err := a.store.UserByID(u.ID); err == nil {
+		u = refreshed
+	}
 	owned, err := a.store.OwnedSkins(u.ID)
 	if err != nil {
 		log.Println("api auth owned:", err)
@@ -154,8 +161,13 @@ func (a *API) authOK(w http.ResponseWriter, u *User) {
 		log.Println("api auth mine owned:", err)
 		mineOwned = []string{u.MineSkinID}
 	}
+	hatOwned, err := a.store.OwnedHats(u.ID)
+	if err != nil {
+		log.Println("api auth hat owned:", err)
+		hatOwned = []string{u.HatID}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token": token, "user": u, "ownedSkins": owned, "ownedMineSkins": mineOwned,
+		"token": token, "user": u, "ownedSkins": owned, "ownedMineSkins": mineOwned, "ownedHats": hatOwned,
 	})
 }
 
@@ -242,6 +254,10 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.store.EnsureMineSkins(u.ID)
+	a.store.EnsureHats(u.ID)
+	if refreshed, err := a.store.UserByID(u.ID); err == nil {
+		u = refreshed
+	}
 	owned, err := a.store.OwnedSkins(u.ID)
 	if err != nil {
 		log.Println("api me:", err)
@@ -252,8 +268,13 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 		log.Println("api me mine:", err)
 		mineOwned = []string{u.MineSkinID}
 	}
+	hatOwned, err := a.store.OwnedHats(u.ID)
+	if err != nil {
+		log.Println("api me hat:", err)
+		hatOwned = []string{u.HatID}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user": u, "ownedSkins": owned, "ownedMineSkins": mineOwned,
+		"user": u, "ownedSkins": owned, "ownedMineSkins": mineOwned, "ownedHats": hatOwned,
 	})
 }
 
@@ -304,6 +325,30 @@ func (a *API) setMineSkin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": u})
 }
 
+func (a *API) setHat(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	a.store.EnsureHats(u.ID)
+	var body struct {
+		HatID string `json:"hatId"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if !hatExists(body.HatID) {
+		writeErr(w, http.StatusBadRequest, "неизвестная шапка")
+		return
+	}
+	if err := a.store.SetHat(u.ID, body.HatID); err != nil {
+		writeErr(w, http.StatusBadRequest, "шапка недоступна")
+		return
+	}
+	u.HatID = body.HatID
+	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+}
+
 func (a *API) setAvatar(w http.ResponseWriter, r *http.Request) {
 	u := a.authUser(w, r)
 	if u == nil {
@@ -329,6 +374,10 @@ func (a *API) skins(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) mineSkins(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"skins": MineSkins, "default": DefaultMineSkin})
+}
+
+func (a *API) hats(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"hats": Hats, "default": DefaultHat})
 }
 
 func (a *API) rating(w http.ResponseWriter, r *http.Request) {

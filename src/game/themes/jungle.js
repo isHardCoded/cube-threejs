@@ -1,15 +1,159 @@
 import * as THREE from 'three'
+import { assetUrl, cloneGltf } from '../assets/gltf.js'
 import { blob, canvasTexture, cellRng, createDrift, geo, glow, pick, solid, toon } from './kit.js'
 
-// Dense cartoon canopy: moss floors, emerald leaves, warm firefly accents.
-const MOSS = '#6fad5a'
-const MOSS_DEEP = '#4f8a42'
-const DIRT = '#5a4028'
-const WOOD = '#6b4a2e'
-const LEAF = '#3f9a4a'
-const LEAF_DARK = '#2d6e36'
-const FLOWER = '#ff7eb3'
-const FIREFLY = '#d4ff6a'
+// Jungle map: Blender review scene → public/assets/maps/jungle.
+// Visual language: Fall Guys candy — flat pastel plastic, soft toon, almost no albedo.
+// Stage 2 kit sync with art/jungle MAT_* (warm board / mid bush / cool distant foliage).
+const MOSS = '#8CDB66'       // MAT_Grass_A
+const MOSS_DEEP = '#6BBC5C'  // MAT_Grass_B
+const DIRT = '#F0D19E'       // MAT_Dirt
+const WOOD = '#E69E6B'       // MAT_Wood
+const WOOD_DARK = '#C78057'  // MAT_Wood_Dark
+const LEAF = '#5CBC7A'       // MAT_Foliage_Mid (cooler bush)
+const LEAF_LIGHT = '#7AD694' // MAT_Foliage_Light (distant)
+const LEAF_DARK = '#38946B'  // MAT_Foliage_Dark
+const ROCK = '#DBD6E0'       // MAT_Rock
+const ROCK_DARK = '#ADA8BD'  // MAT_Rock_Dark
+const WATER = '#4DC7E0'      // MAT_Water
+const WATER_DEEP = '#2E9EC7' // MAT_Water_Deep
+const GOLDIE = '#F2C747'     // MAT_Goldie
+const FLOWER = '#F070B8'
+const FIREFLY = '#F0E060'
+const PIRANHA = '#E85868'
+const PIRANHA_BELLY = '#F0C070'
+const PIRANHA_FIN = '#D04058'
+
+// Lake surface height in Three.js after glTF (Blender Z → Y).
+const LAKE_Y = -3.15
+const LAKE_SWIM_R = 10.5
+
+const SCENE_URL = assetUrl('jungle', 'backdrop', 'scene') + '?v=gfx10'
+const TREE_URL = assetUrl('jungle', 'props', 'tree')
+const STUMP_URL = assetUrl('jungle', 'props', 'stump')
+const FERN_URL = assetUrl('jungle', 'props', 'fern')
+const VINE_URL = assetUrl('jungle', 'props', 'vine')
+const PIRANHA_URL = assetUrl('jungle', 'props', 'piranha')
+
+const ASSETS = [SCENE_URL, TREE_URL, STUMP_URL, FERN_URL, VINE_URL, PIRANHA_URL]
+
+// Shared so day/night can recolour backdrop after both exist.
+const importedMats = []
+
+// Fall Guys candy remaps for imported mesh materials (by Blender material name).
+const DAY_PALETTE = {
+  Wood: WOOD, WoodDark: WOOD_DARK, PalmWood: WOOD, ArenaWood: WOOD,
+  // Canopy: mid bush + cool distant (no autumn yellow)
+  Leaf: LEAF, LeafDark: LEAF_DARK, LeafYellow: LEAF,
+  PalmLeafYellow: LEAF, PalmLeaf: LEAF, ObsLeafYellow: LEAF_DARK, BushLeaf: LEAF,
+  Moss: MOSS, MossDeep: MOSS_DEEP, ArenaMoss: MOSS,
+  Dirt: DIRT, ArenaSoil: DIRT, ArenaRoot: WOOD_DARK, RiverBank: DIRT,
+  Hill: LEAF_LIGHT, HillDark: LEAF_DARK,
+  Mountain: '#B8C7E0', MountainDark: '#8594B3',
+  Stone: ROCK, StoneDark: ROCK_DARK,
+  ArenaStone: ROCK, ArenaStoneDark: ROCK_DARK, ObsStone: ROCK,
+  ArenaTileA: MOSS, ArenaTileB: MOSS_DEEP,
+  ArenaPad: MOSS_DEEP, ArenaPadLine: '#9EE67A',
+  ArenaGold: GOLDIE, TempleGold: GOLDIE, RuneGlow: GOLDIE,
+  ArenaCrystal: '#68D0E8',
+  FlowerRed: '#E86080', FlowerYellow: '#E8D850', FlowerPurple: '#B078E8',
+  Water: WATER, WaterDeep: WATER_DEEP, WaterFoam: '#E6F7FA', WaterSpark: '#E6F7FA',
+  WaterRipple: '#B2EAF8', WaterShoreRing: '#D9F5FA', WaterPad: '#52B86B', WaterPadVein: '#38944D',
+  Vine: LEAF_DARK,
+  BeeYellow: '#E8D850', BeeBlack: '#4A4058', Wing: '#E8F0F8',
+  ButterflyBlue: '#5898E0', ButterflyOrange: '#E88850',
+  CaterpillarGreen: LEAF, CaterpillarStripe: '#E8D850',
+  // Quaternius / Kenney fish materials (common names)
+  Piranha: '#E85868', PiranhaBelly: '#F0C070', PiranhaFin: '#D04058',
+  Body: '#E85868', Fin: '#D04058', Eye: '#2A2030',
+  // Stage 2 kit names (if ever present on meshes)
+  MAT_Grass_A: MOSS, MAT_Grass_B: MOSS_DEEP, MAT_Grass_C: '#9EE67A', MAT_Grass_D: '#52A34D',
+  MAT_Rock: ROCK, MAT_Rock_Dark: ROCK_DARK,
+  MAT_Wood: WOOD, MAT_Wood_Dark: WOOD_DARK,
+  MAT_Foliage_Light: LEAF_LIGHT, MAT_Foliage_Mid: LEAF, MAT_Foliage_Dark: LEAF_DARK,
+  MAT_Dirt: DIRT, MAT_Water: WATER, MAT_Water_Deep: WATER_DEEP, MAT_Goldie: GOLDIE,
+  FarLeaf: '#619E94', FarLeafDark: '#477A80',
+  FrameLeaf: '#52B86B', FrameLeafDark: '#388C57',
+  DepthHaze: '#8CB8D1',
+}
+const NIGHT_PALETTE = {
+  Wood: '#6a5868', WoodDark: '#5a4a52', PalmWood: '#6a5868', ArenaWood: '#6a5868',
+  Leaf: '#4a6870', LeafDark: '#3a5860', LeafYellow: '#4a6870',
+  PalmLeafYellow: '#4a6870', PalmLeaf: '#4a6870', ObsLeafYellow: '#3a5860', BushLeaf: '#4a6870',
+  Moss: '#4a6858', MossDeep: '#3a5848', ArenaMoss: '#4a6858',
+  Dirt: '#6a5a50', ArenaSoil: '#6a5a50', ArenaRoot: '#5a4a42',
+  Hill: '#4a6870', HillDark: '#3a5860',
+  Mountain: '#6a6870', MountainDark: '#585860',
+  ArenaStone: '#6a6870', ArenaStoneDark: '#585860', ObsStone: '#6a6870',
+  ArenaTileA: '#4a6858', ArenaTileB: '#3a5848',
+  ArenaPad: '#4a6858', ArenaPadLine: '#a0c080',
+  ArenaGold: '#8a6840', ArenaCrystal: '#5080aa',
+  FlowerRed: '#804050', FlowerYellow: '#807040', FlowerPurple: '#604080',
+  Water: '#3a5a68', WaterDeep: '#2a4858', WaterFoam: '#708090',
+}
+
+function matKey(name) {
+  return (name || '').replace(/\.\d+$/, '')
+}
+
+function tintByMaterialName(root, palette) {
+  if (!root || !palette) return root
+  root.traverse((obj) => {
+    if (!obj.isMesh) return
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+    for (const m of mats) {
+      const hex = palette[matKey(m?.name)]
+      if (hex && m?.color) m.color.set(hex)
+    }
+  })
+  return root
+}
+
+function collectMats(root, into) {
+  const seen = new Set(into)
+  root.traverse((obj) => {
+    if (!obj.isMesh) return
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+    for (const m of mats) {
+      if (m?.color && !seen.has(m)) {
+        seen.add(m)
+        into.push(m)
+      }
+    }
+  })
+}
+
+function prepareImported(root, { shadows = true, cast = true } = {}) {
+  root.traverse((obj) => {
+    if (!obj.isMesh) return
+    obj.castShadow = shadows && cast
+    obj.receiveShadow = shadows
+    // Backdrop must never include the old Blender arena frame / plinth "logs".
+    // Arena/Obs/Col = collision proxies; VisCell_ = Blender-only playfield double.
+    if (
+      obj.name.startsWith('Arena_')
+      || obj.name.startsWith('Obs_')
+      || obj.name.startsWith('Col_')
+      || obj.name.startsWith('VisCell_')
+    ) {
+      obj.visible = false
+    }
+  })
+  return root
+}
+
+function cloneProp(url) {
+  const root = cloneGltf(url)
+  if (!root) return null
+  root.traverse((obj) => {
+    if (!obj.isMesh) return
+    if (Array.isArray(obj.material)) obj.material = obj.material.map((m) => m.clone())
+    else if (obj.material) obj.material = obj.material.clone()
+    solid(obj)
+  })
+  tintByMaterialName(root, DAY_PALETTE)
+  return root
+}
 
 const decalTex = canvasTexture((ctx) => {
   ctx.fillStyle = '#9fd48a'
@@ -39,113 +183,559 @@ const padTex = canvasTexture((ctx) => {
   }
 })
 
+function matNamesOf(obj) {
+  const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+  return mats.map((m) => matKey(m?.name)).filter(Boolean)
+}
+
+/** Prefer Kenney-style authored piranha GLB; procedural candy fallback. */
+function makePiranha(rnd) {
+  const authored = cloneGltf(PIRANHA_URL)
+  if (authored) {
+    authored.traverse((obj) => {
+      if (!obj.isMesh) return
+      if (Array.isArray(obj.material)) obj.material = obj.material.map((m) => m.clone())
+      else if (obj.material) obj.material = obj.material.clone()
+      solid(obj)
+    })
+    tintByMaterialName(authored, DAY_PALETTE)
+    const s = 0.85 + rnd() * 0.4
+    authored.scale.setScalar(s)
+    return authored
+  }
+
+  const g = new THREE.Group()
+  const bodyMat = toon(PIRANHA, { steps: 7 })
+  const bellyMat = toon(PIRANHA_BELLY, { steps: 7 })
+  const finMat = toon(PIRANHA_FIN, { steps: 7 })
+  const eyeMat = toon('#2A2030', { steps: 7 })
+  const toothMat = toon('#F8F0E0', { steps: 7 })
+
+  const body = solid(new THREE.Mesh(
+    geo('jungle:piranhaBody', () => new THREE.SphereGeometry(0.28, 10, 8)),
+    bodyMat))
+  body.scale.set(1.35, 0.85, 0.95)
+  g.add(body)
+
+  const belly = new THREE.Mesh(
+    geo('jungle:piranhaBelly', () => new THREE.SphereGeometry(0.2, 8, 6)),
+    bellyMat)
+  belly.position.set(0, -0.1, 0.02)
+  belly.scale.set(1.1, 0.7, 0.85)
+  g.add(belly)
+
+  const snout = solid(new THREE.Mesh(
+    geo('jungle:piranhaSnout', () => new THREE.ConeGeometry(0.14, 0.28, 7)),
+    bodyMat))
+  snout.rotation.z = -Math.PI / 2
+  snout.position.set(0.32, -0.02, 0)
+  g.add(snout)
+
+  for (const side of [-1, 1]) {
+    const jaw = new THREE.Mesh(
+      geo('jungle:piranhaJaw', () => new THREE.BoxGeometry(0.16, 0.05, 0.14)),
+      bodyMat)
+    jaw.position.set(0.38, side * 0.07, 0)
+    g.add(jaw)
+    for (let i = 0; i < 3; i++) {
+      const tooth = new THREE.Mesh(
+        geo('jungle:piranhaTooth', () => new THREE.ConeGeometry(0.02, 0.06, 4)),
+        toothMat)
+      tooth.position.set(0.42, side * 0.04, (i - 1) * 0.04)
+      tooth.rotation.z = side > 0 ? Math.PI : 0
+      g.add(tooth)
+    }
+  }
+
+  const dorsal = new THREE.Mesh(
+    geo('jungle:piranhaDorsal', () => new THREE.ConeGeometry(0.12, 0.28, 5)),
+    finMat)
+  dorsal.position.set(-0.02, 0.28, 0)
+  dorsal.rotation.z = 0.15
+  g.add(dorsal)
+
+  const tail = new THREE.Mesh(
+    geo('jungle:piranhaTail', () => new THREE.ConeGeometry(0.16, 0.3, 5)),
+    finMat)
+  tail.rotation.z = Math.PI / 2
+  tail.position.set(-0.38, 0.02, 0)
+  g.add(tail)
+
+  for (const side of [-1, 1]) {
+    const fin = new THREE.Mesh(
+      geo('jungle:piranhaPec', () => new THREE.ConeGeometry(0.08, 0.18, 5)),
+      finMat)
+    fin.position.set(0.05, -0.05, side * 0.22)
+    fin.rotation.set(side * 0.6, 0, side * 0.4)
+    g.add(fin)
+  }
+
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(
+      geo('jungle:piranhaEye', () => new THREE.SphereGeometry(0.045, 6, 6)),
+      eyeMat)
+    eye.position.set(0.18, 0.08, side * 0.16)
+    g.add(eye)
+  }
+
+  const s = 0.75 + rnd() * 0.35
+  g.scale.setScalar(s)
+  return g
+}
+
+function createPiranhas(parent) {
+  const fish = []
+  const n = 11
+  for (let i = 0; i < n; i++) {
+    const rnd = () => Math.random()
+    const mesh = makePiranha(rnd)
+    parent.add(mesh)
+    const orbitR = 3.2 + Math.random() * LAKE_SWIM_R * 0.55
+    fish.push({
+      mesh,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.35 + Math.random() * 0.55,
+      dir: Math.random() < 0.5 ? 1 : -1,
+      radius: orbitR,
+      radiusWobble: 0.4 + Math.random() * 0.9,
+      depth: LAKE_Y - 0.25 - Math.random() * 0.55,
+      jumpEvery: 4.5 + Math.random() * 7,
+      jumpPhase: Math.random() * 10,
+      jumpDur: 0.85 + Math.random() * 0.35,
+      jumpH: 1.6 + Math.random() * 1.4,
+    })
+  }
+  return fish
+}
+
+function updatePiranhas(fish, t) {
+  for (const f of fish) {
+    const a = t * f.speed * f.dir + f.phase
+    const r = f.radius + Math.sin(a * 0.7) * f.radiusWobble
+    const x = Math.cos(a) * r
+    const z = Math.sin(a) * r
+
+    const cycle = (t + f.jumpPhase) % f.jumpEvery
+    let y = f.depth
+    let pitch = Math.sin(a * 2.2) * 0.12
+    let roll = Math.sin(a * 3.1) * 0.18
+    if (cycle < f.jumpDur) {
+      const u = cycle / f.jumpDur
+      const arc = Math.sin(u * Math.PI)
+      y = LAKE_Y + arc * f.jumpH
+      pitch = (u < 0.5 ? -0.9 : 1.1) * arc
+      roll = Math.sin(u * Math.PI * 2) * 0.35
+      // Splash once at the start of each leap (leaving water)
+      if (!f._jumpSplash && u < 0.08) {
+        f._jumpSplash = true
+        f._pendingSplash = { x, z, s: 0.35 }
+      }
+      if (u > 0.92) f._jumpSplash = false
+    } else {
+      y += Math.sin(a * 2.4) * 0.08
+      f._jumpSplash = false
+    }
+
+    f.mesh.position.set(x, y, z)
+    f.mesh.rotation.order = 'YXZ'
+    f.mesh.rotation.y = a * f.dir + Math.PI / 2
+    f.mesh.rotation.x = pitch
+    f.mesh.rotation.z = roll
+  }
+}
+
+/** Candy lake splash: expanding ring + droplet burst. Pooled, capped. */
+function createLakeSplashes(parent) {
+  const MAX = 5
+  const DROP_N = 14
+  const ringGeo = geo('jungle:splashRing', () => new THREE.TorusGeometry(1, 0.06, 6, 28))
+  const dropGeo = geo('jungle:splashDrop', () => new THREE.SphereGeometry(0.09, 6, 5))
+  const mistGeo = geo('jungle:splashMist', () => new THREE.SphereGeometry(0.16, 6, 5))
+  const waterMat = toon('#9AE8F5', { steps: 7 })
+  waterMat.transparent = true
+  waterMat.opacity = 0.85
+  waterMat.depthWrite = false
+  const foamMat = toon('#F2FCFF', { steps: 7 })
+  foamMat.transparent = true
+  foamMat.opacity = 0.9
+  foamMat.depthWrite = false
+
+  const pool = []
+  for (let i = 0; i < MAX; i++) {
+    const g = new THREE.Group()
+    g.visible = false
+    const ring = new THREE.Mesh(ringGeo, waterMat.clone())
+    ring.rotation.x = Math.PI / 2
+    g.add(ring)
+    const ring2 = new THREE.Mesh(ringGeo, foamMat.clone())
+    ring2.rotation.x = Math.PI / 2
+    ring2.scale.setScalar(0.7)
+    g.add(ring2)
+    const drops = []
+    for (let d = 0; d < DROP_N; d++) {
+      const drop = new THREE.Mesh(dropGeo, d % 3 === 0 ? foamMat.clone() : waterMat.clone())
+      drop.visible = false
+      g.add(drop)
+      drops.push({
+        mesh: drop,
+        vx: 0, vy: 0, vz: 0,
+      })
+    }
+    const mists = []
+    for (let m = 0; m < 6; m++) {
+      const mist = new THREE.Mesh(mistGeo, foamMat.clone())
+      mist.visible = false
+      g.add(mist)
+      mists.push(mist)
+    }
+    parent.add(g)
+    pool.push({
+      g, ring, ring2, drops, mists,
+      alive: false, t: 0, dur: 1.1, strength: 1,
+    })
+  }
+
+  let cursor = 0
+
+  function splash(x, z, strength = 1) {
+    const dist = Math.hypot(x, z)
+    if (dist > LAKE_SWIM_R + 3.5) return false
+    const s = pool[cursor]
+    cursor = (cursor + 1) % MAX
+    s.alive = true
+    s.t = 0
+    s.dur = 0.85 + strength * 0.35
+    s.strength = Math.min(1.6, Math.max(0.35, strength))
+    s.g.visible = true
+    s.g.position.set(x, LAKE_Y + 0.04, z)
+    s.ring.scale.setScalar(0.15)
+    s.ring2.scale.setScalar(0.1)
+    s.ring.material.opacity = 0.9
+    s.ring2.material.opacity = 0.85
+    for (let d = 0; d < DROP_N; d++) {
+      const drop = s.drops[d]
+      const a = (d / DROP_N) * Math.PI * 2 + Math.random() * 0.4
+      const speed = (1.8 + Math.random() * 3.2) * s.strength
+      drop.mesh.visible = true
+      drop.mesh.position.set(0, 0.05, 0)
+      drop.mesh.scale.setScalar(0.6 + Math.random() * 0.9)
+      drop.vx = Math.cos(a) * speed * (0.55 + Math.random() * 0.5)
+      drop.vy = (3.5 + Math.random() * 4.5) * s.strength
+      drop.vz = Math.sin(a) * speed * (0.55 + Math.random() * 0.5)
+      if (drop.mesh.material.opacity != null) drop.mesh.material.opacity = 0.95
+    }
+    for (let m = 0; m < s.mists.length; m++) {
+      const mist = s.mists[m]
+      const a = Math.random() * Math.PI * 2
+      const r = Math.random() * 0.4
+      mist.visible = true
+      mist.position.set(Math.cos(a) * r, 0.1, Math.sin(a) * r)
+      mist.scale.setScalar(0.8 + Math.random())
+      if (mist.material.opacity != null) mist.material.opacity = 0.55
+    }
+    return true
+  }
+
+  function update(dt) {
+    for (const s of pool) {
+      if (!s.alive) continue
+      s.t += dt
+      const u = Math.min(1, s.t / s.dur)
+      const grow = 0.2 + u * (1.8 + s.strength * 1.2)
+      s.ring.scale.setScalar(grow)
+      s.ring2.scale.setScalar(grow * 0.72 + u * 0.5)
+      s.ring.material.opacity = 0.85 * (1 - u)
+      s.ring2.material.opacity = 0.75 * (1 - u * u)
+
+      for (const drop of s.drops) {
+        if (!drop.mesh.visible) continue
+        drop.vy -= 18 * dt
+        drop.mesh.position.x += drop.vx * dt
+        drop.mesh.position.y += drop.vy * dt
+        drop.mesh.position.z += drop.vz * dt
+        if (drop.mesh.material.opacity != null) {
+          drop.mesh.material.opacity = Math.max(0, 0.95 * (1 - u))
+        }
+        // Hit lake again → hide
+        if (drop.mesh.position.y < 0) {
+          drop.mesh.visible = false
+        }
+      }
+      for (const mist of s.mists) {
+        mist.position.y += dt * 1.2
+        mist.scale.multiplyScalar(1 + dt * 1.8)
+        if (mist.material.opacity != null) mist.material.opacity *= 1 - dt * 2.2
+      }
+
+      if (u >= 1) {
+        s.alive = false
+        s.g.visible = false
+        for (const drop of s.drops) drop.mesh.visible = false
+        for (const mist of s.mists) mist.visible = false
+      }
+    }
+  }
+
+  return { splash, update }
+}
+
 function createBackdrop(scene) {
   const group = new THREE.Group()
   scene.add(group)
 
-  const floorMat = toon('#3a6b34')
-  const hillMat = toon(LEAF)
-  const hillDark = toon(LEAF_DARK)
-  const trunkMat = toon(WOOD)
-  const canopyMat = toon('#4cb05a')
-  const discMat = new THREE.MeshBasicMaterial({ color: '#fff4b0', fog: false })
-  const hazeMat = new THREE.MeshBasicMaterial({
-    color: '#a8e080', fog: false, transparent: true, opacity: 0.16, depthWrite: false,
-  })
+  const flyers = []
+  const crawlers = []
+  const waterMaps = []
+  const waterFxMeshes = [] // Ripple / ShoreRing / Sparkle / Foam / LilyPad
+  const piranhas = []
+  const lakeFx = createLakeSplashes(group)
+  let authored = false
 
-  const skins = [
-    [floorMat, '#3a6b34', '#1e2a3a'],
-    [hillMat, LEAF, '#2a4050'],
-    [hillDark, LEAF_DARK, '#243848'],
-    [trunkMat, WOOD, '#2e2838'],
-    [canopyMat, '#4cb05a', '#355060'],
-  ]
+  const sceneRoot = cloneGltf(SCENE_URL)
+  if (sceneRoot) {
+    authored = true
+    prepareImported(sceneRoot, { cast: false })
+    collectMats(sceneRoot, importedMats)
+    tintByMaterialName(sceneRoot, DAY_PALETTE)
+    group.add(sceneRoot)
 
-  const sea = new THREE.Mesh(geo('jungle:sea', () => new THREE.PlaneGeometry(220, 220)), floorMat)
-  sea.rotation.x = -Math.PI / 2
-  sea.position.y = -24
-  group.add(sea)
+    // After glTF, multi-material insects often share local (0,0,0) under
+    // different parents — group by world position so each insect wanders alone.
+    sceneRoot.updateMatrixWorld(true)
+    const flyerParts = new Map()
+    const crawlerParts = new Map()
+    const _wp = new THREE.Vector3()
+    const insectKey = (obj) => {
+      obj.getWorldPosition(_wp)
+      return `${_wp.x.toFixed(1)},${_wp.y.toFixed(1)},${_wp.z.toFixed(1)}`
+    }
+    sceneRoot.traverse((obj) => {
+      if (!obj.isMesh) return
+      const names = matNamesOf(obj)
+      const meshName = obj.name || ''
+      const isFlyer = names.some((n) =>
+        n === 'BeeYellow' || n === 'BeeBlack' || n === 'Wing'
+        || n.startsWith('Butterfly'))
+      const isCrawler = names.some((n) => n.startsWith('Caterpillar'))
+      const isWater = names.some((n) =>
+        n === 'Water' || n === 'WaterDeep' || n === 'WaterFoam'
+        || n === 'WaterRipple' || n === 'WaterShoreRing' || n === 'WaterSpark'
+        || n === 'WaterPad' || n === 'WaterPadVein')
 
-  const hillGeo = geo('jungle:hill', () => blob(1, 1))
-  for (let i = 0; i < 18; i++) {
-    const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.2
-    const radius = 17 + Math.random() * 14
-    const w = 4.5 + Math.random() * 4
-    const h = 2.6 + Math.random() * 2
-    const hill = new THREE.Mesh(hillGeo, i % 3 === 0 ? hillDark : hillMat)
-    hill.scale.set(w, h, w * 0.75)
-    hill.position.set(Math.cos(angle) * radius, -22, Math.sin(angle) * radius)
-    hill.rotation.y = Math.random() * Math.PI
-    group.add(hill)
-  }
+      if (isWater) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+        for (const m of mats) {
+          if (!m) continue
+          if (names.some((x) => x === 'WaterFoam' || x === 'WaterRipple'
+            || x === 'WaterShoreRing' || x === 'WaterSpark')) {
+            m.transparent = true
+            m.opacity = names.some((x) => x === 'WaterSpark') ? 0.55
+              : names.some((x) => x === 'WaterRipple') ? 0.4
+                : names.some((x) => x === 'WaterShoreRing') ? 0.5
+                  : 0.75
+            m.depthWrite = false
+          }
+          if (m.map && !waterMaps.includes(m.map)) {
+            m.map.wrapS = THREE.RepeatWrapping
+            m.map.wrapT = THREE.RepeatWrapping
+            waterMaps.push(m.map)
+          }
+        }
+      }
 
-  // Far canopy trees
-  const trunkGeo = geo('jungle:farTrunk', () => new THREE.CylinderGeometry(0.35, 0.55, 10, 7))
-  const crownGeo = geo('jungle:farCrown', () => blob(1.6, 0))
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2 + 0.4
-    const radius = 30 + Math.random() * 8
-    const x = Math.cos(angle) * radius
-    const z = Math.sin(angle) * radius
-    const s = 0.85 + Math.random() * 0.4
-    const trunk = new THREE.Mesh(trunkGeo, trunkMat)
-    trunk.scale.setScalar(s)
-    trunk.position.set(x, -19 + 5 * s, z)
-    group.add(trunk)
-    for (const [ly, lr] of [[10.2, 2.2], [9.2, 1.6]]) {
-      const crown = new THREE.Mesh(crownGeo, canopyMat)
-      crown.scale.set(lr * s, 0.7 * s, lr * s)
-      crown.position.set(x, -19 + ly * s, z)
-      group.add(crown)
+      if (
+        meshName.startsWith('Ripple_')
+        || meshName.startsWith('ShoreRing_')
+        || meshName.startsWith('Sparkle_')
+        || meshName.startsWith('Foam_')
+        || meshName.startsWith('LilyPad_')
+      ) {
+        waterFxMeshes.push({
+          mesh: obj,
+          kind: meshName.split('_')[0],
+          homeY: obj.position.y,
+          homeScale: obj.scale.clone(),
+          phase: Math.random() * Math.PI * 2,
+          speed: 0.35 + Math.random() * 0.55,
+        })
+      }
+
+      if (isFlyer) {
+        const k = `f:${insectKey(obj)}`
+        if (!flyerParts.has(k)) flyerParts.set(k, [])
+        flyerParts.get(k).push(obj)
+      } else if (isCrawler) {
+        const k = `c:${insectKey(obj)}`
+        if (!crawlerParts.has(k)) crawlerParts.set(k, [])
+        crawlerParts.get(k).push(obj)
+      }
+    })
+    for (const meshes of flyerParts.values()) {
+      const homes = meshes.map((m) => m.position.clone())
+      const names = matNamesOf(meshes[0])
+      const isButterfly = names.some((n) => n.startsWith('Butterfly'))
+      const heading = Math.random() * Math.PI * 2
+      const dir = Math.random() < 0.5 ? 1 : -1
+      flyers.push({
+        meshes,
+        homes,
+        phase: Math.random() * Math.PI * 2,
+        heading,
+        dir,
+        radiusX: (isButterfly ? 0.55 : 0.9) + Math.random() * 1.2,
+        radiusZ: (isButterfly ? 0.45 : 0.7) + Math.random() * 1.3,
+        speed: (isButterfly ? 0.55 : 0.75) + Math.random() * 0.85,
+        bob: (isButterfly ? 0.28 : 0.2) + Math.random() * 0.2,
+        bobRate: 1.2 + Math.random() * 1.4,
+      })
+    }
+    for (const meshes of crawlerParts.values()) {
+      const homes = meshes.map((m) => m.position.clone())
+      const heading = Math.random() * Math.PI * 2
+      crawlers.push({
+        meshes,
+        homes,
+        phase: Math.random() * Math.PI * 2,
+        heading,
+        dir: Math.random() < 0.5 ? 1 : -1,
+        speed: 0.25 + Math.random() * 0.45,
+        amp: 0.35 + Math.random() * 0.55,
+      })
+    }
+
+    piranhas.push(...createPiranhas(group))
+  } else {
+    // Procedural fallback if the authored scene failed to preload.
+    const floorMat = toon('#3a6b34')
+    const hillMat = toon(LEAF)
+    const hillDark = toon(LEAF_DARK)
+    const sea = new THREE.Mesh(geo('jungle:sea', () => new THREE.PlaneGeometry(220, 220)), floorMat)
+    sea.rotation.x = -Math.PI / 2
+    sea.position.y = -24
+    group.add(sea)
+    const lake = new THREE.Mesh(
+      geo('jungle:lakeFallback', () => new THREE.CircleGeometry(LAKE_SWIM_R + 2, 48)),
+      toon('#48C8E0', { steps: 7 }))
+    lake.rotation.x = -Math.PI / 2
+    lake.position.y = LAKE_Y
+    group.add(lake)
+    piranhas.push(...createPiranhas(group))
+    const hillGeo = geo('jungle:hill', () => blob(1, 1))
+    for (let i = 0; i < 18; i++) {
+      const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.2
+      const radius = 17 + Math.random() * 14
+      const w = 4.5 + Math.random() * 4
+      const h = 2.6 + Math.random() * 2
+      const hill = new THREE.Mesh(hillGeo, i % 3 === 0 ? hillDark : hillMat)
+      hill.scale.set(w, h, w * 0.75)
+      hill.position.set(Math.cos(angle) * radius, -22, Math.sin(angle) * radius)
+      hill.rotation.y = Math.random() * Math.PI
+      group.add(hill)
     }
   }
 
-  const disc = new THREE.Mesh(geo('jungle:disc', () => new THREE.CircleGeometry(3, 24)), discMat)
-  disc.position.set(-22, -7, -28)
-  disc.lookAt(0, -7, 0)
-  group.add(disc)
-  const haze = new THREE.Mesh(geo('jungle:haze', () => new THREE.CircleGeometry(7.5, 24)), hazeMat)
-  haze.position.set(-21.4, -7, -27.2)
-  haze.lookAt(0, -7, 0)
-  group.add(haze)
-
   const motes = createDrift({
-    count: 220, color: FIREFLY, size: 0.07, opacity: 0.45,
-    spread: 34, top: 18, bottom: -4, speed: [-0.4, -0.12], sway: 0.7,
+    count: authored ? 140 : 220, color: FIREFLY, size: 0.07, opacity: 0.45,
+    spread: authored ? 28 : 34, top: 14, bottom: -2, speed: [-0.4, -0.12], sway: 0.7,
   })
   group.add(motes.points)
-  const pollen = createDrift({
-    count: 160, color: '#c8e8a0', size: 0.1, opacity: 0.2,
-    spread: 50, top: -2, bottom: -20, speed: [-0.9, -0.3], sway: 1.2,
-  })
-  group.add(pollen.points)
 
   return {
     update(dt, t) {
       motes.update(dt, t)
-      pollen.update(dt, t)
+      lakeFx.update(dt)
+      // Gentle lake swirl (both axes, slower than the old river current)
+      const flow = (t * 0.035) % 1
+      for (const map of waterMaps) {
+        map.offset.x = flow
+        map.offset.y = Math.sin(t * 0.12) * 0.08
+        map.needsUpdate = true
+      }
+      // Idle toy water FX (not ocean sim)
+      for (const fx of waterFxMeshes) {
+        const a = t * fx.speed + fx.phase
+        const m = fx.mesh
+        if (fx.kind === 'Ripple') {
+          const pulse = 1 + Math.sin(a) * 0.12
+          m.scale.set(fx.homeScale.x * pulse, fx.homeScale.y, fx.homeScale.z * pulse)
+          m.position.y = fx.homeY + Math.sin(a * 0.7) * 0.02
+          if (m.material?.opacity != null) {
+            m.material.opacity = 0.28 + (Math.sin(a) * 0.5 + 0.5) * 0.22
+          }
+        } else if (fx.kind === 'ShoreRing') {
+          m.position.y = fx.homeY + Math.sin(a * 0.5) * 0.015
+          if (m.material?.opacity != null) {
+            m.material.opacity = 0.38 + Math.sin(a * 0.8) * 0.08
+          }
+        } else if (fx.kind === 'Sparkle') {
+          m.position.y = fx.homeY + Math.abs(Math.sin(a * 1.4)) * 0.04
+          if (m.material?.opacity != null) {
+            m.material.opacity = 0.25 + (Math.sin(a * 2.2) * 0.5 + 0.5) * 0.45
+          }
+        } else if (fx.kind === 'Foam') {
+          m.position.y = fx.homeY + Math.sin(a * 0.9) * 0.025
+        } else if (fx.kind === 'LilyPad') {
+          m.position.y = fx.homeY + Math.sin(a * 0.6) * 0.03
+          m.rotation.y = a * 0.08
+        }
+      }
+      updatePiranhas(piranhas, t)
+      for (const f of piranhas) {
+        if (f._pendingSplash) {
+          lakeFx.splash(f._pendingSplash.x, f._pendingSplash.z, f._pendingSplash.s)
+          f._pendingSplash = null
+        }
+      }
+      for (const f of flyers) {
+        const a = t * f.speed * f.dir + f.phase
+        const dx = Math.cos(a + f.heading) * f.radiusX
+        const dz = Math.sin(a + f.heading) * f.radiusZ
+        const dy = Math.sin(a * f.bobRate) * f.bob
+        const ry = a * f.dir + f.heading + Math.PI / 2
+        const rz = Math.sin(a * 2.1) * 0.28
+        for (let i = 0; i < f.meshes.length; i++) {
+          const home = f.homes[i]
+          const mesh = f.meshes[i]
+          mesh.position.set(home.x + dx, home.y + dy, home.z + dz)
+          mesh.rotation.y = ry
+          mesh.rotation.z = rz
+        }
+      }
+      for (const c of crawlers) {
+        const a = t * c.speed * c.dir + c.phase
+        const dx = Math.cos(c.heading) * Math.sin(a) * c.amp
+        const dz = Math.sin(c.heading) * Math.sin(a) * c.amp
+        const dy = Math.abs(Math.sin(a * 2)) * 0.04
+        const ry = c.heading + (Math.cos(a) * c.dir >= 0 ? 0 : Math.PI)
+        for (let i = 0; i < c.meshes.length; i++) {
+          const home = c.homes[i]
+          const mesh = c.meshes[i]
+          mesh.position.set(home.x + dx, home.y + dy, home.z + dz)
+          mesh.rotation.y = ry
+        }
+      }
     },
     setDay(day) {
-      for (const [m, d, n] of skins) m.color.set(day ? d : n)
-      discMat.color.set(day ? '#fff4b0' : '#c8d8ff')
-      hazeMat.color.set(day ? '#a8e080' : '#6a88c0')
-      hazeMat.opacity = day ? 0.16 : 0.1
-      motes.material.opacity = day ? 0.22 : 0.55
-      pollen.material.opacity = day ? 0.28 : 0.14
+      const pal = day ? DAY_PALETTE : NIGHT_PALETTE
+      for (const m of importedMats) {
+        const hex = pal[matKey(m.name)]
+        if (hex) m.color.set(hex)
+      }
+      motes.material.opacity = day ? 0.1 : 0.55
+    },
+    splash(x, z, strength = 1) {
+      return lakeFx.splash(x, z, strength)
     },
   }
 }
 
 function createProps(fx) {
-  function tree(x, z) {
-    const rnd = cellRng(x, z)
-    const landmark = x === 0 && z === 0
+  function treeProcedural(x, z, rnd, landmark) {
     const g = new THREE.Group()
     const trunk = solid(new THREE.Mesh(
       geo('jungle:trunk', () => new THREE.CylinderGeometry(0.1, 0.16, 1.35, 7)), toon(WOOD)))
     trunk.position.y = 0.68
     g.add(trunk)
-
     const crownMat = toon(LEAF)
     const crownGeo = geo('jungle:crown', () => blob(0.55, 0))
     for (const [oy, s] of [[1.45, 1], [1.7, 0.72]]) {
@@ -155,7 +745,6 @@ function createProps(fx) {
       crown.rotation.y = rnd() * Math.PI
       g.add(crown)
     }
-
     if (rnd() < 0.5) {
       const flower = new THREE.Mesh(
         geo('jungle:bloom', () => new THREE.SphereGeometry(0.06, 8, 6)),
@@ -164,7 +753,6 @@ function createProps(fx) {
       g.add(flower)
       fx.blinkers.push({ mesh: flower, phase: rnd() * 6, speed: 1.2 + rnd() })
     }
-
     g.position.set(x, 0, z)
     if (landmark) g.scale.set(1.15, 1.45, 1.15)
     else g.scale.setScalar(0.9 + rnd() * 0.18)
@@ -172,14 +760,31 @@ function createProps(fx) {
     return g
   }
 
+  function placeProp(url, x, z, rnd, { landmark = false, scale = 1 } = {}) {
+    const authored = cloneProp(url)
+    if (!authored) return null
+    authored.position.set(x, 0, z)
+    const s = (landmark ? 1.25 : 0.9 + rnd() * 0.2) * scale
+    authored.scale.setScalar(s)
+    authored.rotation.y = rnd() * Math.PI
+    return authored
+  }
+
+  function tree(x, z) {
+    const rnd = cellRng(x, z)
+    const landmark = x === 0 && z === 0
+    return placeProp(TREE_URL, x, z, rnd, { landmark }) || treeProcedural(x, z, rnd, landmark)
+  }
+
   function vine(x, z) {
     const rnd = cellRng(x, z)
+    const authored = placeProp(VINE_URL, x, z, rnd, { scale: 0.95 })
+    if (authored) return authored
     const g = new THREE.Group()
     const post = solid(new THREE.Mesh(
       geo('jungle:vinePost', () => new THREE.CylinderGeometry(0.05, 0.07, 1.1, 6)), toon(WOOD)))
     post.position.y = 0.55
     g.add(post)
-
     const leafMat = toon(LEAF)
     const leafGeo = geo('jungle:leaf', () => {
       const geom = new THREE.ConeGeometry(0.12, 0.28, 4)
@@ -199,6 +804,8 @@ function createProps(fx) {
 
   function stump(x, z) {
     const rnd = cellRng(x, z)
+    const authored = placeProp(STUMP_URL, x, z, rnd, { scale: 1.05 })
+    if (authored) return authored
     const g = new THREE.Group()
     const body = solid(new THREE.Mesh(
       geo('jungle:stump', () => new THREE.CylinderGeometry(0.28, 0.32, 0.38, 8)), toon(WOOD)))
@@ -208,11 +815,6 @@ function createProps(fx) {
       geo('jungle:stumpTop', () => new THREE.CylinderGeometry(0.26, 0.26, 0.05, 8)), toon('#8a6540')))
     top.position.y = 0.4
     g.add(top)
-    const moss = new THREE.Mesh(
-      geo('jungle:moss', () => blob(0.12, 0)), toon(MOSS))
-    moss.position.set((rnd() - 0.5) * 0.2, 0.42, (rnd() - 0.5) * 0.2)
-    moss.scale.set(1.2, 0.4, 1.2)
-    g.add(moss)
     g.position.set(x, 0, z)
     g.rotation.y = rnd() * Math.PI
     return g
@@ -220,6 +822,8 @@ function createProps(fx) {
 
   function fern(x, z) {
     const rnd = cellRng(x, z)
+    const authored = placeProp(FERN_URL, x, z, rnd, { scale: 0.85 })
+    if (authored) return authored
     const g = new THREE.Group()
     const frondMat = toon(LEAF)
     const frondGeo = geo('jungle:frond', () => {
@@ -281,14 +885,20 @@ function createProps(fx) {
 
 export default {
   id: 'jungle',
+  assets: ASSETS,
+  // Level 0 matches L1/L2: procedural floating tiles + fence; only obstacles differ.
 
   surface: {
     tileA: MOSS, tileB: MOSS_DEEP,
+    // Warm board greens (kit Grass C/D)
+    tileC: '#9EE67A', tileD: '#52A34D',
+    tileBevel: 0.11, tileBevelSegs: 3,
+    tileHeightJitter: 0.022,
     base: DIRT,
-    rim: ['#5a8a3e', '#3f6a2e'], rebar: '#4a6e34',
-    grid: ['#8fd46a', '#3a7a40'],
-    frame: FIREFLY, fence: '#7ecf6a', post: WOOD,
-    decal: '#8bc46a', decalTex,
+    rim: [MOSS, MOSS_DEEP], rebar: '#78C068',
+    grid: ['#C8E890', LEAF],
+    frame: FIREFLY, fence: MOSS, post: WOOD,
+    decal: '#A8D888', decalTex,
     pad: LEAF, padTex,
     debris: [WOOD, LEAF_DARK, MOSS],
   },
@@ -296,25 +906,38 @@ export default {
   accents: [FIREFLY, FLOWER],
 
   night: {
-    sky: '#14241c', fogNear: 24, fogFar: 80,
-    hemiSky: '#3a6050', hemiGround: '#2a3820', hemiIntensity: 1.15,
-    sunColor: '#a8c8ff', sunIntensity: 1.2,
-    accentIntensity: 11,
-    underGlow: FIREFLY, underGlowIntensity: 9,
-    spot: '#d8ffe0', spotIntensity: 10,
-    bloom: 0.2, exposure: 0.98,
+    sky: '#1a2e28', fogNear: 28, fogFar: 110,
+    hemiSky: '#4a7060', hemiGround: '#3a4830', hemiIntensity: 1.25,
+    sunColor: '#b8d0ff', sunIntensity: 1.35,
+    accentIntensity: 10,
+    underGlow: FIREFLY, underGlowIntensity: 8,
+    spot: '#e0ffe8', spotIntensity: 9,
+    bloom: 0.18, exposure: 1.05,
+    post: { vignette: 0.32, contrast: 1.04, saturation: 1.04, sharpen: 0.04 },
   },
 
   day: {
-    sky: '#7ec8a0', fogNear: 38, fogFar: 120,
-    hemiSky: '#e8fff0', hemiGround: '#6a9a50', hemiIntensity: 1.85,
-    sunColor: '#fff8d0', sunIntensity: 2.3,
-    accentIntensity: 2.4,
-    underGlow: '#90d070', underGlowIntensity: 2.4,
-    spot: '#ffffff', spotIntensity: 5.5,
-    bloom: 0.06, exposure: 1.0,
+    // Stage 8 fog + Stage 9 mild grade
+    sky: '#7EB8D0', fogNear: 36, fogFar: 118,
+    hemiSky: '#C8DCE8', hemiGround: '#7AA868', hemiIntensity: 1.28,
+    sunColor: '#FFE8C4', sunIntensity: 1.35,
+    accentIntensity: 1.05,
+    underGlow: '#78B860', underGlowIntensity: 0.55,
+    spot: '#fff4e8', spotIntensity: 2.4,
+    bloom: 0.045, exposure: 0.92,
+    post: { vignette: 0.22, contrast: 1.05, saturation: 1.07, sharpen: 0.06 },
   },
 
   createBackdrop,
   createProps,
+
+  // Stage 9: opt-in canvas grade (UI untouched).
+  post: { vignette: 0.28, contrast: 1.04, saturation: 1.05, sharpen: 0.05 },
+
+  // Softer multi-band toon + candy palette applied at GLB preload (Fall Guys).
+  materialSteps: 7,
+  materialPalette: DAY_PALETTE,
+  // Lake surface used by fall/splash hooks (Three.js Y after glTF).
+  lakeY: LAKE_Y,
+  lakeRadius: LAKE_SWIM_R + 3,
 }

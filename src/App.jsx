@@ -8,6 +8,8 @@ import PvpMapPage from './pages/PvpMapPage.jsx'
 import PvePage from './pages/PvePage.jsx'
 import ProfilePage from './pages/ProfilePage.jsx'
 import RatingPage from './pages/RatingPage.jsx'
+import FriendsPage from './pages/FriendsPage.jsx'
+import UserProfilePage from './pages/UserProfilePage.jsx'
 import PageFade from './components/PageFade.jsx'
 import Spinner from './components/Spinner.jsx'
 import { useAuth } from './auth/context.js'
@@ -52,7 +54,9 @@ export default function App() {
               <Route path="/play/pve" element={<RequireAuth><PvePage /></RequireAuth>} />
               <Route path="/character" element={<RequireAuth><CharacterPage /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+              <Route path="/u/:id" element={<RequireAuth><UserProfilePage /></RequireAuth>} />
               <Route path="/rating" element={<RequireAuth><RatingPage /></RequireAuth>} />
+              <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
             </Route>
             <Route path="/game" element={<RequireAuth><GamePage /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,0 +1,94 @@
+---
+description: Rules for recreating the jungle piranha lake map in Blender
+alwaysApply: true
+---
+
+PROJECT GOAL
+
+Recreate the supplied jungle concept as closely as possible from the main gameplay camera.
+
+The arena is a raised square platform standing above a jungle lake containing stylized piranhas.
+
+The target style is:
+- polished stylized 3D;
+- arcade party-game aesthetic;
+- medium-poly rather than extreme low-poly;
+- clean silhouettes;
+- rounded bevels;
+- large readable shapes;
+- saturated tropical colors;
+- soft lighting;
+- no photorealism.
+
+NON-DESTRUCTIVE RULES
+
+- Never delete or rename gameplay objects.
+- Never change gameplay collisions, origins or transforms without approval.
+- Keep gameplay geometry separate from visual geometry.
+- Place all new objects inside MAP_JUNGLE_UPGRADE.
+- Save a new version before every major phase.
+- Do not apply destructive modifiers until the result has been validated.
+- Never generate the entire map in one operation.
+- After each phase, create a viewport screenshot and a camera render.
+
+REFERENCE RULES
+
+- Treat the supplied concept image as the main visual reference.
+- Match the concept from the MAIN_GAME_CAMERA.
+- Preserve the platform proportions and gameplay area.
+- Match large shapes before adding details.
+- Prioritize silhouette, placement, scale and color over small decorations.
+- Do not invent large elements that are absent from the reference.
+- Hidden areas may be completed consistently with the visible design.
+
+GEOMETRY QUALITY
+
+Do not use extreme low-poly geometry.
+
+Recommended quality:
+- small props: 300–1500 triangles;
+- plants: 500–3000 triangles;
+- trees: 1500–6000 triangles;
+- large rocks: 800–4000 triangles;
+- hero objects: 3000–12000 triangles.
+
+Use:
+- bevel modifiers;
+- weighted normals;
+- shade smooth by angle;
+- controlled polygon density;
+- clean topology;
+- modular assets;
+- linked instances.
+
+Avoid:
+- primitive cubes without shaping;
+- perfectly sharp edges;
+- noisy subdivision;
+- excessive micro-details;
+- photorealistic scanned assets.
+
+PLACEMENT RULES
+
+- Objects must not intersect each other visibly.
+- Tree trunks must reach the terrain.
+- Rocks must sit partly inside the ground, not float above it.
+- Plants must follow terrain normals.
+- Vines must connect to actual support points.
+- Waterfalls must start at a source and terminate in a lower body of water.
+- Water must follow a logical elevation hierarchy.
+- No object may intersect the arena or block gameplay visibility.
+- Keep the center of the gameplay platform readable.
+
+VALIDATION
+
+After every placement phase:
+- detect mesh intersections;
+- detect floating objects;
+- detect objects below the terrain;
+- detect duplicated objects;
+- detect missing materials;
+- detect unapplied negative scale;
+- detect incorrect normals;
+- verify collection membership;
+- render from MAIN_GAME_CAMERA.

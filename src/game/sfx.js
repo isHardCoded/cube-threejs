@@ -181,6 +181,26 @@ export const sfx = {
     src.connect(f).connect(envGain(t0, 0.2, 0.5))
     src.start(t0)
   },
+  // soft candy splash when a cube hits the jungle lake
+  splash() {
+    if (!ready()) return
+    const t0 = audioCtx.currentTime
+    const src = makeNoise(0.28)
+    const f = audioCtx.createBiquadFilter()
+    f.type = 'bandpass'
+    f.frequency.setValueAtTime(900, t0)
+    f.frequency.exponentialRampToValueAtTime(220, t0 + 0.25)
+    f.Q.value = 0.7
+    src.connect(f).connect(envGain(t0, 0.28, 0.28))
+    src.start(t0)
+    const o = audioCtx.createOscillator()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(180, t0)
+    o.frequency.exponentialRampToValueAtTime(55, t0 + 0.22)
+    o.connect(envGain(t0, 0.14, 0.24))
+    o.start(t0)
+    o.stop(t0 + 0.25)
+  },
   // mechanical click of a mine arming itself
   arm() {
     if (!ready()) return

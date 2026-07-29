@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { NEON_MAGENTA } from './palette.js'
-import { cellKey, levelY } from './layouts.js'
+import { cellKey, floorY } from './layouts.js'
 import { createMineModel, DEFAULT_MINE_SKIN, disposeMineModel } from './mineModels.js'
 
 const POOP_HEX = 0x8b5a2b
@@ -11,7 +11,9 @@ const MAX_BITS = 16
 // Mines the local player laid, plus the explosions everyone sees. The server
 // only tells you about your own mines, so an enemy trap has nothing to draw
 // until it goes off.
-export function createMines(scene) {
+export function createMines(scene, theme = null) {
+  const lift = () => theme?.arenaLift || 0
+  const yOf = (level) => floorY(level, lift())
   const mines = new Map() // `${level}:${cellKey}` -> { group, light }
   const blasts = []
   let skinId = DEFAULT_MINE_SKIN
@@ -57,7 +59,7 @@ export function createMines(scene) {
     if (mines.has(id)) return
 
     const { group, lamp } = createMineModel(skinId)
-    group.position.set(x, levelY(level) + 0.02, z)
+    group.position.set(x, yOf(level) + 0.02, z)
     scene.add(group)
     mines.set(id, { group, lamp, level })
   }
@@ -120,7 +122,7 @@ export function createMines(scene) {
     remove(level, x, z)
     const isPoop = boomSkin === 'poop'
     const tint = isPoop ? POOP_HEX : NEON_MAGENTA
-    const y = levelY(level)
+    const y = yOf(level)
 
     const ring = takeRing()
     ring.material.color.set(tint)

@@ -90,3 +90,22 @@ export function FlagIcon({ size = 14 }) {
     </svg>
   )
 }
+
+export function ToolsIcon({ size = 20 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14.7 6.3a4 4 0 0 0-5.6 5.6L3 18l3 3 6.1-6.1a4 4 0 0 0 5.6-5.6l-2.5 2.5-2.1-.7-.7-2.1 2.5-2.5Z" />
+      <path d="m16 5 3 3" />
+    </svg>
+  )
+}
+
+/** Stacked cubes — map asset library. */
+export function CubesIcon({ size = 20 }) {
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3 4.5 7.2v9.6L12 21l7.5-4.2V7.2L12 3Z" />
+      <path d="M12 12 4.5 7.2M12 12l7.5-4.8M12 12v9" />
+    </svg>
+  )
+}

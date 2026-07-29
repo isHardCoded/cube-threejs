@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import { createEnvironment } from '../game/environment.js'
 import { createArena } from '../game/platforms.js'
 import { createDie } from '../game/dice.js'
-import { levelY } from '../game/layouts.js'
+import { floorY } from '../game/layouts.js'
+import { preloadThemeAssets } from '../game/themes/index.js'
 
 // Dev harness for the map themes: no server, no networking, no gameplay. Open
 //   /preview.html?map=lava&day=0&level=0
@@ -44,7 +45,11 @@ function sampleLayout(id) {
 }
 
 const canvas = document.getElementById('scene')
-const env = createEnvironment(canvas, mapId)
+
+const env = await (async () => {
+  await preloadThemeAssets(mapId)
+  return createEnvironment(canvas, mapId)
+})()
 // the composer's last pass would otherwise reset the counters to "one quad"
 env.renderer.info.autoReset = false
 const arena = createArena(env)
@@ -55,7 +60,7 @@ arena.showTramp(level, 0, 0)
 // a few cubes to judge readability against the floor
 const dice = SKINS.map((skin, i) => {
   const { group } = createDie(skin)
-  group.position.set(-1 + i * 1.6, levelY(level) + 0.5, 1.5 - i * 0.4)
+  group.position.set(-1 + i * 1.6, floorY(level, env.theme?.arenaLift || 0) + 0.5, 1.5 - i * 0.4)
   group.rotation.y = i * 0.7
   env.scene.add(group)
   const light = new THREE.PointLight(skin.body, 1.6, 3.5)
@@ -79,6 +84,23 @@ function showStats(t) {
 }
 
 window.addEventListener('resize', () => env.resize())
+
+// Jungle lake splash preview: click to drop a candy splash under the cursor ray
+if (mapId === 'jungle') {
+  const ray = new THREE.Raycaster()
+  const ndc = new THREE.Vector2()
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(env.theme.lakeY || -3.15))
+  const hit = new THREE.Vector3()
+  canvas.addEventListener('pointerdown', (e) => {
+    ndc.x = (e.clientX / window.innerWidth) * 2 - 1
+    ndc.y = -(e.clientY / window.innerHeight) * 2 + 1
+    ray.setFromCamera(ndc, env.camera)
+    if (ray.ray.intersectPlane(plane, hit)) {
+      env.splash?.(hit.x, hit.z, 1.1)
+    }
+  })
+  hint.title = 'Click the lake to preview splashes'
+}
 
 const clock = new THREE.Clock()
 let orbit = 0

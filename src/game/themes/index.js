@@ -1,3 +1,7 @@
+import { preloadGltf } from '../assets/gltf.js'
+import {
+  jungleTextureMaps, jungleTextureUrls, preloadToonTextures,
+} from '../assets/toonTextures.js'
 import cyberpunk from './cyberpunk.js'
 import lava from './lava.js'
 import desert from './desert.js'
@@ -13,8 +17,13 @@ import ocean from './ocean.js'
 //
 //   id: string                          matches the server map id
 //
+//   assets?: string[]                   optional GLB urls to preload before boot
+//   authoredArena?: boolean             level-0 uses Blender rim/pad (skip procedural fence)
+//   createArenaDressing?: () => Object3D|null
+//
 //   surface: {                          arena furniture colours (platforms.js)
 //     tileA, tileB,                     checkerboard floor
+//     tileMapA?, tileMapB?, baseMap?,   optional arcade albedo maps
 //     base,                             the chunk of ground under each tile
 //     rim: [c1, c2], rebar,             torn edge hanging below the platform
 //     grid: [c1, c2],                   lines over the tile seams
@@ -47,4 +56,24 @@ const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean }
 
 export function themeFor(id) {
   return THEMES[id] || cyberpunk
+}
+
+// Warm texture + GLB caches before createEnvironment so prop factories can
+// clone synchronously. Safe to call for maps with no assets (no-op).
+export async function preloadThemeAssets(id) {
+  const theme = themeFor(id)
+  const opts = {}
+  if (id === 'jungle') {
+    await preloadToonTextures(jungleTextureUrls())
+    // Explicit maps object strips glTF photo albedos; only candy water scrolls.
+    opts.maps = jungleTextureMaps()
+    opts.palette = theme.materialPalette || null
+    opts.steps = theme.materialSteps || 7
+    // Arena tiles stay flat Fall Guys colour — no moss photo noise.
+    theme.surface.tileMapA = null
+    theme.surface.tileMapB = null
+    theme.surface.baseMap = null
+    theme.surface.rimMap = null
+  }
+  return preloadGltf(theme.assets || [], opts)
 }

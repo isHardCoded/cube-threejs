@@ -1,0 +1,30 @@
+Nature / ambience assets for jungle backdrop review
+
+Bushes, grass, flowers, palms, trees
+- Source: Kenney Nature Kit — https://kenney.nl/assets/nature-kit
+- License: CC0 1.0
+- Palms: tree_palm*
+- Backdrop trees: tree_oak, tree_detailed, tree_fat, tree_tall, tree_default, tree_plateau
+  (replaced custom JungleTree_* via art/jungle/scripts/fix_trees_fish_export.py)
+- Rocks: rock_* / stone_*
+- Canopy materials forced green (Leaf / PalmLeafYellow → jungle green, no autumn yellow)
+
+Piranhas
+- Authored Kenney Nature Kit–matching candy arcade fish (chunky solids, same silhouette language as palms)
+- Exported: public/assets/maps/jungle/props/piranha.glb
+- Runtime swim + leap in the lake under the arena
+- Note: Kenney Fish Pack is 2D sprites; Quaternius cute-fish Drive mirror was not reliably downloadable here,
+  so the prop was built to match the existing Kenney arcade look used by palms/rocks
+
+Textures
+- Fall Guys candy look: flat pastel colours (no photo albedos on meshes)
+- Water keeps a soft turquoise band map for UV scroll
+
+Runtime transfer
+- Source blend: art/jungle/jungle_backdrop_review.blend
+- Backdrop: public/assets/maps/jungle/backdrop/scene.glb (lake under arena + Kenney props)
+- Props: public/assets/maps/jungle/props/{tree,stump,fern,vine,piranha}.glb
+
+Water / lake
+- Solid lake under floating arena; candy splash FX when cubes / tiles hit water
+- Piranhas leap with small splash

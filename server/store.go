@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
 	cubes         INT NOT NULL DEFAULT 0,
 	skin_id       TEXT NOT NULL DEFAULT 'chrome-yellow',
 	mine_skin_id  TEXT NOT NULL DEFAULT 'classic',
+	hat_id        TEXT NOT NULL DEFAULT 'none',
 	class_id      TEXT NOT NULL DEFAULT 'universal',
 	avatar_url    TEXT,
 	avatar_custom BOOLEAN NOT NULL DEFAULT false,
@@ -35,6 +36,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (lower(usern
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_custom BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS mine_skin_id TEXT NOT NULL DEFAULT 'classic';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hat_id TEXT NOT NULL DEFAULT 'none';
 
 CREATE TABLE IF NOT EXISTS user_skins (
 	user_id  BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -48,6 +50,13 @@ CREATE TABLE IF NOT EXISTS user_mine_skins (
 	mine_skin_id  TEXT NOT NULL,
 	owned_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 	PRIMARY KEY (user_id, mine_skin_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_hats (
+	user_id  BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	hat_id   TEXT NOT NULL,
+	owned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (user_id, hat_id)
 );
 
 CREATE TABLE IF NOT EXISTS match_wins (
@@ -74,6 +83,35 @@ CREATE INDEX IF NOT EXISTS sessions_player_idx ON sessions (player_id);
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id BIGINT;
 ALTER TABLE sessions ALTER COLUMN player_id DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
+
+-- Friends: accepted pairs are stored with user_a < user_b.
+CREATE TABLE IF NOT EXISTS friendships (
+	user_a BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	user_b BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	since  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (user_a, user_b),
+	CHECK (user_a < user_b)
+);
+CREATE INDEX IF NOT EXISTS friendships_b_idx ON friendships (user_b);
+
+CREATE TABLE IF NOT EXISTS friend_requests (
+	from_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	to_id      BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (from_id, to_id),
+	CHECK (from_id <> to_id)
+);
+CREATE INDEX IF NOT EXISTS friend_requests_to_idx ON friend_requests (to_id);
+
+-- Permanent personal block: blocker never sees blocked again in search/friends.
+CREATE TABLE IF NOT EXISTS user_blocks (
+	blocker_id BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	blocked_id BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (blocker_id, blocked_id),
+	CHECK (blocker_id <> blocked_id)
+);
+CREATE INDEX IF NOT EXISTS user_blocks_blocked_idx ON user_blocks (blocked_id);
 `
 
 // NewStore fails instead of degrading: accounts and Cubes are meaningless

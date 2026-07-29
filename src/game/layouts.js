@@ -3,6 +3,8 @@ export const LEVELS = 3
 export const LEVEL_H = 7     // vertical distance between platforms
 
 export const levelY = (l) => l * LEVEL_H
+// Optional theme.arenaLift raises level-0 so a floating arena reads above the ground.
+export const floorY = (level, lift = 0) => levelY(level) + (level === 0 ? lift : 0)
 export const cellKey = (x, z) => `${x},${z}`
 export const inArena = (x, z) => x >= -HALF && x <= HALF && z >= -HALF && z <= HALF
 

@@ -9,7 +9,7 @@ export function createOrbit(camera, {
   pitch = 0.45,
   idleSpin = 0.45,
 } = {}) {
-  const startDist = dist
+  let startDist = dist
   const state = {
     yaw,
     pitch,
@@ -29,6 +29,15 @@ export function createOrbit(camera, {
       state.dist * Math.sin(phi) * Math.cos(state.yaw),
     )
     camera.lookAt(0, targetY, 0)
+  }
+
+  /** Reframe around a newly fitted object (raises zoom-out ceiling). */
+  function frame(nextDist, nextYaw = state.yaw, nextPitch = state.pitch) {
+    state.dist = nextDist
+    startDist = Math.max(startDist, nextDist)
+    state.yaw = nextYaw
+    state.pitch = nextPitch
+    applyCamera()
   }
 
   function attach(el) {
@@ -88,5 +97,5 @@ export function createOrbit(camera, {
     }
   }
 
-  return { attach, tick, applyCamera, state }
+  return { attach, tick, applyCamera, frame, state }
 }

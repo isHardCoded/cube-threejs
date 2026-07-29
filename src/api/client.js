@@ -46,8 +46,10 @@ export const auth = {
 export const profile = {
   skins: () => api('/api/skins', { auth: false }),
   mineSkins: () => api('/api/mine-skins', { auth: false }),
+  hats: () => api('/api/hats', { auth: false }),
   setSkin: (skinId) => api('/api/me/skin', { method: 'POST', body: { skinId } }),
   setMineSkin: (mineSkinId) => api('/api/me/mine-skin', { method: 'POST', body: { mineSkinId } }),
+  setHat: (hatId) => api('/api/me/hat', { method: 'POST', body: { hatId } }),
   setAvatar: async (file) => {
     const headers = {}
     const token = getToken()
@@ -80,6 +82,20 @@ export const profile = {
 
 export const rating = {
   top: () => api('/api/rating'),
+}
+
+export const friends = {
+  list: () => api('/api/friends'),
+  search: (q) => api(`/api/friends/search?q=${encodeURIComponent(q)}`),
+  blocked: () => api('/api/friends/blocked'),
+  request: (userId) => api('/api/friends/request', { method: 'POST', body: { userId } }),
+  accept: (userId) => api('/api/friends/accept', { method: 'POST', body: { userId } }),
+  decline: (userId) => api('/api/friends/decline', { method: 'POST', body: { userId } }),
+  cancel: (userId) => api('/api/friends/cancel', { method: 'POST', body: { userId } }),
+  remove: (userId) => api('/api/friends/remove', { method: 'POST', body: { userId } }),
+  block: (userId) => api('/api/friends/block', { method: 'POST', body: { userId } }),
+  unblock: (userId) => api('/api/friends/unblock', { method: 'POST', body: { userId } }),
+  user: (id) => api(`/api/users/${id}`),
 }
 
 export const matchmaking = {

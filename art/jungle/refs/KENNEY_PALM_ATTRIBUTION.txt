@@ -1,0 +1,6 @@
+Kenney Nature Kit — palm trees (tree_palm*.glb)
+Source: https://kenney.nl/assets/nature-kit
+License: CC0 1.0 (public domain) — https://creativecommons.org/publicdomain/zero/1.0/
+
+Recolored to Cubion World jungle cartoon palette in art/jungle/jungle_backdrop_review.blend.
+Exported game prop: public/assets/maps/jungle/props/palm.glb

@@ -39,6 +39,7 @@ type Player struct {
 	ID      string `json:"id"` // account id as text: stable across reconnects
 	Name    string `json:"name"`
 	SkinID  string `json:"skinId"`
+	HatID   string `json:"hatId"`
 	ClassID string `json:"classId"`
 	Level   int    `json:"level"`
 	X       int    `json:"x"`
@@ -470,7 +471,7 @@ func (h *Hub) onJoin(c *Client) {
 
 	l, x, z := h.spawnCell()
 	p := &Player{
-		ID: id, Name: sanitizeName(c.name), SkinID: c.skinID, ClassID: c.classID,
+		ID: id, Name: sanitizeName(c.name), SkinID: c.skinID, HatID: c.hatID, ClassID: c.classID,
 		Level: l, X: x, Z: z,
 		Orient:     StartOrient(),
 		HP:         MaxHP,

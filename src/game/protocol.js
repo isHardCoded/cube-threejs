@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { NEON_MAGENTA, POOP_BROWN } from './palette.js'
 import { quatForOrient } from './dice.js'
-import { levelY } from './layouts.js'
+import { getStoredHatId } from './hatStore.js'
+import { floorY } from './layouts.js'
 import { sfx } from './sfx.js'
 import { hapticError, hapticHeavy } from './telegram.js'
 import { t } from '../i18n/t.js'
@@ -62,7 +63,7 @@ export function createProtocol({
     p.deathAnim = null
     p.pendingDeath = null
     p.gone = false
-    p.group.position.set(data.x, levelY(p.level) + 0.5, data.z)
+    p.group.position.set(data.x, floorY(p.level, env.theme?.arenaLift || 0) + 0.5, data.z)
     p.group.scale.set(1, 1, 1)
     const q = quatForOrient(data)
     if (q) p.group.quaternion.copy(q)
@@ -99,7 +100,10 @@ export function createProtocol({
         applyPhase(msg.phase)
         applyRound(msg.round)
         for (const pd of msg.players) pm.addPlayer(pd)
-        if (pm.me()?.spectating) setStatus(t('game.spectate'))
+        // Older servers omit hatId — apply the locally equipped hat to me.
+        const mine = pm.me()
+        if (mine) pm.setHat(mine, getStoredHatId())
+        if (mine?.spectating) setStatus(t('game.spectate'))
         break
       }
 

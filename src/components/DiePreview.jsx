@@ -1,15 +1,18 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { DEFAULT_SKIN, createDie } from '../game/dice.js'
+import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from '../game/hats.js'
 import { createOrbit } from './orbitPreview.js'
 
 // Small standalone viewport that reuses the in-game die factory. Drag to orbit,
 // wheel to zoom; idle spin resumes when you let go.
-export default function DiePreview({ skin = DEFAULT_SKIN, size = 180 }) {
+export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size = 180 }) {
   const holder = useRef(null)
   const api = useRef(null)
   const skinRef = useRef(skin)
+  const hatRef = useRef(hatId)
   skinRef.current = skin
+  hatRef.current = hatId
 
   useEffect(() => {
     const el = holder.current
@@ -33,8 +36,11 @@ export default function DiePreview({ skin = DEFAULT_SKIN, size = 180 }) {
     const { group, bodyMat, pipMat } = createDie(DEFAULT_SKIN)
     scene.add(group)
 
+    let hat = createHat(hatRef.current)
+    scene.add(hat)
+
     const orbit = createOrbit(camera, {
-      targetY: 0,
+      targetY: 0.15,
       dist: 3.4,
       minDist: 1.7,
       idleSpin: 0.4,
@@ -49,6 +55,13 @@ export default function DiePreview({ skin = DEFAULT_SKIN, size = 180 }) {
       pipMat.color.set(s.pip)
       pipMat.emissive.set(s.pip)
       rim.color.set(s.pip)
+    }
+
+    function swapHat(id) {
+      scene.remove(hat)
+      disposeHat(hat)
+      hat = createHat(id)
+      scene.add(hat)
     }
 
     function fit() {
@@ -66,6 +79,13 @@ export default function DiePreview({ skin = DEFAULT_SKIN, size = 180 }) {
     const tick = () => {
       const dt = Math.min(clock.getDelta(), 0.05)
       orbit.tick(dt)
+      const bob = Math.sin(clock.elapsedTime * HAT_BOB_SPEED) * HAT_BOB_AMP
+      const show = hat.userData.hatId && hat.userData.hatId !== 'none'
+      hat.visible = !!show
+      if (show) {
+        hat.position.set(0, HAT_BASE_Y + bob, 0)
+        hat.quaternion.identity()
+      }
       renderer.render(scene, camera)
       raf = requestAnimationFrame(tick)
     }
@@ -74,13 +94,14 @@ export default function DiePreview({ skin = DEFAULT_SKIN, size = 180 }) {
     const ro = new ResizeObserver(fit)
     ro.observe(el.parentElement || el)
 
-    api.current = { apply }
+    api.current = { apply, swapHat }
 
     return () => {
       cancelAnimationFrame(raf)
       detachOrbit()
       ro.disconnect()
       api.current = null
+      disposeHat(hat)
       renderer.domElement.remove()
       renderer.dispose()
     }
@@ -89,6 +110,10 @@ export default function DiePreview({ skin = DEFAULT_SKIN, size = 180 }) {
   useEffect(() => {
     api.current?.apply(skin)
   }, [skin])
+
+  useEffect(() => {
+    api.current?.swapHat(hatId)
+  }, [hatId])
 
   return <div ref={holder} className="model-preview" title="Drag to rotate · scroll to zoom" />
 }

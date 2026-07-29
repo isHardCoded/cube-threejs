@@ -6,14 +6,15 @@ import * as THREE from 'three'
 
 // Cel shading in a few flat bands: this is what makes the game read as a
 // cartoon instead of a glossy render. One ramp per step count, reused.
+// Higher step counts (6–8) read closer to Fall Guys soft plastic shading.
 const ramps = new Map()
 export function gradientMap(steps = 4) {
   if (ramps.has(steps)) return ramps.get(steps)
   const data = new Uint8Array(steps)
+  const floor = steps >= 6 ? 0.42 : 0.3
   for (let i = 0; i < steps; i++) {
-    // The darkest band is lifted so nothing goes to black, but not so far that
-    // cast shadows and shaded sides disappear — that flattened the whole arena.
-    data[i] = Math.round((0.3 + 0.7 * (i / (steps - 1))) * 255)
+    // Lift the darkest band so nothing goes to black (toy/plastic read).
+    data[i] = Math.round((floor + (1 - floor) * (i / Math.max(1, steps - 1))) * 255)
   }
   const tex = new THREE.DataTexture(data, steps, 1, THREE.RedFormat)
   tex.minFilter = THREE.NearestFilter

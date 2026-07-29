@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Gamepad2, Settings, Shirt, Trophy } from 'lucide-react'
+import { Gamepad2, Settings, Shirt, Trophy, Users } from 'lucide-react'
 import LogoutIcon from '../components/LogoutIcon.jsx'
 import SettingsModal from '../components/SettingsModal.jsx'
 import Avatar from '../components/Avatar.jsx'
@@ -69,10 +69,16 @@ export default function MenuPage() {
           <span>{t('menu.play')}</span>
         </button>
 
-        <button className="btn btn--alt btn--with-icon" type="button" onClick={() => navigate('/rating')}>
-          <Trophy className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
-          <span>{t('menu.rating')}</span>
-        </button>
+        <div className="menu-pair">
+          <button className="btn btn--alt btn--with-icon" type="button" onClick={() => navigate('/rating')}>
+            <Trophy className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
+            <span>{t('menu.rating')}</span>
+          </button>
+          <button className="btn btn--ghost btn--with-icon" type="button" onClick={() => navigate('/friends')}>
+            <Users className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
+            <span>{t('menu.friends')}</span>
+          </button>
+        </div>
       </div>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

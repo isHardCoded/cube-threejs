@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { NEON_YELLOW } from './palette.js'
 import { DEFAULT_SKIN, createDie, quatForOrient, rollOrient, yAxis } from './dice.js'
-import { inArena, levelY } from './layouts.js'
+import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
+import { inArena, floorY } from './layouts.js'
 import { createNameplate, drawNameplate } from './sprites.js'
 import { sfx } from './sfx.js'
 import { haptic, hapticHeavy } from './telegram.js'
@@ -14,6 +15,8 @@ const smoothstep = (t) => t * t * (3 - 2 * t)
 // Player registry: dice meshes, server-driven animations and local prediction.
 export function createPlayers(env, arena) {
   const { scene } = env
+  const lift = () => env.theme?.arenaLift || 0
+  const dieY = (level) => floorY(level, lift()) + 0.5
   const players = new Map()
   const state = { myId: null, skins: new Map() }
 
@@ -72,16 +75,21 @@ export function createPlayers(env, arena) {
     const glow = new THREE.PointLight(skin.body, isMe ? 1.8 : 1.4, 3.5)
     glow.position.y = 0.2
     group.add(glow)
-    group.position.set(data.x, levelY(data.level || 0) + 0.5, data.z)
+    group.position.set(data.x, dieY(data.level || 0), data.z)
     const q = quatForOrient(data)
     if (q) group.quaternion.copy(q)
     scene.add(group)
+
+    // Hat is NOT a child of the tumbling die: it stays world-up and floats
+    // above the cube centre so rolls never tip it sideways.
+    const hat = createHat(data.hatId)
+    scene.add(hat)
 
     const bar = createNameplate(data.name, isMe)
     scene.add(bar.sprite)
 
     const p = {
-      id: data.id, group, bodyMat, bar,
+      id: data.id, group, bodyMat, bar, hat, hatId: data.hatId || 'none',
       cell: { x: data.x, z: data.z },
       confirmedCell: { x: data.x, z: data.z },
       level: data.level || 0,
@@ -93,6 +101,7 @@ export function createPlayers(env, arena) {
       flash: 0, deathAnim: null, spawnAnim: null,
       pendingDeath: null,           // death animation deferred until move anims finish
       gone: data.dead || data.spectating || false, // fully hidden
+      hatPhase: Math.random() * Math.PI * 2,
     }
     paintPlate(p)
     players.set(data.id, p)
@@ -103,8 +112,25 @@ export function createPlayers(env, arena) {
     const p = players.get(id)
     if (!p) return
     scene.remove(p.group)
+    if (p.hat) {
+      scene.remove(p.hat)
+      disposeHat(p.hat)
+    }
     scene.remove(p.bar.sprite)
     players.delete(id)
+  }
+
+  function setHat(p, hatId) {
+    if (!p) return
+    const next = hatId || 'none'
+    if (p.hatId === next && p.hat) return
+    if (p.hat) {
+      scene.remove(p.hat)
+      disposeHat(p.hat)
+    }
+    p.hatId = next
+    p.hat = createHat(next)
+    scene.add(p.hat)
   }
 
   function clear() {
@@ -114,7 +140,7 @@ export function createPlayers(env, arena) {
   }
 
   function startDeathAnim(p, mode) {
-    p.deathAnim = { t: 0, mode, vy: 2 }
+    p.deathAnim = { t: 0, mode, vy: 2, splashed: false }
     sfx.death()
   }
 
@@ -135,7 +161,7 @@ export function createPlayers(env, arena) {
     p.anim = null
     p.cell = { ...p.confirmedCell }
     p.orient = { ...p.confirmedOrient }
-    p.group.position.set(p.cell.x, levelY(p.level) + 0.5, p.cell.z)
+    p.group.position.set(p.cell.x, dieY(p.level), p.cell.z)
     p.group.scale.set(1, 1, 1)
     const q = quatForOrient(p.orient)
     if (q) p.group.quaternion.copy(q)
@@ -212,7 +238,7 @@ export function createPlayers(env, arena) {
     if (m.t === 'launch') p.level = m.p.level
     p.cell = { x: m.p.x, z: m.p.z }
     if (m.p.top != null) syncConfirmed(p, m.p)
-    p.group.position.set(m.p.x, levelY(p.level) + 0.5, m.p.z)
+    p.group.position.set(m.p.x, dieY(p.level), m.p.z)
     const q = quatForOrient(m.p)
     if (q) p.group.quaternion.copy(q)
   }
@@ -228,7 +254,7 @@ export function createPlayers(env, arena) {
       p.anim = {
         type: 'launch', t: 0,
         from: p.group.position.clone(),
-        to: new THREE.Vector3(m.p.x, levelY(p.level) + 0.5, m.p.z),
+        to: new THREE.Vector3(m.p.x, dieY(p.level), m.p.z),
         axis: new THREE.Vector3(1, 0, 0),
         startQuat: p.group.quaternion.clone(),
         arc: 2.6,
@@ -246,7 +272,7 @@ export function createPlayers(env, arena) {
     const dx = Math.sign(m.p.x - p.cell.x)
     const dz = Math.sign(m.p.z - p.cell.z)
     const dist = Math.abs(m.p.x - p.cell.x) + Math.abs(m.p.z - p.cell.z)
-    const baseY = levelY(p.level) + 0.5
+    const baseY = dieY(p.level)
 
     if (m.jump) {
       const dir = new THREE.Vector3(dx, 0, dz)
@@ -329,7 +355,7 @@ export function createPlayers(env, arena) {
 
     if (a.t >= 1) {
       p.cell = { x: a.target.x, z: a.target.z }
-      p.group.position.set(a.target.x, levelY(p.level) + 0.5, a.target.z)
+      p.group.position.set(a.target.x, dieY(p.level), a.target.z)
       p.group.scale.set(1, 1, 1)
       const q = quatForOrient(a.target)
       if (q) p.group.quaternion.copy(q)
@@ -367,6 +393,15 @@ export function createPlayers(env, arena) {
           p.group.position.y -= da.vy * dt
           p.group.rotation.x += dt * 5
           p.group.rotation.z += dt * 3.2
+          // Lake splash once when the cube crosses the water surface
+          const lakeY = env.theme?.lakeY
+          if (lakeY != null && !da.splashed && p.group.position.y <= lakeY + 0.35) {
+            da.splashed = true
+            if (env.splash?.(p.group.position.x, p.group.position.z, 1.15)) {
+              sfx.splash?.()
+              env.addShake?.(0.35)
+            }
+          }
           const k = Math.min(da.t / 1.1, 1)
           p.group.scale.setScalar(1 - k * 0.5)
           if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
@@ -374,7 +409,7 @@ export function createPlayers(env, arena) {
           const k = Math.min(da.t * 1.6, 1)
           p.group.scale.setScalar(Math.max(0.001, 1 - k * 0.999))
           p.group.rotation.y += dt * 10
-          p.group.position.y = levelY(p.level) + 0.5 + k * 1.2
+          p.group.position.y = dieY(p.level) + k * 1.2
           if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
         }
       }
@@ -386,9 +421,26 @@ export function createPlayers(env, arena) {
         if (k >= 1) { p.group.scale.set(1, 1, 1); p.spawnAnim = null }
       }
 
-      // nameplate floats above the die (hidden while dead)
+      // hat levitates above the die in world space (never tumbles with rolls)
+      if (p.hat) {
+        const hasHat = p.hatId && p.hatId !== 'none'
+        p.hat.visible = hasHat && p.group.visible
+        if (p.hat.visible) {
+          const bob = Math.sin(performance.now() * 0.001 * HAT_BOB_SPEED + p.hatPhase) * HAT_BOB_AMP
+          p.hat.position.set(
+            p.group.position.x,
+            p.group.position.y + HAT_BASE_Y + bob,
+            p.group.position.z,
+          )
+          p.hat.quaternion.identity()
+          p.hat.scale.copy(p.group.scale)
+        }
+      }
+
+      // nameplate floats above the die (and hat); hidden while dead
       p.bar.sprite.visible = !p.dead && p.group.visible
-      p.bar.sprite.position.set(p.group.position.x, p.group.position.y + 1.15, p.group.position.z)
+      const plateLift = p.hatId && p.hatId !== 'none' ? 1.45 : 1.15
+      p.bar.sprite.position.set(p.group.position.x, p.group.position.y + plateLift, p.group.position.z)
     }
 
     const mine = me()
@@ -396,7 +448,7 @@ export function createPlayers(env, arena) {
     // the ring rides under my cube, on the ground of its platform
     marker.visible = !!mine && !mine.dead && !mine.gone && mine.level <= visibleUpTo
     if (marker.visible) {
-      marker.position.set(mine.group.position.x, levelY(mine.level) + 0.04, mine.group.position.z)
+      marker.position.set(mine.group.position.x, (floorY(mine.level, lift()) + 0.04), mine.group.position.z)
     }
 
     // my bar also shows dash readiness, redrawn every frame while recharging
@@ -408,7 +460,7 @@ export function createPlayers(env, arena) {
 
   return {
     players, state, local, predictions,
-    me, canPlay, setSkins, addPlayer, removePlayer, clear, paintPlate,
+    me, canPlay, setSkins, setHat, addPlayer, removePlayer, clear, paintPlate,
     syncConfirmed, rollbackPrediction, predictRoll, predictDash,
     enqueueMove, startDeathAnim, update,
   }

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { blob, glow, toon } from './themes/kit.js'
-import { HALF, LEVELS, RIM_CELLS, cellKey, levelY } from './layouts.js'
+import { HALF, LEVELS, RIM_CELLS, cellKey, floorY } from './layouts.js'
 
 // The three stacked arenas: geometry, crumbling, trampolines. Colours and props
 // come from the map theme; the shapes are the same everywhere so the arena reads
@@ -11,7 +11,7 @@ import { HALF, LEVELS, RIM_CELLS, cellKey, levelY } from './layouts.js'
 // Unit shapes, scaled per instance. Every tile chunk and rim rock used to carry
 // its own geometry, which meant ~500 buffers on screen to draw a few dozen
 // distinct shapes; scaling a shared one looks identical and uploads once.
-const tileGeo = new RoundedBoxGeometry(0.96, 0.3, 0.96, 2, 0.07)
+const tileGeoDefault = new RoundedBoxGeometry(0.96, 0.3, 0.96, 2, 0.07)
 const boxGeo = new THREE.BoxGeometry(1, 1, 1)
 const coneGeo = new THREE.ConeGeometry(1, 1, 6)
 const rockGeo = blob(1, 0)
@@ -21,20 +21,47 @@ export function createArena(env) {
   const { scene, fx, theme } = env
   const s = theme.surface
   const props = theme.createProps(fx)
+  const lift = theme.arenaLift || 0
+  const yOf = (level) => floorY(level, lift)
+  const _splashPos = new THREE.Vector3()
+
+  // Soft toy tiles: themes may ask for fatter bevels (jungle Stage 1).
+  const bevel = s.tileBevel ?? 0.07
+  const bevelSegs = s.tileBevelSegs ?? 2
+  const tileGeo = (bevel !== 0.07 || bevelSegs !== 2)
+    ? new RoundedBoxGeometry(0.96, 0.32, 0.96, bevelSegs, bevel)
+    : tileGeoDefault
+  const heightJitter = s.tileHeightJitter ?? 0
 
   // One material instance per role, shared by every platform.
+  const steps = theme.materialSteps || 4
+  const tileMats = [
+    toon(s.tileA, { steps, ...(s.tileMapA ? { map: s.tileMapA } : {}) }),
+    toon(s.tileB, { steps, ...(s.tileMapB ? { map: s.tileMapB } : {}) }),
+  ]
+  if (s.tileC) tileMats.push(toon(s.tileC, { steps }))
+  if (s.tileD) tileMats.push(toon(s.tileD, { steps }))
+
   const mats = {
-    tileA: toon(s.tileA),
-    tileB: toon(s.tileB),
-    base: toon(s.base),
-    rim: s.rim.map((c) => toon(c)),
-    rebar: toon(s.rebar),
+    tileA: tileMats[0],
+    tileB: tileMats[1],
+    base: toon(s.base, { steps, ...(s.baseMap ? { map: s.baseMap } : {}) }),
+    rim: s.rim.map((c) => toon(c, { steps, ...(s.rimMap ? { map: s.rimMap } : {}) })),
+    rebar: toon(s.rebar, { steps }),
     // the edge markers used to be self-lit bars that outshone the whole arena;
     // now they are painted rails with only a hint of glow to read the boundary
     frame: glow(s.frame, 0.2),
     fence: glow(s.fence, 0.07),
-    post: toon(s.post),
-    debris: s.debris.map((c) => toon(c)),
+    post: toon(s.post, { steps }),
+    debris: s.debris.map((c) => toon(c, { steps })),
+  }
+
+  function pickTileMat(x, z) {
+    // Controlled checker + light 4-way variation (not pure noise).
+    const checker = (x + z) & 1
+    if (tileMats.length < 3) return tileMats[checker]
+    const variant = ((x * 3 + z * 7) % (tileMats.length / 2 | 0)) | 0
+    return tileMats[checker + variant * 2] || tileMats[checker]
   }
 
   // platforms[l] = { group, pieces: Map(key -> [{obj, pos0, quat0}]), tramp, trampKey, rimGone }
@@ -56,14 +83,20 @@ export function createArena(env) {
     const obstacles = layout?.obstacles || []
     const decals = layout?.decals || []
     const group = new THREE.Group()
-    group.position.y = levelY(level)
+    group.position.y = yOf(level)
     scene.add(group)
 
     const pieces = new Map()
-    const reg = (x, z, obj) => {
+    const reg = (x, z, obj, opts = {}) => {
       const key = cellKey(x, z)
       if (!pieces.has(key)) pieces.set(key, [])
-      pieces.get(key).push({ obj, pos0: obj.position.clone(), quat0: obj.quaternion.clone() })
+      pieces.get(key).push({
+        obj,
+        pos0: obj.position.clone(),
+        quat0: obj.quaternion.clone(),
+        // props pop away instantly so the readable crumple is the floor tile
+        soft: !!opts.soft,
+      })
     }
     // rim furniture (fence, frame, grid) collapses once the outer ring is gone
     const regRim = (obj) => {
@@ -71,22 +104,33 @@ export function createArena(env) {
       pieces.get('__rim').push({ obj, pos0: obj.position.clone(), quat0: obj.quaternion.clone() })
     }
 
+    // Authored maps (jungle) bring their own rim / fence / pad from Blender on
+    // level 0; keep the procedural furniture on upper platforms and other themes.
+    const authoredDressing = level === 0 && theme.authoredArena && theme.createArenaDressing
+
     // tiles + ragged ground chunks underneath. Tiles never cast shadows: they are
     // a flat floor, so all it would buy is a few hundred extra shadow draws.
+    // On authored floating arenas keep under-chunks short so holes read as void.
     for (let x = -HALF; x <= HALF; x++) {
       for (let z = -HALF; z <= HALF; z++) {
-        const tile = new THREE.Mesh(tileGeo, (x + z) % 2 === 0 ? mats.tileA : mats.tileB)
-        tile.position.set(x, -0.15, z)
+        const tile = new THREE.Mesh(tileGeo, pickTileMat(x, z))
+        // ≤ ~2.5% cell size vertical jitter — toy relief, still readable for play
+        const yJ = heightJitter
+          ? ((((x * 12.9898 + z * 78.233) % 1) + 1) % 1 - 0.5) * 2 * heightJitter
+          : 0
+        tile.position.set(x, -0.15 + yJ, z)
         tile.receiveShadow = true
         group.add(tile)
         reg(x, z, tile)
 
-        const baseH = 0.7 + Math.random() * 1.4
+        const baseH = authoredDressing
+          ? 0.35 + Math.random() * 0.25
+          : 0.7 + Math.random() * 1.4
         const base = new THREE.Mesh(boxGeo, mats.base)
         base.scale.set(0.88 + Math.random() * 0.16, baseH, 0.88 + Math.random() * 0.16)
         base.position.set(
           x + (Math.random() - 0.5) * 0.12,
-          -0.3 - baseH / 2,
+          -0.3 - baseH / 2 + yJ,
           z + (Math.random() - 0.5) * 0.12
         )
         base.rotation.y = (Math.random() - 0.5) * 0.18
@@ -95,23 +139,30 @@ export function createArena(env) {
       }
     }
 
-    // faint grid over the tile seams: enough to read the cells, not a light show
-    const grid = new THREE.GridHelper(9, 9, s.grid[0], s.grid[1])
-    grid.position.y = 0.02
-    grid.material.transparent = true
-    grid.material.opacity = 0.11
-    grid.material.depthWrite = false
-    group.add(grid)
-    regRim(grid)
+    if (authoredDressing) {
+      const dressing = theme.createArenaDressing()
+      if (dressing) group.add(dressing)
+    }
 
-    // glowing edge frame
-    const frameGeo = new THREE.BoxGeometry(9.14, 0.06, 0.06)
-    for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0, 1]]) {
-      const bar = new THREE.Mesh(frameGeo, mats.frame)
-      bar.position.set(x, 0.02, z)
-      if (rot) bar.rotation.y = Math.PI / 2
-      group.add(bar)
-      regRim(bar)
+    if (!authoredDressing) {
+      // faint grid over the tile seams: enough to read the cells, not a light show
+      const grid = new THREE.GridHelper(9, 9, s.grid[0], s.grid[1])
+      grid.position.y = 0.02
+      grid.material.transparent = true
+      grid.material.opacity = 0.11
+      grid.material.depthWrite = false
+      group.add(grid)
+      regRim(grid)
+
+      // glowing edge frame
+      const frameGeo = new THREE.BoxGeometry(9.14, 0.06, 0.06)
+      for (const [x, z, rot] of [[0, -4.55, 0], [0, 4.55, 0], [-4.55, 0, 1], [4.55, 0, 1]]) {
+        const bar = new THREE.Mesh(frameGeo, mats.frame)
+        bar.position.set(x, 0.02, z)
+        if (rot) bar.rotation.y = Math.PI / 2
+        group.add(bar)
+        regRim(bar)
+      }
     }
 
     // obstacles exactly where the server says they are
@@ -119,76 +170,78 @@ export function createArena(env) {
       const make = props.byKind[o.kind] || props.fallback
       const g = make(o.x, o.z)
       group.add(g)
-      reg(o.x, o.z, g)
+      reg(o.x, o.z, g, { soft: true })
       blockedSets[level].add(cellKey(o.x, o.z))
     }
 
-    // perimeter fence
-    {
-      const postGeo = new THREE.CylinderGeometry(0.03, 0.045, 0.62, 6)
-      const railGeo = new THREE.BoxGeometry(9.3, 0.032, 0.032)
-      for (let i = -HALF; i <= HALF; i++) {
-        for (const [px, pz] of [[i, -4.62], [i, 4.62], [-4.62, i], [4.62, i]]) {
-          const post = new THREE.Mesh(postGeo, mats.post)
-          post.position.set(px, 0.31, pz)
-          group.add(post)
-          regRim(post)
-        }
-      }
-      for (const y of [0.3, 0.56]) {
-        for (const [x, z, rot] of [[0, -4.62, 0], [0, 4.62, 0], [-4.62, 0, 1], [4.62, 0, 1]]) {
-          const rail = new THREE.Mesh(railGeo, mats.fence)
-          rail.position.set(x, y, z)
-          if (rot) rail.rotation.y = Math.PI / 2
-          group.add(rail)
-          regRim(rail)
-        }
-      }
-    }
-
-    // torn ground under the rim: rounded hanging rocks, ragged slabs, bars
-    {
-      for (let x = -HALF; x <= HALF; x++) {
-        for (let z = -HALF; z <= HALF; z++) {
-          const onRim = Math.abs(x) === HALF || Math.abs(z) === HALF
-          if (!onRim) continue
-          const ox = Math.abs(x) === HALF ? Math.sign(x) : 0
-          const oz = Math.abs(z) === HALF ? Math.sign(z) : 0
-
-          const spike = new THREE.Mesh(coneGeo, mats.rim[Math.random() < 0.5 ? 0 : 1])
-          const spikeR = 0.2 + Math.random() * 0.16
-          spike.scale.set(spikeR, 0.6 + Math.random() * 0.9, spikeR)
-          spike.rotation.x = Math.PI
-          spike.rotation.y = Math.random() * Math.PI
-          spike.position.set(
-            x + ox * 0.3 + (Math.random() - 0.5) * 0.35,
-            -1.4 - Math.random() * 0.8,
-            z + oz * 0.3 + (Math.random() - 0.5) * 0.35
-          )
-          group.add(spike)
-          reg(x, z, spike)
-
-          if (Math.random() < 0.5) {
-            const slab = new THREE.Mesh(rockGeo, mats.rim[1])
-            slab.scale.setScalar(0.28 + Math.random() * 0.22)
-            slab.position.set(
-              x + ox * (0.6 + Math.random() * 0.3),
-              -0.4 - Math.random() * 0.6,
-              z + oz * (0.6 + Math.random() * 0.3)
-            )
-            slab.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3)
-            slab.scale.y *= 0.6
-            group.add(slab)
-            reg(x, z, slab)
+    if (!authoredDressing) {
+      // perimeter fence
+      {
+        const postGeo = new THREE.CylinderGeometry(0.03, 0.045, 0.62, 6)
+        const railGeo = new THREE.BoxGeometry(9.3, 0.032, 0.032)
+        for (let i = -HALF; i <= HALF; i++) {
+          for (const [px, pz] of [[i, -4.62], [i, 4.62], [-4.62, i], [4.62, i]]) {
+            const post = new THREE.Mesh(postGeo, mats.post)
+            post.position.set(px, 0.31, pz)
+            group.add(post)
+            regRim(post)
           }
+        }
+        for (const y of [0.3, 0.56]) {
+          for (const [x, z, rot] of [[0, -4.62, 0], [0, 4.62, 0], [-4.62, 0, 1], [4.62, 0, 1]]) {
+            const rail = new THREE.Mesh(railGeo, mats.fence)
+            rail.position.set(x, y, z)
+            if (rot) rail.rotation.y = Math.PI / 2
+            group.add(rail)
+            regRim(rail)
+          }
+        }
+      }
 
-          if (Math.random() < 0.25) {
-            const bar = new THREE.Mesh(barGeo, mats.rebar)
-            bar.scale.set(0.015, 0.45 + Math.random() * 0.4, 0.015)
-            bar.position.set(x + ox * 0.62, -0.6 - Math.random() * 0.7, z + oz * 0.62)
-            bar.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
-            group.add(bar)
-            reg(x, z, bar)
+      // torn ground under the rim: rounded hanging rocks, ragged slabs, bars
+      {
+        for (let x = -HALF; x <= HALF; x++) {
+          for (let z = -HALF; z <= HALF; z++) {
+            const onRim = Math.abs(x) === HALF || Math.abs(z) === HALF
+            if (!onRim) continue
+            const ox = Math.abs(x) === HALF ? Math.sign(x) : 0
+            const oz = Math.abs(z) === HALF ? Math.sign(z) : 0
+
+            const spike = new THREE.Mesh(coneGeo, mats.rim[Math.random() < 0.5 ? 0 : 1])
+            const spikeR = 0.2 + Math.random() * 0.16
+            spike.scale.set(spikeR, 0.6 + Math.random() * 0.9, spikeR)
+            spike.rotation.x = Math.PI
+            spike.rotation.y = Math.random() * Math.PI
+            spike.position.set(
+              x + ox * 0.3 + (Math.random() - 0.5) * 0.35,
+              -1.4 - Math.random() * 0.8,
+              z + oz * 0.3 + (Math.random() - 0.5) * 0.35
+            )
+            group.add(spike)
+            reg(x, z, spike)
+
+            if (Math.random() < 0.5) {
+              const slab = new THREE.Mesh(rockGeo, mats.rim[1])
+              slab.scale.setScalar(0.28 + Math.random() * 0.22)
+              slab.position.set(
+                x + ox * (0.6 + Math.random() * 0.3),
+                -0.4 - Math.random() * 0.6,
+                z + oz * (0.6 + Math.random() * 0.3)
+              )
+              slab.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3)
+              slab.scale.y *= 0.6
+              group.add(slab)
+              reg(x, z, slab)
+            }
+
+            if (Math.random() < 0.25) {
+              const bar = new THREE.Mesh(barGeo, mats.rebar)
+              bar.scale.set(0.015, 0.45 + Math.random() * 0.4, 0.015)
+              bar.position.set(x + ox * 0.62, -0.6 - Math.random() * 0.7, z + oz * 0.62)
+              bar.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI)
+              group.add(bar)
+              reg(x, z, bar)
+            }
           }
         }
       }
@@ -206,7 +259,7 @@ export function createArena(env) {
         reg(x, z, decal)
       }
 
-      if (level === 0 && s.padTex) {
+      if (level === 0 && s.padTex && !authoredDressing) {
         const pad = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), decalMat(s.padTex, s.pad, 0.5))
         pad.rotation.x = -Math.PI / 2
         pad.position.set(0, 0.022, 0)
@@ -270,6 +323,12 @@ export function createArena(env) {
     if (arr) {
       for (const e of arr) {
         if (!e.obj.visible) continue
+        if (e.soft) {
+          // Obstacles vanish with the cell — tumbling props stole attention from
+          // the floor sectors that are supposed to read as crumbling.
+          e.obj.visible = false
+          continue
+        }
         if (animate) {
           fallingPieces.push({
             ...e,
@@ -342,11 +401,13 @@ export function createArena(env) {
       // Hide the light too: some three builds still sample lights under an
       // invisible parent, which stacked three centre spots into a white beam.
       if (platforms[l].spot) platforms[l].spot.visible = show
-      // gentle platform hover, slightly out of phase per level
-      platforms[l].group.position.y = levelY(l) + Math.sin(t * 0.6 + l * 1.3) * 0.05
+      // Floating authored arenas sit on arenaLift + a clear bob so level 0 never
+      // reads as glued to the ground.
+      const hover = (theme.authoredArena && l === 0) ? 0.28 : 0.05
+      platforms[l].group.position.y = yOf(l) + Math.sin(t * 0.85 + l * 1.3) * hover
     }
 
-    // crumbled pieces tumble down into the void
+    // crumbled pieces tumble down into the void / lake
     for (let i = fallingPieces.length - 1; i >= 0; i--) {
       const f = fallingPieces[i]
       f.t += dt
@@ -355,6 +416,14 @@ export function createArena(env) {
       f.obj.position.y -= f.vy * dt
       f.obj.rotation.x += f.rx * dt
       f.obj.rotation.z += f.rz * dt
+      const lakeY = theme.lakeY
+      if (lakeY != null && !f.splashed && !f.soft) {
+        f.obj.getWorldPosition(_splashPos)
+        if (_splashPos.y <= lakeY + 0.25) {
+          f.splashed = true
+          env.splash?.(_splashPos.x, _splashPos.z, 0.45)
+        }
+      }
       if (f.t > 2.2) {
         f.obj.visible = false
         f.obj.position.copy(f.pos0)

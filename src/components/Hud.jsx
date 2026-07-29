@@ -9,6 +9,7 @@ import {
   LayersIcon,
   MoonIcon,
   SunIcon,
+  CubesIcon,
   UsersIcon,
   WarnIcon,
 } from './HudIcons.jsx'
@@ -29,7 +30,7 @@ function TimerIcon({ kind }) {
 // coming out of the game loop, so React only re-renders when text changes.
 export default function Hud({
   status, timer, timerKind, timerDanger, alive, banner, isDay, onToggleDay,
-  mine, mineReady, onMine, lives, maxLives = 5,
+  mine, mineReady, onMine, onOpenAssets, lives, maxLives = 5,
 }) {
   const { t } = useLocale()
   const controls = [
@@ -119,35 +120,48 @@ export default function Hud({
       </div>
 
       <div className="hud-bl">
-        <div className={`hint${hintOpen ? ' is-open' : ' is-collapsed'}`}>
-          <button
-            className="hint__fab"
-            type="button"
-            onClick={() => setHintOpen(true)}
-            aria-label={t('hud.showControls')}
-            tabIndex={hintOpen ? -1 : 0}
-          >
-            ?
-          </button>
-
-          <div className="hint__panel" aria-hidden={!hintOpen}>
-            <ul className="hint__list">
-              {controls.map(([key, action]) => (
-                <li key={key}>
-                  <b>{key}</b>
-                  <span>{action}</span>
-                </li>
-              ))}
-            </ul>
+        <div className="hud-bl__row">
+          {onOpenAssets && (
             <button
-              className="hint__close"
+              className="hint__fab hint__fab--assets"
               type="button"
-              onClick={collapseHint}
-              aria-label={t('hud.hideControls')}
-              tabIndex={hintOpen ? 0 : -1}
+              onClick={onOpenAssets}
+              aria-label={t('hud.assets')}
+              title={t('hud.assets')}
             >
-              ×
+              <CubesIcon size={20} />
             </button>
+          )}
+          <div className={`hint${hintOpen ? ' is-open' : ' is-collapsed'}`}>
+            <button
+              className="hint__fab"
+              type="button"
+              onClick={() => setHintOpen(true)}
+              aria-label={t('hud.showControls')}
+              tabIndex={hintOpen ? -1 : 0}
+            >
+              ?
+            </button>
+
+            <div className="hint__panel" aria-hidden={!hintOpen}>
+              <ul className="hint__list">
+                {controls.map(([key, action]) => (
+                  <li key={key}>
+                    <b>{key}</b>
+                    <span>{action}</span>
+                  </li>
+                ))}
+              </ul>
+              <button
+                className="hint__close"
+                type="button"
+                onClick={collapseHint}
+                aria-label={t('hud.hideControls')}
+                tabIndex={hintOpen ? 0 : -1}
+              >
+                ×
+              </button>
+            </div>
           </div>
         </div>
       </div>

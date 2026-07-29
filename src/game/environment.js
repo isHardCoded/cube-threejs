@@ -2,11 +2,60 @@ import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { themeFor } from './themes/index.js'
-import { levelY } from './layouts.js'
+import { floorY } from './layouts.js'
 
 const DAY_KEY = 'cube-game-day'
+
+// Mild grade for themes that opt in (Stage 9). Canvas-only — React UI untouched.
+const GradeShader = {
+  name: 'JungleGradeShader',
+  uniforms: {
+    tDiffuse: { value: null },
+    vignette: { value: 0 },
+    contrast: { value: 1 },
+    saturation: { value: 1 },
+    sharpen: { value: 0 },
+  },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform float vignette;
+    uniform float contrast;
+    uniform float saturation;
+    uniform float sharpen;
+    varying vec2 vUv;
+    void main() {
+      vec4 color = texture2D(tDiffuse, vUv);
+      // Soft unsharp — tiny only (toy look, not cinematic)
+      if (sharpen > 0.001) {
+        vec2 px = vec2(1.0 / 1280.0, 1.0 / 720.0);
+        vec3 blur = (
+          texture2D(tDiffuse, vUv + vec2( px.x, 0.0)).rgb +
+          texture2D(tDiffuse, vUv + vec2(-px.x, 0.0)).rgb +
+          texture2D(tDiffuse, vUv + vec2(0.0,  px.y)).rgb +
+          texture2D(tDiffuse, vUv + vec2(0.0, -px.y)).rgb
+        ) * 0.25;
+        color.rgb += (color.rgb - blur) * sharpen;
+      }
+      color.rgb = (color.rgb - 0.5) * contrast + 0.5;
+      float g = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+      color.rgb = mix(vec3(g), color.rgb, saturation);
+      vec2 d = vUv - 0.5;
+      float vig = 1.0 - dot(d, d) * vignette;
+      color.rgb *= clamp(vig, 0.0, 1.0);
+      gl_FragColor = color;
+    }
+  `,
+}
 
 // Phones get fewer samples and a lower pixel ratio; edges still read smooth
 // because multisampling is doing the work instead of raw resolution.
@@ -33,7 +82,8 @@ export function createEnvironment(canvas, mapId) {
   scene.background = new THREE.Color(theme.night.sky)
   scene.fog = new THREE.Fog(theme.night.sky, theme.night.fogNear, theme.night.fogFar)
 
-  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 180)
+  // Jungle authored backdrop stretches ~100 units out; keep far plane roomy.
+  const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 220)
   camera.position.set(0, 9, 10)
 
   // The composer renders into its own target, so the renderer's `antialias` flag
@@ -53,6 +103,18 @@ export function createEnvironment(canvas, mapId) {
     0.85  // threshold: only the brightest neon blooms at all
   )
   composer.addPass(bloom)
+
+  // Optional theme grade (jungle Stage 9). Other maps skip — no cinematic stack.
+  let grade = null
+  if (theme.post) {
+    grade = new ShaderPass(GradeShader)
+    const p = theme.post
+    grade.uniforms.vignette.value = p.vignette ?? 0.25
+    grade.uniforms.contrast.value = p.contrast ?? 1.05
+    grade.uniforms.saturation.value = p.saturation ?? 1.06
+    grade.uniforms.sharpen.value = p.sharpen ?? 0.08
+    composer.addPass(grade)
+  }
   composer.addPass(new OutputPass())
 
   // --- lights ---
@@ -116,6 +178,12 @@ export function createEnvironment(canvas, mapId) {
 
     bloom.strength = m.bloom
     renderer.toneMappingExposure = m.exposure
+    if (grade && m.post) {
+      grade.uniforms.vignette.value = m.post.vignette ?? grade.uniforms.vignette.value
+      grade.uniforms.contrast.value = m.post.contrast ?? grade.uniforms.contrast.value
+      grade.uniforms.saturation.value = m.post.saturation ?? grade.uniforms.saturation.value
+      grade.uniforms.sharpen.value = m.post.sharpen ?? grade.uniforms.sharpen.value
+    }
 
     accentBase = m.accentIntensity
     underGlow.color.set(m.underGlow)
@@ -164,7 +232,7 @@ export function createEnvironment(canvas, mapId) {
   function updateCamera(dt, t, focus) {
     const fx2 = focus ? focus.x : 0
     const fz = focus ? focus.z : 0
-    const lvlY = focus ? levelY(focus.level) : 0
+    const lvlY = focus ? floorY(focus.level, theme.arenaLift || 0) : 0
 
     camTarget.set(fx2 * 0.55 + Math.sin(t * 0.25) * 0.6, lvlY, fz * 0.55).add(camOffset)
     // frame-rate independent smoothing: reaches 99.9% of the target in a second
@@ -193,5 +261,8 @@ export function createEnvironment(canvas, mapId) {
     scene, camera, renderer, fx, theme,
     setDayMode, isDay: () => isDay,
     resize, update, updateCamera, render, addShake, dispose,
+    splash(x, z, strength = 1) {
+      return backdrop.splash?.(x, z, strength) || false
+    },
   }
 }

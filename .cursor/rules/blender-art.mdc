@@ -1,0 +1,54 @@
+---
+description: Visual rules for Cubion jungle Blender + runtime art
+alwaysApply: false
+globs:
+  - art/jungle/**
+  - public/assets/maps/jungle/**
+  - src/game/themes/jungle.js
+  - src/game/assets/**
+---
+
+# Cubion Jungle — stylized arcade art direction
+
+Colorful stylized low-poly / Fall Guys candy party-game look. Quality comes from silhouette + materials + lighting + color + depth — not poly count or photo textures.
+
+## Hard constraints
+
+- Preserve gameplay geometry, origins, object names, and collisions.
+- Never delete gameplay / obstacle / Col_* / Obs_* objects without explicit approval.
+- Put new decorative objects in dedicated collections (`GRAPHICS_UPGRADE`, `FOLIAGE_KIT`).
+- Prefer modular assets and linked/instanced copies over unique one-offs.
+- Prefer large clean shapes; avoid small noisy detail.
+- Keep the center of the gameplay board readable.
+- Use rounded bevels and soft shading.
+- Avoid photorealistic textures and high-frequency noise.
+- Avoid excessive bloom, metallic look, and black crushed shadows.
+- Preserve the current gameplay / review camera unless asked otherwise.
+- Before large Blender operations: save a `_backup` copy under `art/jungle/backups/`.
+- After every stage: validate scene, then viewport screenshot or preview render; wait for user approval before the next stage.
+- Favor Eevee-compatible materials and game-ready geometry.
+- Ask before applying destructive modifiers.
+- Never change object names used by game code / export filters.
+
+## Art direction checklist
+
+- Stylized low-poly, rounded toy forms
+- Saturated but not neon-acid colors
+- Large readable props; modular foliage kit (3–7 objects per cluster)
+- Flat / light procedural materials (Principled BSDF), no photo albedos
+- Soft warm Sun + cool fill; AO; soft shadows
+- Toy cyan water: depth tint, large soft ripples, foam planes, no mirror ocean
+- Three depth planes: foreground framing, mid board+character, cool distant foliage
+- Island edge: thick cliff silhouette + hanging vines, not a thin floating slab
+
+## Work cycle (mandatory)
+
+1. Diagnose only (no edits)
+2. One category per turn (board → mats → light → water → foliage → edge → character → depth → post)
+3. Validate + preview
+4. User review
+5. Next stage
+
+## Runtime sync
+
+After Blender backdrop/prop export, update `public/assets/maps/jungle/**` and keep `src/game/themes/jungle.js` Fall Guys candy palette (no photo maps except soft water scroll).

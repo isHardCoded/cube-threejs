@@ -21,6 +21,7 @@ type User struct {
 	Cubes       int       `json:"cubes"`
 	SkinID      string    `json:"skinId"`
 	MineSkinID  string    `json:"mineSkinId"`
+	HatID       string    `json:"hatId"`
 	ClassID     string    `json:"classId"`
 	AvatarURL   string    `json:"avatarUrl,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
@@ -31,13 +32,14 @@ type User struct {
 }
 
 const userCols = `id, username, coalesce(password_hash, ''), cubes, skin_id,
-	coalesce(nullif(mine_skin_id, ''), 'classic'), class_id,
+	coalesce(nullif(mine_skin_id, ''), 'classic'),
+	coalesce(nullif(hat_id, ''), 'none'), class_id,
 	coalesce(avatar_url, ''), avatar_custom, created_at, (telegram_id IS NOT NULL)`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	err := row.Scan(
-		&u.ID, &u.Username, &u.passwordHash, &u.Cubes, &u.SkinID, &u.MineSkinID, &u.ClassID,
+		&u.ID, &u.Username, &u.passwordHash, &u.Cubes, &u.SkinID, &u.MineSkinID, &u.HatID, &u.ClassID,
 		&u.AvatarURL, &u.avatarCustom, &u.CreatedAt, &u.ViaTelegram,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -77,6 +79,9 @@ func (s *Store) CreateUser(username, passwordHash string) (*User, error) {
 	if err := s.grantAllMineSkins(ctx, u.ID); err != nil {
 		return nil, err
 	}
+	if err := s.grantAllHats(ctx, u.ID); err != nil {
+		return nil, err
+	}
 	return u, nil
 }
 
@@ -103,6 +108,17 @@ func (s *Store) grantAllMineSkins(ctx context.Context, userID int64) error {
 	return nil
 }
 
+func (s *Store) grantAllHats(ctx context.Context, userID int64) error {
+	for _, hat := range Hats {
+		if _, err := s.pool.Exec(ctx,
+			`INSERT INTO user_hats (user_id, hat_id) VALUES ($1, $2)
+			 ON CONFLICT DO NOTHING`, userID, hat.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // EnsureMineSkins backfills cosmetics for accounts created before mine skins existed.
 func (s *Store) EnsureMineSkins(userID int64) {
 	ctx, cancel := dbCtx()
@@ -114,6 +130,16 @@ func (s *Store) EnsureMineSkins(userID int64) {
 		 WHERE id = $1 AND mine_skin_id = 'banana'`, userID, DefaultMineSkin)
 	_, _ = s.pool.Exec(ctx,
 		`DELETE FROM user_mine_skins WHERE user_id = $1 AND mine_skin_id = 'banana'`, userID)
+}
+
+// EnsureHats backfills hat cosmetics for accounts created before hats existed.
+func (s *Store) EnsureHats(userID int64) {
+	ctx, cancel := dbCtx()
+	defer cancel()
+	_ = s.grantAllHats(ctx, userID)
+	_, _ = s.pool.Exec(ctx,
+		`UPDATE users SET hat_id = $2
+		 WHERE id = $1 AND (hat_id IS NULL OR hat_id = '')`, userID, DefaultHat)
 }
 
 func (s *Store) UserByUsername(username string) (*User, error) {
@@ -140,6 +166,7 @@ func (s *Store) UserByTelegram(telegramID int64, name, photoURL string) (*User, 
 	if err == nil {
 		_ = s.grantAllSkins(ctx, u.ID)
 		_ = s.grantAllMineSkins(ctx, u.ID)
+		_ = s.grantAllHats(ctx, u.ID)
 		if photoURL != "" && !u.avatarCustom && u.AvatarURL != photoURL {
 			if _, err := s.pool.Exec(ctx,
 				`UPDATE users SET avatar_url = $2 WHERE id = $1 AND avatar_custom = false`,
@@ -176,6 +203,9 @@ func (s *Store) UserByTelegram(telegramID int64, name, photoURL string) (*User, 
 			return nil, err
 		}
 		if err := s.grantAllMineSkins(ctx, u.ID); err != nil {
+			return nil, err
+		}
+		if err := s.grantAllHats(ctx, u.ID); err != nil {
 			return nil, err
 		}
 		return u, nil
@@ -223,6 +253,22 @@ func (s *Store) SetMineSkin(userID int64, skinID string) error {
 	return nil
 }
 
+func (s *Store) SetHat(userID int64, hatID string) error {
+	ctx, cancel := dbCtx()
+	defer cancel()
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE users SET hat_id = $2 WHERE id = $1
+		 AND EXISTS (SELECT 1 FROM user_hats WHERE user_id = $1 AND hat_id = $2)`,
+		userID, hatID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("hat not owned")
+	}
+	return nil
+}
+
 func (s *Store) OwnedSkins(userID int64) ([]string, error) {
 	ctx, cancel := dbCtx()
 	defer cancel()
@@ -246,6 +292,25 @@ func (s *Store) OwnedMineSkins(userID int64) ([]string, error) {
 	ctx, cancel := dbCtx()
 	defer cancel()
 	rows, err := s.pool.Query(ctx, `SELECT mine_skin_id FROM user_mine_skins WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	owned := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		owned = append(owned, id)
+	}
+	return owned, rows.Err()
+}
+
+func (s *Store) OwnedHats(userID int64) ([]string, error) {
+	ctx, cancel := dbCtx()
+	defer cancel()
+	rows, err := s.pool.Query(ctx, `SELECT hat_id FROM user_hats WHERE user_id = $1`, userID)
 	if err != nil {
 		return nil, err
 	}

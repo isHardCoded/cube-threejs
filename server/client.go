@@ -29,6 +29,7 @@ type Client struct {
 	name       string
 	skinID     string
 	mineSkinID string
+	hatID      string
 	classID    string
 
 	closing bool // set by the hub goroutine when this connection is being retired
@@ -70,9 +71,16 @@ func serveWS(arena *Arena, store *Store, w http.ResponseWriter, r *http.Request)
 		return
 	}
 	store.EnsureMineSkins(u.ID)
-	// reload so MineSkinID is valid if it was empty/legacy
+	store.EnsureHats(u.ID)
+	// reload so MineSkinID / HatID are valid if they were empty/legacy
+	if refreshed, err := store.UserByID(u.ID); err == nil {
+		u = refreshed
+	}
 	if u.MineSkinID == "" || !mineSkinExists(u.MineSkinID) {
 		u.MineSkinID = DefaultMineSkin
+	}
+	if u.HatID == "" || !hatExists(u.HatID) {
+		u.HatID = DefaultHat
 	}
 
 	q := r.URL.Query()
@@ -97,7 +105,8 @@ func serveWS(arena *Arena, store *Store, w http.ResponseWriter, r *http.Request)
 	}
 	c := &Client{
 		conn: conn, send: make(chan []byte, 64), hub: hub,
-		userID: u.ID, name: u.Username, skinID: u.SkinID, mineSkinID: u.MineSkinID, classID: u.ClassID,
+		userID: u.ID, name: u.Username, skinID: u.SkinID, mineSkinID: u.MineSkinID,
+		hatID: u.HatID, classID: u.ClassID,
 	}
 	// claim the account for this world before joining, so a cube on another
 	// map is released instead of running in parallel

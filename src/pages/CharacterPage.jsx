@@ -6,6 +6,8 @@ import Spinner from '../components/Spinner.jsx'
 import { profile } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
 import { DEFAULT_SKIN } from '../game/dice.js'
+import { DEFAULT_HAT, HATS } from '../game/hats.js'
+import { getStoredHatId, setStoredHatId } from '../game/hatStore.js'
 import { DEFAULT_MINE_SKIN } from '../game/mineModels.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
@@ -18,16 +20,19 @@ function rubber(over, size) {
 }
 
 const DEFAULT_MINE = { id: DEFAULT_MINE_SKIN, name: 'Классика', swatch: '#4a3a3a', emoji: '💣' }
+const DEFAULT_HAT_META = HATS.find((h) => h.id === DEFAULT_HAT) || HATS[0]
 
 export default function CharacterPage() {
-  const { user, ownedSkins, ownedMineSkins, patchUser } = useAuth()
+  const { user, ownedSkins, ownedMineSkins, ownedHats, patchUser } = useAuth()
   const { t, translateError } = useLocale()
-  const [tab, setTab] = useState('cube') // cube | mine
+  const [tab, setTab] = useState('cube') // cube | mine | hat
 
   const [catalog, setCatalog] = useState([])
   const [mineCatalog, setMineCatalog] = useState([])
+  const [hatCatalog, setHatCatalog] = useState([])
   const [picked, setPicked] = useState(user?.skinId || DEFAULT_SKIN.id)
   const [pickedMine, setPickedMine] = useState(user?.mineSkinId || DEFAULT_MINE.id)
+  const [pickedHat, setPickedHat] = useState(user?.hatId || getStoredHatId())
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -38,13 +43,34 @@ export default function CharacterPage() {
   const springRaf = useRef(0)
 
   useEffect(() => {
-    Promise.all([profile.skins(), profile.mineSkins()])
-      .then(([dice, mines]) => {
+    if (user?.skinId) setPicked(user.skinId)
+    if (user?.mineSkinId) setPickedMine(user.mineSkinId)
+    if (user?.hatId) setPickedHat(user.hatId)
+  }, [user?.skinId, user?.mineSkinId, user?.hatId])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [dice, mines] = await Promise.all([profile.skins(), profile.mineSkins()])
+        if (cancelled) return
         setCatalog(dice.skins || [])
         setMineCatalog(mines.skins || [])
-      })
-      .catch((err) => setError(translateError(err.message)))
-      .finally(() => setLoading(false))
+      } catch (err) {
+        if (!cancelled) setError(translateError(err.message))
+      }
+
+      // Hats may 404 on an older server build — keep the page usable.
+      try {
+        const hats = await profile.hats()
+        if (!cancelled) setHatCatalog(hats.hats || HATS)
+      } catch {
+        if (!cancelled) setHatCatalog(HATS)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
   }, [translateError])
 
   useEffect(() => {
@@ -141,7 +167,7 @@ export default function CharacterPage() {
       el.removeEventListener('pointerup', endDrag)
       el.removeEventListener('pointercancel', endDrag)
     }
-  }, [loading, catalog.length, mineCatalog.length, tab])
+  }, [loading, catalog.length, mineCatalog.length, hatCatalog.length, tab])
 
   function pick(id) {
     if (drag.current?.suppressClick) {
@@ -149,17 +175,30 @@ export default function CharacterPage() {
       return
     }
     if (tab === 'cube') setPicked(id)
-    else setPickedMine(id)
+    else if (tab === 'mine') setPickedMine(id)
+    else setPickedHat(id)
   }
 
   const skin = catalog.find((s) => s.id === picked) || DEFAULT_SKIN
   const mineSkin = mineCatalog.find((s) => s.id === pickedMine) || DEFAULT_MINE
-  const equipped = tab === 'cube' ? user?.skinId : user?.mineSkinId
-  const activeId = tab === 'cube' ? picked : pickedMine
-  const owns = (id) => (tab === 'cube' ? ownedSkins : ownedMineSkins).includes(id)
+  const hat = hatCatalog.find((s) => s.id === pickedHat) || DEFAULT_HAT_META
 
-  const skinName = (s, kind) => {
-    const key = kind === 'mine' ? `mineSkins.${s.id}` : `skins.${s.id}`
+  const equipped = tab === 'cube' ? user?.skinId
+    : tab === 'mine' ? user?.mineSkinId
+      : (user?.hatId || getStoredHatId())
+  const activeId = tab === 'cube' ? picked : tab === 'mine' ? pickedMine : pickedHat
+  const owns = (id) => {
+    if (tab === 'cube') return ownedSkins.includes(id)
+    if (tab === 'mine') return ownedMineSkins.includes(id)
+    // Older servers omit ownedHats — treat the local catalog as unlocked.
+    if (!ownedHats?.length) return true
+    return ownedHats.includes(id)
+  }
+
+  const itemName = (s, kind) => {
+    const key = kind === 'mine' ? `mineSkins.${s.id}`
+      : kind === 'hat' ? `hats.${s.id}`
+        : `skins.${s.id}`
     const label = t(key)
     return label === key ? (s.name || t('looks.skin')) : label
   }
@@ -170,10 +209,32 @@ export default function CharacterPage() {
     try {
       if (tab === 'cube') {
         const res = await profile.setSkin(picked)
-        patchUser({ skinId: res.user.skinId, mineSkinId: res.user.mineSkinId })
-      } else {
+        patchUser({
+          skinId: res.user.skinId,
+          mineSkinId: res.user.mineSkinId,
+          ...(res.user.hatId ? { hatId: res.user.hatId } : {}),
+        })
+      } else if (tab === 'mine') {
         const res = await profile.setMineSkin(pickedMine)
-        patchUser({ skinId: res.user.skinId, mineSkinId: res.user.mineSkinId })
+        patchUser({
+          skinId: res.user.skinId,
+          mineSkinId: res.user.mineSkinId,
+          ...(res.user.hatId ? { hatId: res.user.hatId } : {}),
+        })
+      } else {
+        try {
+          const res = await profile.setHat(pickedHat)
+          setStoredHatId(res.user.hatId || pickedHat)
+          patchUser({ skinId: res.user.skinId, mineSkinId: res.user.mineSkinId, hatId: res.user.hatId })
+        } catch (err) {
+          // Older backends lack /api/me/hat — keep the pick locally.
+          if (err.status === 404 || err.status === 0) {
+            const id = setStoredHatId(pickedHat)
+            patchUser({ hatId: id })
+          } else {
+            throw err
+          }
+        }
       }
     } catch (err) {
       setError(translateError(err.message))
@@ -182,7 +243,8 @@ export default function CharacterPage() {
     }
   }
 
-  const list = tab === 'cube' ? catalog : mineCatalog
+  const list = tab === 'cube' ? catalog : tab === 'mine' ? mineCatalog : hatCatalog
+  const previewHatId = tab === 'hat' ? pickedHat : (user?.hatId || getStoredHatId())
 
   return (
     <div className="screen">
@@ -198,6 +260,13 @@ export default function CharacterPage() {
             </button>
             <button
               type="button"
+              className={`tab${tab === 'hat' ? ' is-active' : ''}`}
+              onClick={() => setTab('hat')}
+            >
+              {t('looks.tabHat')}
+            </button>
+            <button
+              type="button"
               className={`tab${tab === 'mine' ? ' is-active' : ''}`}
               onClick={() => setTab('mine')}
             >
@@ -205,15 +274,17 @@ export default function CharacterPage() {
             </button>
           </div>
 
-          {tab === 'cube' ? (
+          {tab === 'mine' ? (
             <>
-              <DiePreview skin={skin} />
-              <div className="label">{skinName(skin, 'cube')}</div>
+              <MinePreview skinId={mineSkin.id} />
+              <div className="label">{itemName(mineSkin, 'mine')}</div>
             </>
           ) : (
             <>
-              <MinePreview skinId={mineSkin.id} />
-              <div className="label">{skinName(mineSkin, 'mine')}</div>
+              <DiePreview skin={skin} hatId={previewHatId} />
+              <div className="label">
+                {tab === 'hat' ? itemName(hat, 'hat') : itemName(skin, 'cube')}
+              </div>
             </>
           )}
 
@@ -244,7 +315,7 @@ export default function CharacterPage() {
                         {s.emoji}
                       </div>
                     )}
-                    {skinName(s, tab)}
+                    {itemName(s, tab === 'cube' ? 'cube' : tab)}
                     {s.id === equipped && <div className="skin__tag">{t('looks.equipped')}</div>}
                   </button>
                 ))}

@@ -25,7 +25,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   env.setDayMode(env.isDay())
 
   const players = createPlayers(env, arena)
-  const mines = createMines(env.scene)
+  const mines = createMines(env.scene, env.theme)
   const popups = createPopups(env.scene)
 
   let statusTimer = null
@@ -110,10 +110,10 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
 
     if (round.state === 'waiting') {
       timerKind = 'wait'
-      // a lobby is filling up towards its own size; a practice world just needs two
+      // PvP lobby shows fill progress; solo training is just a label — no 1/2.
       timer = round.room >= round.minPlayers
         ? t('game.lobby', { players: round.players, room: round.room })
-        : t('game.training', { players: round.players, min: round.minPlayers })
+        : t('game.practice')
     } else if (round.state === 'over') {
       timerKind = 'next'
       timer = t('game.nextRound', { sec: secondsLeft(round.endsAt) })
