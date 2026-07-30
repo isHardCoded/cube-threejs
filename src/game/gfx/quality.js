@@ -73,7 +73,9 @@ export const PROFILES = {
   },
 }
 
-/** Phone overrides when user manually picks Balanced / High on mobile. */
+/** Phone overrides when user manually picks Balanced / High on mobile.
+ *  DEFERRED: later try cheap shadows on Balanced toward ~55–60 FPS
+ *  (see .cursor/rules/gfx-deferred.mdc). Do not start unless asked. */
 const MOBILE_OVERRIDES = {
   balanced: {
     maxDpr: 1.35,

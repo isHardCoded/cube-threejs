@@ -30,12 +30,17 @@ export function createInput({ canvas, players: pm, send }) {
     if (isDouble && now >= pm.local.dashReadyAt) {
       lastDir = null // don't chain triple-tap into two dashes
       lastMoveDir = [dx, dz]
+      moveGateAt = now + MOVE_GATE_MS
+      const dash = pm.predictDash(dx, dz)
+      if (dash === 'wall') {
+        // jelly already played locally; relay so everyone sees the bonk
+        send({ t: 'bump', dx, dz })
+        return
+      }
       // The cooldown starts on the press, not on the server's answer: during
       // that round trip the dash still looked ready, so a second double tap
       // predicted two more cells the server was always going to refuse.
       pm.local.dashReadyAt = now + pm.local.dashCooldownMs
-      moveGateAt = now + MOVE_GATE_MS
-      pm.predictDash(dx, dz)
       send({ t: 'dash', dx, dz })
       return
     }
@@ -44,7 +49,10 @@ export function createInput({ canvas, players: pm, send }) {
     if (now < moveGateAt || (me && me.queue.length >= 2)) return
     if (pm.predictions.length >= MAX_PENDING_MOVES) return
     // walls and obstacles are known client-side: don't send a doomed move
-    if (!pm.predictRoll(dx, dz)) return
+    if (!pm.predictRoll(dx, dz)) {
+      send({ t: 'bump', dx, dz })
+      return
+    }
     // Only a press the cube actually acted on counts as a tap. Counting the
     // dropped ones too turned spammed keys into double taps the player never
     // made, each one dashing two cells the server then took back.

@@ -65,6 +65,8 @@ export function createProtocol({
     pm.syncConfirmed(p, data)
     p.queue = []
     p.anim = null
+    p.jelly = null
+    p.combatHop = null
     p.deathAnim = null
     p.pendingDeath = null
     p.gone = false
@@ -148,25 +150,41 @@ export function createProtocol({
       case 'hit': {
         const a = pm.players.get(msg.a)
         const d = pm.players.get(msg.d)
+        const dx = msg.dx || 0
+        const dz = msg.dz || 0
+        const stomp = !!msg.stomp
         if (a) {
           a.hp = msg.hpA
-          a.flash = 1
-          pm.paintPlate(a)
-          popups.spawn(`-${msg.dmgToA}`, NEON_MAGENTA, a.group.position.clone().add(POPUP_OFFSET))
+          if (msg.dmgToA > 0) {
+            a.flash = 1
+            pm.paintPlate(a)
+            popups.spawn(`-${msg.dmgToA}`, NEON_MAGENTA, a.group.position.clone().add(POPUP_OFFSET))
+            pm.playBump(a, dx, dz, { sfx: false, hop: true })
+          }
         }
         if (d) {
           d.hp = msg.hpD
           d.flash = 1
           pm.paintPlate(d)
           popups.spawn(`-${msg.dmgToD}`, NEON_MAGENTA, d.group.position.clone().add(POPUP_OFFSET))
+          pm.playBump(d, -dx, -dz, { sfx: false, hop: true })
         }
-        sfx.hit()
+        if (!stomp) sfx.hit()
         if (msg.a === myId() || msg.d === myId()) {
-          env.addShake(0.35)
+          env.addShake(stomp ? 0.34 : 0.28)
           hapticHeavy()
         }
         // a predicted step may have raced into a cell someone just occupied
         if (msg.a === myId() && pm.predictions.length > 0) pm.rollbackPrediction(pm.me())
+        break
+      }
+
+      // wall / obstacle jelly — local player already played it; others see VFX only (no shake)
+      case 'bump': {
+        if (msg.id === myId()) break
+        const p = pm.players.get(msg.id)
+        if (!p) break
+        pm.playBump(p, msg.dx, msg.dz, { shake: 0 })
         break
       }
 

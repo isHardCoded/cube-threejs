@@ -60,10 +60,13 @@ export function createGodrayPass(opts = {}) {
   return pass
 }
 
+const _godrayClip = new THREE.Vector3()
+
 /** Project sun world position into UV. */
 export function updateGodraySun(pass, camera, sunWorldPos, intensity) {
   if (!pass) return
-  const v = sunWorldPos.clone().project(camera)
+  _godrayClip.copy(sunWorldPos).project(camera)
+  const v = _godrayClip
   const sx = THREE.MathUtils.clamp(v.x * 0.5 + 0.5, -0.2, 1.2)
   const sy = THREE.MathUtils.clamp(v.y * 0.5 + 0.5, -0.1, 1.25)
   pass.uniforms.uSunPos.value.set(sx, sy)

@@ -86,8 +86,8 @@ Client -> server: `{"t":"move","dx":1,"dz":0}`, `{"t":"dash","dx":0,"dz":-1}`, `
 Server -> client:
 - `welcome {id, map, layout[3], skins[], players[], dashCooldownMs, jumpCooldownMs, mineCooldownMs, maxMines, maxLives, mines[], destroyed[3][], tramps[3], phase, round}` — on connect, includes the full world snapshot; `layout[l] = {obstacles: [{x, z, kind}], decals: [[x, z]]}`, `round = {state, alive, players, minPlayers, nextInMs?}`, `skins` is the same catalog `GET /api/skins` returns, `mines` holds only *your own* armed mines
 - `join {p}` / `leave {id}` — roster changes
-- `move {p, dash?, cells?, knock?, jump?}` — a player moved (roll, dash, knockback, or jump)
-- `hit {a, d, dmgToD, dmgToA, hpA, hpD, dx, dz}` — collision, mutual damage; both survivors are then knocked one cell apart (the perimeter fence stops them at the edge, obstacles bounce them back one cell)
+- `move {p, dash?, cells?, knock?, jump?, stomp?}` — a player moved (roll, dash, knockback, or jump). `stomp` is set when a jump lands on another die's cell.
+- `hit {a, d, dmgToD, dmgToA, hpA, hpD, dx, dz, stomp?}` — collision. Normal hits deal mutual face damage and knock both survivors apart. A jump `stomp` deals underside→top damage only to the defender and displaces them off the tile so the jumper keeps it.
 - `death {id, cause: "hit"|"fall", lives?, respawnMs?, eliminated?, alive?}` — `lives` is what is left after this death (absent in practice, where deaths are free); `respawnMs` when coming back, `eliminated` when that was the last life / `respawn {p}`
 - `phase {mode: "calm"|"crumble", level, remainMs?}` — destruction phase changes
 - `tiles {level, cells[]}` — tiles destroyed

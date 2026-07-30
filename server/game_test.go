@@ -72,6 +72,26 @@ func TestJumpTwoCells(t *testing.T) {
 	}
 }
 
+func TestJumpStompLandsOnTopAndDisplaces(t *testing.T) {
+	h := testHub()
+	a := addTestPlayer(h, "a", 0, 0, 0)
+	d := addTestPlayer(h, "d", 0, 0, -2)
+	dHP := d.HP
+	h.doJump(a, 0, -1, time.Now())
+	if a.X != 0 || a.Z != -2 {
+		t.Fatalf("stomper should claim landing cell (0,-2), got (%d,%d)", a.X, a.Z)
+	}
+	if d.X == 0 && d.Z == -2 {
+		t.Fatal("defender should be displaced off the landing cell")
+	}
+	if d.HP >= dHP {
+		t.Fatalf("stomp should deal bottom-face damage, hp %d -> %d", dHP, d.HP)
+	}
+	if a.HP != MaxHP {
+		t.Fatalf("stomper should not take reciprocal face damage, hp=%d", a.HP)
+	}
+}
+
 func TestJumpIntoHoleFalls(t *testing.T) {
 	h := testHub()
 	p := addTestPlayer(h, "p", 0, 0, 0)

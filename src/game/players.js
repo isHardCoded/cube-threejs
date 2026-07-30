@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { NEON_YELLOW } from './palette.js'
-import { DEFAULT_SKIN, createDie, quatForOrient, rollOrient, yAxis } from './dice.js'
+import { DEFAULT_SKIN, createDie, dieGeo, quatForOrient, rollOrient, yAxis } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
 import { inArena, floorY } from './layouts.js'
 import { createNameplate, drawNameplate } from './sprites.js'
@@ -14,6 +14,11 @@ const JUMP_TIME = 0.36
 // never answers (dropped input, lost packet) would otherwise leave my cube
 // standing on a cell it was never given, until some later move exposes it.
 const PREDICTION_TTL_MS = 1200
+const TRAIL_POOL = 28
+const TRAIL_LIFE = 0.26
+const JELLY_TIME = 0.38
+const COMBAT_HOP_TIME = 0.28
+const COMBAT_HOP_H = 0.22
 const smoothstep = (t) => t * t * (3 - 2 * t)
 
 // Player registry: dice meshes, server-driven animations and local prediction.
@@ -50,6 +55,150 @@ export function createPlayers(env, arena) {
     jumpCooldownMs: 1200, jumpReadyAt: 0,
     mineCooldownMs: 8000, mineReadyAt: 0, maxMines: 2,
     maxLives: 5,
+  }
+
+  // Afterimage pool — translucent die bodies that fade behind a moving cube.
+  const trails = []
+  for (let i = 0; i < TRAIL_POOL; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      transparent: true, opacity: 0, depthWrite: false, toneMapped: false,
+    })
+    const mesh = new THREE.Mesh(dieGeo, mat)
+    mesh.visible = false
+    mesh.castShadow = false
+    mesh.receiveShadow = false
+    scene.add(mesh)
+    trails.push({ mesh, mat, life: 0, maxOpacity: 0.42 })
+  }
+
+  function spawnTrail(p, opacity = 0.4) {
+    if (!p.group.visible) return
+    let g = null
+    for (const t of trails) {
+      if (t.life <= 0) { g = t; break }
+    }
+    if (!g) {
+      // steal the oldest fading ghost rather than allocate
+      g = trails[0]
+      for (const t of trails) if (t.life < g.life) g = t
+    }
+    g.mesh.position.copy(p.group.position)
+    g.mesh.quaternion.copy(p.group.quaternion)
+    g.mesh.scale.copy(p.group.scale)
+    g.mat.color.copy(p.bodyMat.color)
+    g.maxOpacity = opacity
+    g.mat.opacity = opacity
+    g.life = TRAIL_LIFE
+    g.mesh.visible = true
+  }
+
+  function updateTrails(dt) {
+    for (const t of trails) {
+      if (t.life <= 0) continue
+      t.life -= dt
+      if (t.life <= 0) {
+        t.life = 0
+        t.mat.opacity = 0
+        t.mesh.visible = false
+        continue
+      }
+      const k = t.life / TRAIL_LIFE
+      t.mat.opacity = t.maxOpacity * k * k
+      // slight shrink so the stack reads as a blur, not stacked solids
+      const s = 0.94 + 0.06 * k
+      t.mesh.scale.setScalar(s)
+    }
+  }
+
+  function clearTrails() {
+    for (const t of trails) {
+      t.life = 0
+      t.mat.opacity = 0
+      t.mesh.visible = false
+    }
+  }
+
+  // Squash / stretch bounce when a cube bonks a wall, obstacle, or another die.
+  function clearJelly(p) {
+    if (!p?.jelly) return
+    p.jelly = null
+    if (!p.anim && !p.spawnAnim && !p.deathAnim) p.group.scale.set(1, 1, 1)
+  }
+
+  // Cube-vs-cube hop lives outside jelly so knockback anims cannot cancel it.
+  function pulseCombatHop(p) {
+    if (!p || p.dead || p.gone) return
+    p.combatHop = { t: 0, time: COMBAT_HOP_TIME }
+  }
+
+  // Play on any cube (local prediction or remote bump/hit). opts: shake, sfx, haptic, hop.
+  function playBump(p, dx, dz, opts = {}) {
+    if (!p || p.dead || p.gone) return
+    if (opts.hop) pulseCombatHop(p)
+    // Knockback may already be queued; still allow hop above. Jelly needs a free pose.
+    if (p.deathAnim || p.spawnAnim) return
+    if (p.anim) return
+    if (p.jelly && p.jelly.t < 0.45) return
+    const dirX = Math.sign(dx) || 0
+    const dirZ = Math.sign(dz) || 0
+    if (dirX === 0 && dirZ === 0) return
+    p.jelly = { t: 0, dx: dirX, dz: dirZ, time: JELLY_TIME, hatLift: 0 }
+    if (opts.sfx !== false) sfx.bump()
+    if (opts.shake) env.addShake?.(opts.shake)
+    if (opts.haptic && p.id === state.myId) haptic()
+  }
+
+  function bumpInto(dx, dz, opts = {}) {
+    playBump(me(), dx, dz, { shake: 0.32, haptic: true, ...opts })
+  }
+
+  function updateJelly(p, dt) {
+    const j = p.jelly
+    if (!j) return
+    j.t = Math.min(j.t + dt / j.time, 1)
+    const t = j.t
+    // Squash along the hit axis + soft spring wobble.
+    const wobble = Math.sin(t * Math.PI * 5) * Math.exp(-t * 3.8)
+    const along = 1 - 0.18 * Math.sin(Math.PI * Math.min(t * 1.25, 1)) + wobble * 0.06
+    const across = 1 / Math.sqrt(Math.max(0.72, along))
+    // Smash into the obstacle, then spring back a little past rest (jelly rebound).
+    const push = Math.sin(t * Math.PI * 1.85) * Math.exp(-2.3 * t) * 0.17
+
+    p.group.position.x = p.cell.x + j.dx * push
+    p.group.position.y = dieY(p.level)
+    p.group.position.z = p.cell.z + j.dz * push
+    if (j.dx !== 0) p.group.scale.set(along, across, across)
+    else p.group.scale.set(across, across, along)
+
+    if (t >= 1) {
+      p.jelly = null
+      p.group.position.set(p.cell.x, dieY(p.level), p.cell.z)
+      p.group.scale.set(1, 1, 1)
+    }
+  }
+
+  function updateCombatHop(p, dt) {
+    const h = p.combatHop
+    if (!h) return null
+    h.t = Math.min(h.t + dt / h.time, 1)
+    const hop = Math.sin(Math.PI * h.t) * COMBAT_HOP_H
+    // Hat lifts a bit extra so it reads as a loose pop on impact.
+    const hatExtra = Math.sin(Math.PI * Math.min(h.t * 1.1, 1)) * 0.12
+    if (h.t >= 1) p.combatHop = null
+    return { hop, hatExtra }
+  }
+
+  // Hop must be an offset from a fresh base Y — never += onto last frame's hopped Y,
+  // or the cube stacks height and freezes in the air after a hit.
+  function applyCombatHop(p, hopFx) {
+    if (!hopFx) {
+      if (!p.anim && !p.jelly && !p.deathAnim && !p.spawnAnim) {
+        p.group.position.y = dieY(p.level)
+      }
+      return
+    }
+    if (!p.anim) p.group.position.y = dieY(p.level)
+    p.group.position.y += hopFx.hop
   }
 
   // Nameplate is nickname + HP (+ dash for me). Lives live only in the HUD strip.
@@ -103,6 +252,7 @@ export function createPlayers(env, arena) {
       confirmedOrient: { top: data.top, east: data.east, south: data.south },
       queue: [], anim: null,
       flash: 0, deathAnim: null, spawnAnim: null,
+      jelly: null, combatHop: null,
       pendingDeath: null,           // death animation deferred until move anims finish
       gone: data.dead || data.spectating || false, // fully hidden
       hatPhase: Math.random() * Math.PI * 2,
@@ -141,9 +291,11 @@ export function createPlayers(env, arena) {
     for (const id of [...players.keys()]) removePlayer(id)
     state.myId = null
     predictions.length = 0
+    clearTrails()
   }
 
   function startDeathAnim(p, mode) {
+    clearJelly(p)
     p.deathAnim = { t: 0, mode, vy: 2, splashed: false }
     sfx.death()
   }
@@ -163,6 +315,8 @@ export function createPlayers(env, arena) {
     predictions.length = 0
     p.queue = p.queue.filter((m) => !m.predicted)
     p.anim = null
+    clearJelly(p)
+    p.combatHop = null
     p.cell = { ...p.confirmedCell }
     p.orient = { ...p.confirmedOrient }
     p.group.position.set(p.cell.x, dieY(p.level), p.cell.z)
@@ -192,9 +346,15 @@ export function createPlayers(env, arena) {
     const o = predictOrigin(p)
     const nx = o.x + dx
     const nz = o.z + dz
-    if (!inArena(nx, nz) || arena.isBlocked(l, nx, nz)) return false
-    // an occupied cell means attack: send the move but keep the cube in place
-    if (playerAtCell(l, nx, nz)) return true
+    if (!inArena(nx, nz) || arena.isBlocked(l, nx, nz)) {
+      bumpInto(dx, dz)
+      return false
+    }
+    // an occupied cell means attack: bonk in place, send the move, keep the cube here
+    if (playerAtCell(l, nx, nz)) {
+      bumpInto(dx, dz, { hop: true })
+      return true
+    }
     const next = rollOrient(p.orient || { top: 1, east: 3, south: 2 }, dx, dz)
     predictions.push({ x: nx, z: nz, at: performance.now() })
     p.orient = next
@@ -205,10 +365,11 @@ export function createPlayers(env, arena) {
     return true
   }
 
-  // walks up to two cells with the same stop rules as the server
+  // walks up to two cells with the same stop rules as the server.
+  // Returns 'ok' | 'wall' | 'attack' so input can sync bump VFX / skip a wasted dash.
   function predictDash(dx, dz) {
     const p = me()
-    if (!p || p.dead || p.gone) return
+    if (!p || p.dead || p.gone) return 'ok'
     const l = p.level
     let { x, z } = predictOrigin(p)
     let steps = 0
@@ -221,12 +382,18 @@ export function createPlayers(env, arena) {
       steps++
       if (arena.isHole(l, nx, nz) || arena.isTramp(l, nx, nz)) break
     }
-    if (steps === 0) return
+    if (steps === 0) {
+      const o = predictOrigin(p)
+      const hitPlayer = playerAtCell(l, o.x + dx, o.z + dz)
+      bumpInto(dx, dz, { hop: !!hitPlayer })
+      return hitPlayer ? 'attack' : 'wall'
+    }
     predictions.push({ x, z, at: performance.now() })
     enqueueMove(p, {
       predicted: true, dash: true,
       p: { id: p.id, level: l, x, z, ...p.orient },
     })
+    return 'ok'
   }
 
   // --- movement animation (server events drive everything) -----------------
@@ -239,6 +406,7 @@ export function createPlayers(env, arena) {
 
   function applyMoveInstantly(p, m) {
     p.anim = null
+    clearJelly(p)
     if (m.t === 'launch') p.level = m.p.level
     p.cell = { x: m.p.x, z: m.p.z }
     if (m.p.top != null) syncConfirmed(p, m.p)
@@ -250,15 +418,19 @@ export function createPlayers(env, arena) {
   function startNextAnim(p) {
     if (p.anim || p.queue.length === 0) return
     const m = p.queue.shift()
+    clearJelly(p)
 
     // trampoline launch to the next platform: big soaring arc with flips
     if (m.t === 'launch') {
       const fromLevel = p.level
-      p.level = m.p.level
+      const toLevel = m.p.level
+      // Keep p.level on the pad until landing — flipping it here snaps the camera
+      // and reveals the whole upper arena in one frame (felt like a hitch).
       p.anim = {
         type: 'launch', t: 0,
+        fromLevel, toLevel,
         from: p.group.position.clone(),
-        to: new THREE.Vector3(m.p.x, dieY(p.level), m.p.z),
+        to: new THREE.Vector3(m.p.x, dieY(toLevel), m.p.z),
         axis: new THREE.Vector3(1, 0, 0),
         startQuat: p.group.quaternion.clone(),
         arc: 2.6,
@@ -279,16 +451,21 @@ export function createPlayers(env, arena) {
     const baseY = dieY(p.level)
 
     if (m.jump) {
+      const stomp = !!m.stomp
       const dir = new THREE.Vector3(dx, 0, dz)
       p.anim = {
         type: 'jump', t: 0,
+        stomp,
         from: p.group.position.clone(),
-        to: new THREE.Vector3(m.p.x, baseY, m.p.z),
+        to: new THREE.Vector3(m.p.x, baseY + (stomp ? 1.05 : 0), m.p.z),
+        settleY: baseY,
         axis: dir.lengthSq() > 0 ? new THREE.Vector3().crossVectors(yAxis, dir).normalize() : null,
         startQuat: p.group.quaternion.clone(),
-        arc: 1.4,
+        arc: stomp ? 1.7 : 1.4,
         target: m.p,
-        time: JUMP_TIME,
+        time: stomp ? JUMP_TIME * 1.08 : JUMP_TIME,
+        trailAt: [0.22, 0.45, 0.7],
+        trailI: 0,
       }
       sfx.jump()
     } else if (m.dash || m.knock || dist > 1 || dist === 0) {
@@ -299,6 +476,8 @@ export function createPlayers(env, arena) {
         dir: new THREE.Vector3(dx, 0, dz),
         target: m.p,
         time: DASH_TIME * Math.max(1, dist * 0.7),
+        trailAt: dist > 1 ? [0.14, 0.34, 0.54, 0.74] : [0.2, 0.45, 0.7],
+        trailI: 0,
       }
       if (m.dash) sfx.dash() // knockback slides are voiced by the hit sound
     } else {
@@ -310,6 +489,8 @@ export function createPlayers(env, arena) {
         startQuat: p.group.quaternion.clone(),
         target: m.p,
         time: ROLL_TIME,
+        trailAt: [0.22, 0.48, 0.74],
+        trailI: 0,
       }
       sfx.roll()
     }
@@ -333,6 +514,16 @@ export function createPlayers(env, arena) {
       const axis = a.axis || new THREE.Vector3(1, 0, 0)
       const q = new THREE.Quaternion().setFromAxisAngle(axis, e * Math.PI * 2)
       p.group.quaternion.copy(q).multiply(a.startQuat)
+      if (a.stomp) {
+        // Squash as we come down onto their top face
+        const land = Math.max(0, (a.t - 0.55) / 0.45)
+        const squash = 1 - land * 0.22
+        p.group.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash))
+      }
+    } else if (a.type === 'stompSettle') {
+      p.group.position.lerpVectors(a.from, a.to, e)
+      const squash = 0.78 + 0.22 * e
+      p.group.scale.set(1 / Math.sqrt(squash), squash, 1 / Math.sqrt(squash))
     } else if (a.type === 'launch') {
       // trampoline pop: shoots up fast, floats over the apex, settles down softly
       p.group.position.x = a.from.x + (a.to.x - a.from.x) * e
@@ -357,7 +548,28 @@ export function createPlayers(env, arena) {
       )
     }
 
+    // Drop translucent copies along the path so the cube “triples” in motion.
+    if (a.trailAt && a.trailI < a.trailAt.length && a.t >= a.trailAt[a.trailI]) {
+      const fade = 0.28 - a.trailI * 0.05
+      spawnTrail(p, Math.max(0.14, fade))
+      a.trailI++
+    }
+
     if (a.t >= 1) {
+      if (a.type === 'jump' && a.stomp) {
+        p.cell = { x: a.target.x, z: a.target.z }
+        p.anim = {
+          type: 'stompSettle', t: 0,
+          from: p.group.position.clone(),
+          to: new THREE.Vector3(a.target.x, a.settleY, a.target.z),
+          target: a.target,
+          time: 0.16,
+        }
+        sfx.hit()
+        if (p.id === state.myId) hapticHeavy()
+        return
+      }
+      if (a.type === 'launch' && a.toLevel != null) p.level = a.toLevel
       p.cell = { x: a.target.x, z: a.target.z }
       p.group.position.set(a.target.x, dieY(p.level), a.target.z)
       p.group.scale.set(1, 1, 1)
@@ -376,9 +588,17 @@ export function createPlayers(env, arena) {
   function update(dt, visibleUpTo) {
     for (const p of players.values()) {
       updatePlayerAnim(p, dt)
+      if (!p.anim) updateJelly(p, dt)
+      const hopFx = updateCombatHop(p, dt)
+      applyCombatHop(p, hopFx)
 
-      // cubes on hidden (upper) platforms are hidden along with them
-      p.group.visible = !p.gone && p.level <= visibleUpTo
+      // cubes on hidden (upper) platforms are hidden along with them;
+      // a launch in progress stays visible from the pad it left
+      const fromLaunch = p.anim?.type === 'launch' ? p.anim.fromLevel : null
+      p.group.visible = !p.gone && (
+        p.level <= visibleUpTo
+        || (fromLaunch != null && fromLaunch <= visibleUpTo)
+      )
 
       if (p.flash > 0) {
         p.flash = Math.max(0, p.flash - dt * 4)
@@ -389,6 +609,8 @@ export function createPlayers(env, arena) {
       }
 
       if (p.deathAnim) {
+        clearJelly(p)
+        p.combatHop = null
         const da = p.deathAnim
         da.t += dt
         if (da.mode === 'fall') {
@@ -419,6 +641,8 @@ export function createPlayers(env, arena) {
       }
 
       if (p.spawnAnim) {
+        clearJelly(p)
+        p.combatHop = null
         p.spawnAnim.t += dt * 3
         const k = Math.min(p.spawnAnim.t, 1)
         p.group.scale.setScalar(Math.max(0.001, smoothstep(k)))
@@ -431,9 +655,11 @@ export function createPlayers(env, arena) {
         p.hat.visible = hasHat && p.group.visible
         if (p.hat.visible) {
           const bob = Math.sin(performance.now() * 0.001 * HAT_BOB_SPEED + p.hatPhase) * HAT_BOB_AMP
+          const jellyLift = p.jelly?.hatLift || 0
+          const hopLift = hopFx ? hopFx.hatExtra : 0
           p.hat.position.set(
             p.group.position.x,
-            p.group.position.y + HAT_BASE_Y + bob,
+            p.group.position.y + HAT_BASE_Y + bob + jellyLift + hopLift,
             p.group.position.z,
           )
           p.hat.quaternion.identity()
@@ -446,6 +672,8 @@ export function createPlayers(env, arena) {
       const plateLift = p.hatId && p.hatId !== 'none' ? 1.45 : 1.15
       p.bar.sprite.position.set(p.group.position.x, p.group.position.y + plateLift, p.group.position.z)
     }
+
+    updateTrails(dt)
 
     const mine = me()
 
@@ -471,7 +699,7 @@ export function createPlayers(env, arena) {
   return {
     players, state, local, predictions,
     me, canPlay, setSkins, setHat, addPlayer, removePlayer, clear, paintPlate,
-    syncConfirmed, rollbackPrediction, predictRoll, predictDash,
+    syncConfirmed, rollbackPrediction, predictRoll, predictDash, playBump,
     enqueueMove, startDeathAnim, update,
   }
 }

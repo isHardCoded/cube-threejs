@@ -64,6 +64,7 @@ type Player struct {
 	jumpReadyAt time.Time
 	mineReadyAt time.Time
 	respawnAt   time.Time
+	bumpReadyAt time.Time // rate-limit for wall-bonk VFX relay
 
 	kills       int
 	deaths      int
@@ -111,7 +112,7 @@ type command struct {
 }
 
 type clientMsg struct {
-	T  string `json:"t"` // "move" | "dash" | "jump" | "mine"
+	T  string `json:"t"` // "move" | "dash" | "jump" | "mine" | "bump"
 	DX int    `json:"dx"`
 	DZ int    `json:"dz"`
 }
@@ -839,6 +840,14 @@ func (h *Hub) onCommand(cmd command) {
 			return
 		}
 		h.doJump(p, dx, dz, now)
+	case "bump":
+		// Visual-only jelly bonk against a wall/obstacle. Rate-limited so a
+		// held key cannot flood every client with afterimages.
+		if now.Before(p.bumpReadyAt) {
+			return
+		}
+		p.bumpReadyAt = now.Add(120 * time.Millisecond)
+		h.broadcast(map[string]any{"t": "bump", "id": p.ID, "dx": dx, "dz": dz})
 	}
 }
 
@@ -927,13 +936,11 @@ func (h *Hub) doJump(p *Player, dx, dz int, now time.Time) {
 		return
 	}
 
-	// landing on another player: mid-air body check
+	// Stomp: land on the occupied cell's top face and shove the other die out.
 	if t := h.playerAt(l, lx, lz); t != nil {
-		if h.cellFree(l, mx, mz) {
-			p.X, p.Z = mx, mz
-		}
-		h.broadcast(map[string]any{"t": "move", "p": p, "jump": true})
-		h.resolveHit(p, t, dx, dz, now)
+		p.X, p.Z = lx, lz
+		h.broadcast(map[string]any{"t": "move", "p": p, "jump": true, "stomp": true})
+		h.resolveStomp(p, t, dx, dz, now)
 		if !p.Dead {
 			h.landed(p, now)
 		}
@@ -1016,8 +1023,82 @@ func (h *Hub) resolveHit(a, d *Player, dx, dz int, now time.Time) {
 	}
 }
 
+// resolveStomp: jumper lands on defender's top face, deals bottom-face damage,
+// and only the defender is forced out of the cell (jumper keeps the tile).
+func (h *Hub) resolveStomp(a, d *Player, dx, dz int, now time.Time) {
+	dmgToD := 7 - a.Top // underside presses onto their top
+	if dmgToD < 1 {
+		dmgToD = 1
+	}
+
+	d.HP -= dmgToD
+	a.damageDealt += dmgToD
+
+	h.broadcast(map[string]any{
+		"t": "hit", "a": a.ID, "d": d.ID,
+		"dmgToD": dmgToD, "dmgToA": 0,
+		"hpA": a.HP, "hpD": d.HP,
+		"dx": dx, "dz": dz,
+		"stomp": true,
+	})
+
+	if d.HP > 0 {
+		moved, fell := h.displaceFrom(d, dx, dz)
+		if moved {
+			h.broadcast(map[string]any{"t": "move", "p": d, "knock": true})
+			if fell {
+				h.fallDeath(d, now)
+			} else {
+				h.landed(d, now)
+			}
+		} else {
+			// Nowhere to go — crushed under the landing.
+			a.kills++
+			a.roundKills++
+			h.kill(d, now)
+		}
+	}
+
+	if d.HP <= 0 && !d.Dead {
+		a.kills++
+		a.roundKills++
+		h.kill(d, now)
+	}
+}
+
+// displaceFrom knocks p out of its cell, preferring (dx,dz), then sides, then back.
+func (h *Hub) displaceFrom(p *Player, dx, dz int) (bool, bool) {
+	dirs := [][2]int{
+		{dx, dz},
+		{dz, dx},
+		{-dz, -dx},
+		{-dx, -dz},
+	}
+	// Deduplicate when dx/dz axis makes perpendiculars identical.
+	seen := map[[2]int]bool{}
+	for _, dir := range dirs {
+		if dir[0] == 0 && dir[1] == 0 {
+			continue
+		}
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		if moved, fell := h.knockback(p, dir[0], dir[1]); moved {
+			return true, fell
+		}
+	}
+	// Last resort: any free cell on this level.
+	if x, z, ok := h.freeSpawnCellOn(p.Level); ok {
+		p.X, p.Z = x, z
+		return true, h.isHole(p.Level, x, z)
+	}
+	return false, false
+}
+
 // knockback pushes p one cell in (dx, dz). The fence stops it at the edge;
 // an intact obstacle or player bounces it one cell the opposite way.
+// When checking occupancy, ignore `p` itself (stomps leave two dice on one cell briefly).
 // Returns (moved, fellIntoHole).
 func (h *Hub) knockback(p *Player, dx, dz int) (bool, bool) {
 	l := p.Level
@@ -1025,9 +1106,10 @@ func (h *Hub) knockback(p *Player, dx, dz int) (bool, bool) {
 	if !inBounds(nx, nz) {
 		return false, false
 	}
-	if h.isBlocked(l, nx, nz) || h.playerAt(l, nx, nz) != nil {
+	blocked := h.isBlocked(l, nx, nz) || h.otherPlayerAt(l, nx, nz, p) != nil
+	if blocked {
 		bx, bz := p.X-dx, p.Z-dz
-		if !inBounds(bx, bz) || h.isBlocked(l, bx, bz) || h.playerAt(l, bx, bz) != nil {
+		if !inBounds(bx, bz) || h.isBlocked(l, bx, bz) || h.otherPlayerAt(l, bx, bz, p) != nil {
 			return false, false
 		}
 		p.X, p.Z = bx, bz
@@ -1035,6 +1117,15 @@ func (h *Hub) knockback(p *Player, dx, dz int) (bool, bool) {
 	}
 	p.X, p.Z = nx, nz
 	return true, h.isHole(l, nx, nz)
+}
+
+func (h *Hub) otherPlayerAt(l, x, z int, self *Player) *Player {
+	for _, p := range h.players {
+		if p != self && !p.Dead && p.Level == l && p.X == x && p.Z == z {
+			return p
+		}
+	}
+	return nil
 }
 
 // landed runs everything that reacts to a player standing on a cell. Every kind

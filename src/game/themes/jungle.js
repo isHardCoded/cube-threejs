@@ -1,5 +1,11 @@
 import * as THREE from 'three'
 import { assetUrl, cloneGltf } from '../assets/gltf.js'
+import {
+  captureWorldSphere,
+  createFrustum,
+  sphereVisible,
+  syncViewFrustum,
+} from '../gfx/viewCull.js'
 import { blob, canvasTexture, cellRng, createDrift, geo, glow, pick, solid, toon } from './kit.js'
 
 // Jungle map: Blender review scene → public/assets/maps/jungle.
@@ -441,6 +447,7 @@ function createLakeSplashes(parent) {
   for (let i = 0; i < MAX; i++) {
     const g = new THREE.Group()
     g.visible = false
+    g.userData.skipViewCull = true
     const ring = new THREE.Mesh(ringGeo, waterMat.clone())
     ring.rotation.x = Math.PI / 2
     g.add(ring)
@@ -722,6 +729,7 @@ function createBackdrop(scene, _fx, opts = {}) {
     const hillMat = toon(LEAF)
     const hillDark = toon(LEAF_DARK)
     const sea = new THREE.Mesh(geo('jungle:sea', () => new THREE.PlaneGeometry(220, 220)), floorMat)
+    sea.name = 'GROUND_SeaFallback'
     sea.rotation.x = -Math.PI / 2
     sea.position.y = -24
     group.add(sea)
@@ -752,19 +760,148 @@ function createBackdrop(scene, _fx, opts = {}) {
   })
   group.add(motes.points)
 
-  return {
-    update(dt, t) {
-      motes.update(dt, t)
-      lakeFx.update(dt)
-      // Gentle lake swirl (both axes, slower than the old river current)
-      const flow = (t * 0.035) % 1
-      for (const map of waterMaps) {
-        map.offset.x = flow
-        map.offset.y = Math.sin(t * 0.12) * 0.08
-        map.needsUpdate = true
+  // --- View frustum cull lists (only what the player sees runs / draws) ---
+  const viewFrustum = createFrustum()
+  const staticCull = []
+  const animatedMeshes = new Set()
+  for (const f of flyers) for (const m of f.meshes) animatedMeshes.add(m)
+  for (const c of crawlers) for (const m of c.meshes) animatedMeshes.add(m)
+  for (const fx of waterFxMeshes) animatedMeshes.add(fx.mesh)
+
+  group.updateMatrixWorld(true)
+  group.traverse((obj) => {
+    if (!obj.isMesh || animatedMeshes.has(obj)) return
+    if (obj.userData.skipViewCull || obj.parent?.userData?.skipViewCull) return
+    const n = obj.name || ''
+    const always = n.startsWith('GROUND_')
+      || n.startsWith('LakeWater_')
+      || n.startsWith('GROUND')
+    const { center, radius } = captureWorldSphere(obj)
+    staticCull.push({
+      obj,
+      center,
+      radius,
+      always,
+      shown: true,
+    })
+  })
+
+  for (const fx of waterFxMeshes) {
+    const { center, radius } = captureWorldSphere(fx.mesh)
+    fx.cullCenter = center
+    fx.cullRadius = radius
+    fx.shown = true
+  }
+  for (const f of flyers) {
+    const { center } = captureWorldSphere(f.meshes[0])
+    f.cullCenter = center
+    f.cullRadius = Math.max(f.radiusX, f.radiusZ) + f.bob + 2.5
+    f.shown = true
+  }
+  for (const c of crawlers) {
+    const { center } = captureWorldSphere(c.meshes[0])
+    c.cullCenter = center
+    c.cullRadius = c.amp + 2
+    c.shown = true
+  }
+  for (const f of piranhas) {
+    f.shown = true
+  }
+
+  const _motesCenter = new THREE.Vector3(0, 4, 0)
+  const _piranhaPos = new THREE.Vector3()
+
+  function applyShown(obj, shown) {
+    obj.visible = shown
+  }
+
+  function setGroupShown(meshes, shown) {
+    for (let i = 0; i < meshes.length; i++) meshes[i].visible = shown
+  }
+
+  function cullToCamera(camera) {
+    syncViewFrustum(camera, viewFrustum)
+
+    for (let i = 0; i < staticCull.length; i++) {
+      const e = staticCull[i]
+      if (e.always) {
+        if (!e.shown) {
+          e.shown = true
+          applyShown(e.obj, true)
+        }
+        continue
       }
-      // Idle toy water FX (not ocean sim)
+      const vis = sphereVisible(viewFrustum, e.center, e.radius, e.shown, 3, 9)
+      if (vis !== e.shown) {
+        e.shown = vis
+        applyShown(e.obj, vis)
+      }
+    }
+
+    for (let i = 0; i < waterFxMeshes.length; i++) {
+      const fx = waterFxMeshes[i]
+      const vis = sphereVisible(viewFrustum, fx.cullCenter, fx.cullRadius, fx.shown, 2, 6)
+      if (vis !== fx.shown) {
+        fx.shown = vis
+        applyShown(fx.mesh, vis)
+      }
+    }
+
+    for (let i = 0; i < flyers.length; i++) {
+      const f = flyers[i]
+      const vis = sphereVisible(viewFrustum, f.cullCenter, f.cullRadius, f.shown, 2, 7)
+      if (vis !== f.shown) {
+        f.shown = vis
+        setGroupShown(f.meshes, vis)
+      }
+    }
+
+    for (let i = 0; i < crawlers.length; i++) {
+      const c = crawlers[i]
+      const vis = sphereVisible(viewFrustum, c.cullCenter, c.cullRadius, c.shown, 2, 6)
+      if (vis !== c.shown) {
+        c.shown = vis
+        setGroupShown(c.meshes, vis)
+      }
+    }
+
+    for (let i = 0; i < piranhas.length; i++) {
+      const f = piranhas[i]
+      f.mesh.getWorldPosition(_piranhaPos)
+      const vis = sphereVisible(viewFrustum, _piranhaPos, 1.2, f.shown, 2, 5)
+      if (vis !== f.shown) {
+        f.shown = vis
+        applyShown(f.mesh, vis)
+      }
+    }
+
+    if (motes.points) {
+      const vis = sphereVisible(viewFrustum, _motesCenter, 22, !!motes.points.visible, 4, 10)
+      motes.points.visible = vis
+    }
+  }
+
+  return {
+    cullToCamera,
+    update(dt, t) {
+      if (motes.points?.visible !== false) motes.update(dt, t)
+      lakeFx.update(dt)
+
+      let anyFx = false
+      for (let i = 0; i < waterFxMeshes.length; i++) {
+        if (waterFxMeshes[i].shown) { anyFx = true; break }
+      }
+      if (anyFx) {
+        const flow = (t * 0.035) % 1
+        const oy = Math.sin(t * 0.12) * 0.08
+        for (const map of waterMaps) {
+          map.offset.x = flow
+          map.offset.y = oy
+        }
+      }
+
       for (const fx of waterFxMeshes) {
+        if (!fx.shown) continue
         const a = t * fx.speed + fx.phase
         const m = fx.mesh
         if (fx.kind === 'Ripple') {
@@ -791,6 +928,7 @@ function createBackdrop(scene, _fx, opts = {}) {
           m.rotation.y = a * 0.08
         }
       }
+
       updatePiranhas(piranhas, t)
       for (const f of piranhas) {
         if (f._pendingSplash) {
@@ -799,6 +937,7 @@ function createBackdrop(scene, _fx, opts = {}) {
         }
       }
       for (const f of flyers) {
+        if (!f.shown) continue
         const a = t * f.speed * f.dir + f.phase
         const dx = Math.cos(a + f.heading) * f.radiusX
         const dz = Math.sin(a + f.heading) * f.radiusZ
@@ -814,6 +953,7 @@ function createBackdrop(scene, _fx, opts = {}) {
         }
       }
       for (const c of crawlers) {
+        if (!c.shown) continue
         const a = t * c.speed * c.dir + c.phase
         const dx = Math.cos(c.heading) * Math.sin(a) * c.amp
         const dz = Math.sin(c.heading) * Math.sin(a) * c.amp

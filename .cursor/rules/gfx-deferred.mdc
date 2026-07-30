@@ -1,0 +1,19 @@
+---
+description: Deferred graphics/performance work (do not start unless asked)
+globs: src/game/gfx/**,src/game/environment.js,src/game/themes/jungle.js
+alwaysApply: false
+---
+
+# Graphics performance notes
+
+## Done (2026-07-30)
+
+- Quality tiers + Settings menu + FPS HUD
+- **View frustum culling** (`viewCull.js` + jungle `cullToCamera`): off-camera backdrop meshes hidden, animations skipped, shadows only if `visible`
+- Godray no longer allocates per frame
+
+## Still open (only if user asks)
+
+- Uneven FPS / microstutters fine-tuning
+- Cheap phone Balanced shadows toward ~55–60
+- Other maps (cyberpunk/lava/…) do not yet implement `cullToCamera`

@@ -185,10 +185,15 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     }
 
     // platforms above mine are hidden so they don't block the view of the arena;
-    // while watching, the camera sits over the platform where the fight is
+    // while watching, the camera sits over the platform where the fight is.
+    // During a trampoline launch, reveal the destination early and keep the
+    // camera locked to the cube's height so the level swap doesn't hitch.
     const me = players.me()
     const watching = !me || me.spectating || me.gone
-    const viewLevel = watching ? protocol.phase.level : me.level
+    let viewLevel = watching ? protocol.phase.level : me.level
+    if (!watching && me.anim?.type === 'launch' && me.anim.toLevel != null) {
+      viewLevel = Math.max(viewLevel, me.anim.toLevel)
+    }
 
     arena.update(dt, t, viewLevel)
     mines.update(dt, t, viewLevel)
@@ -198,7 +203,12 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     env.update(dt, t)
     env.updateCamera(dt, t, watching
       ? { x: 0, z: 0, level: viewLevel }
-      : { x: me.group.position.x, z: me.group.position.z, level: me.level })
+      : {
+        x: me.group.position.x,
+        z: me.group.position.z,
+        level: me.level,
+        y: me.group.position.y - 0.5,
+      })
     env.render()
 
     raf = requestAnimationFrame(tick)

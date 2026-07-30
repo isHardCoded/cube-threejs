@@ -215,7 +215,7 @@ export function createEnvironment(canvas, mapId) {
     return ext
   }
 
-  let shadowExtent = applyShadowVolume()
+  applyShadowVolume()
   scene.add(sun)
   scene.add(sun.target)
 
@@ -259,8 +259,6 @@ export function createEnvironment(canvas, mapId) {
   let godrayDayIntensity = gfx.godrayIntensity ?? 0.2
   const shadowFocus = new THREE.Vector3()
   const sunWorld = new THREE.Vector3()
-  const camForward = new THREE.Vector3()
-  const casterWorld = new THREE.Vector3()
 
   const lightTweaks = {
     sunIntensity: 1,
@@ -346,34 +344,16 @@ export function createEnvironment(canvas, mapId) {
   }
 
   function updateShadowCasterCull() {
-    if (profile.shadows === false) {
-      for (let i = 0; i < shadowCasters.length; i++) shadowCasters[i].castShadow = false
-      return
-    }
-    if (!profile.cameraShadowCull || shadowCasters.length === 0) return
-    camera.getWorldDirection(camForward)
-    const maxDist = shadowExtent * 1.15
-    const maxDistSq = maxDist * maxDist
+    const enabled = profile.shadows !== false
     const allowHeavy = profile.shadowCast === 'heavy'
-
     for (let i = 0; i < shadowCasters.length; i++) {
       const obj = shadowCasters[i]
+      if (!enabled || !obj.visible) {
+        obj.castShadow = false
+        continue
+      }
       const tier = obj.userData.shadowCastTier
-      if (tier === 'heavy' && !allowHeavy) {
-        obj.castShadow = false
-        continue
-      }
-      obj.getWorldPosition(casterWorld)
-      const dx = casterWorld.x - shadowFocus.x
-      const dz = casterWorld.z - shadowFocus.z
-      if (dx * dx + dz * dz > maxDistSq) {
-        obj.castShadow = false
-        continue
-      }
-      // Drop casters far behind the view — sun still covers arena via follow volume.
-      casterWorld.sub(camera.position)
-      const depth = casterWorld.dot(camForward)
-      obj.castShadow = depth > -shadowExtent * 0.35
+      obj.castShadow = tier === 'core' || (tier === 'heavy' && allowHeavy)
     }
   }
 
@@ -466,7 +446,7 @@ export function createEnvironment(canvas, mapId) {
     if (nextTier === adaptiveTier) return
     adaptiveTier = nextTier
     profile = resolveProfile(nextTier)
-    shadowExtent = applyShadowVolume()
+    applyShadowVolume()
     if (gtao) gtao.enabled = !!profile.ao
     const dpr = Math.min(window.devicePixelRatio, profile.maxDpr)
     renderer.setPixelRatio(dpr)
@@ -548,7 +528,11 @@ export function createEnvironment(canvas, mapId) {
   function updateCamera(dt, t, focus) {
     const fx2 = focus ? focus.x : 0
     const fz = focus ? focus.z : 0
-    const lvlY = focus ? floorY(focus.level, theme.arenaLift || 0) : 0
+    // Prefer the live focus height (cube during trampoline launch) so level
+    // changes don't yank the camera up a full platform in one frame.
+    const lvlY = focus?.y != null
+      ? focus.y
+      : (focus ? floorY(focus.level, theme.arenaLift || 0) : 0)
 
     applyShadowFollow(fx2 * 0.55, fz * 0.55)
 
@@ -563,14 +547,18 @@ export function createEnvironment(canvas, mapId) {
     camTarget.set(fx2 * 0.55 + Math.sin(t * 0.25) * 0.6, lvlY, fz * 0.55).add(camOffset)
     camera.position.lerp(camTarget, 1 - Math.pow(0.0006, dt))
     if (shake > 0) {
-      shake = Math.max(0, shake - dt * 1.4)
-      camera.position.x += (Math.random() - 0.5) * shake * 0.3
-      camera.position.y += (Math.random() - 0.5) * shake * 0.3
+      shake = Math.max(0, shake - dt * 1.8)
+      const amp = shake * 0.65
+      camera.position.x += (Math.random() - 0.5) * amp
+      camera.position.y += (Math.random() - 0.5) * amp
+      camera.position.z += (Math.random() - 0.5) * amp * 0.45
     }
     lookGoal.set(fx2 * 0.6, lvlY + 0.5, fz * 0.6)
     lookTarget.lerp(lookGoal, 1 - Math.pow(0.0006, dt))
     camera.lookAt(lookTarget)
 
+    // Frustum cull backdrop (hide + skip anim) then shadows only for visible meshes.
+    backdrop.cullToCamera?.(camera)
     updateShadowCasterCull()
 
     if (godray && isDay && godrayDayIntensity > 0) {

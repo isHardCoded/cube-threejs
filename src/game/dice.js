@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 
 export const MAX_HP = 30
 
-const dieGeo = new RoundedBoxGeometry(1, 1, 1, 4, 0.09)
+export const dieGeo = new RoundedBoxGeometry(1, 1, 1, 4, 0.09)
 const pipGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.04, 20)
 
 const O = 0.24

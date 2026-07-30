@@ -347,6 +347,24 @@ export const sfx = {
       o.stop(t0 + dt + 0.07)
     }
   },
+  // soft rubbery thud when the cube bonks a wall / obstacle
+  bump() {
+    if (!ready()) return
+    const t0 = audioCtx.currentTime
+    const o = audioCtx.createOscillator()
+    o.type = 'sine'
+    o.frequency.setValueAtTime(220, t0)
+    o.frequency.exponentialRampToValueAtTime(70, t0 + 0.09)
+    o.connect(envGain(t0, 0.11, 0.1))
+    o.start(t0)
+    o.stop(t0 + 0.11)
+    const src = makeNoise(0.06)
+    const f = audioCtx.createBiquadFilter()
+    f.type = 'lowpass'
+    f.frequency.value = 420
+    src.connect(f).connect(envGain(t0, 0.05, 0.055))
+    src.start(t0)
+  },
 }
 
 /** Soft UI clicks / modal-close sounds for menu buttons. */

@@ -2093,8 +2093,10 @@ canvas.webgl {
 
 .hud-fps {
   position: absolute;
-  left: calc(10px + var(--pad-left));
-  top: calc(10px + var(--pad-top));
+  left: 50%;
+  bottom: calc(10px + var(--pad-bottom));
+  top: auto;
+  transform: translateX(-50%);
   z-index: 3;
   padding: 4px 8px;
   font: 800 12px/1.2 var(--font);
