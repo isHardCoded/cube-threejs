@@ -24,6 +24,7 @@ services:
       DATABASE_URL: postgres://cube:${POSTGRES_PASSWORD}@postgres:5432/cube2077
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:-}
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
     depends_on:
       postgres:
         condition: service_healthy

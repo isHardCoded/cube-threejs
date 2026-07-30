@@ -6,11 +6,13 @@ import { quests as questsApi } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
-function QuestCard({ quest, claiming, onClaim, t, delay }) {
+function QuestCard({ quest, claiming, onClaim, t, locale, delay }) {
   const pct = quest.target > 0
     ? Math.min(100, Math.round((quest.progress / quest.target) * 100))
     : 0
-  const title = t(`quests.${quest.id}`)
+  const title = (locale === 'en' ? quest.titleEn : quest.titleRu)
+    || quest.title
+    || t(`quests.${quest.id}`)
 
   return (
     <div
@@ -63,7 +65,7 @@ function QuestCard({ quest, claiming, onClaim, t, delay }) {
 }
 
 export default function QuestsPage() {
-  const { t, translateError } = useLocale()
+  const { t, translateError, locale } = useLocale()
   const { patchUser } = useAuth()
   const [daily, setDaily] = useState(null)
   const [weekly, setWeekly] = useState(null)
@@ -146,6 +148,7 @@ export default function QuestsPage() {
                     claiming={claimingId === q.id}
                     onClaim={onClaim}
                     t={t}
+                    locale={locale}
                     delay={0.04 + i * 0.06}
                   />
                 ))}

@@ -28,6 +28,7 @@ cd server
 $env:DATABASE_URL  = "postgres://cube:cube2077@127.0.0.1:5434/cube2077?sslmode=disable"
 $env:JWT_SECRET    = "dev-secret-for-local-testing"
 $env:ALLOWED_ORIGINS = "http://localhost:5173"
+$env:ADMIN_USERNAMES = "Goldie"
 go run .
 ```
 

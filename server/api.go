@@ -53,6 +53,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/match/status", a.matchStatus)
 	a.registerFriendRoutes(mux)
 	a.registerQuestRoutes(mux)
+	a.registerAdminRoutes(mux)
 	return a.withCORS(mux)
 }
 
@@ -84,7 +85,7 @@ func (a *API) withCORS(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 		}
 		if r.Method == http.MethodOptions {
@@ -120,6 +121,10 @@ func (a *API) authUser(w http.ResponseWriter, r *http.Request) *User {
 		writeErr(w, http.StatusUnauthorized, "нужен вход")
 		return nil
 	}
+	if a.store.IsBanned(u) {
+		writeErr(w, http.StatusForbidden, "аккаунт заблокирован")
+		return nil
+	}
 	return u
 }
 
@@ -142,6 +147,10 @@ type credentials struct {
 }
 
 func (a *API) authOK(w http.ResponseWriter, u *User) {
+	if a.store.IsBanned(u) {
+		writeErr(w, http.StatusForbidden, "аккаунт заблокирован")
+		return
+	}
 	token, err := issueToken(u)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "не удалось выдать токен")

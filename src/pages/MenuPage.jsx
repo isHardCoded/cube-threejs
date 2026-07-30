@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Gamepad2, ScrollText, Settings, Shirt, Trophy, Users } from 'lucide-react'
+import { Gamepad2, ScrollText, Settings, Shirt, Trophy, Users, Shield } from 'lucide-react'
 import LogoutIcon from '../components/LogoutIcon.jsx'
 import SettingsModal from '../components/SettingsModal.jsx'
 import Avatar from '../components/Avatar.jsx'
@@ -124,6 +124,18 @@ export default function MenuPage() {
           <span>{t('menu.quests')}</span>
           <MenuBadge count={questsClaimable} />
         </button>
+
+        {user?.isAdmin && (
+          <button
+            className="btn btn--ghost btn--with-icon menu-rise"
+            type="button"
+            style={rise(4)}
+            onClick={() => navigate('/admin')}
+          >
+            <Shield className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
+            <span>{t('menu.admin')}</span>
+          </button>
+        )}
       </div>
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

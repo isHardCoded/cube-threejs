@@ -37,3 +37,13 @@ func (p *Presence) Leave(userID int64, hub *Hub) {
 	}
 	p.mu.Unlock()
 }
+
+// Kick asks the hub holding this account to evict it (ban / admin).
+func (p *Presence) Kick(userID int64) {
+	p.mu.Lock()
+	hub := p.at[userID]
+	p.mu.Unlock()
+	if hub != nil {
+		hub.evict <- userID
+	}
+}

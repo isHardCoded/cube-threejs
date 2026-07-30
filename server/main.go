@@ -26,6 +26,14 @@ func main() {
 	}
 	defer store.Close()
 
+	if names := parseAdminUsernames(os.Getenv("ADMIN_USERNAMES")); len(names) > 0 {
+		if err := store.SyncAdminUsernames(names); err != nil {
+			log.Println("admin sync:", err)
+		} else {
+			log.Println("admin: synced", len(names), "username(s) from ADMIN_USERNAMES")
+		}
+	}
+
 	if shouldSeedDemo() {
 		if err := store.SeedDemoPlayers(); err != nil {
 			log.Println("seed:", err)
@@ -48,6 +56,7 @@ func main() {
 	})
 
 	_ = ensureAvatarDir()
+	_ = ensureBotPostsDir()
 
 	log.Println("cube game server listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
@@ -59,4 +68,15 @@ func shouldSeedDemo() bool {
 	}
 	// local docker-compose sets JWT_SECRET to something containing "local"
 	return strings.Contains(strings.ToLower(os.Getenv("JWT_SECRET")), "local")
+}
+
+func parseAdminUsernames(raw string) []string {
+	var out []string
+	for _, p := range strings.Split(raw, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

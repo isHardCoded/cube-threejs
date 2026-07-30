@@ -70,6 +70,10 @@ func serveWS(arena *Arena, store *Store, w http.ResponseWriter, r *http.Request)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if store.IsBanned(u) {
+		http.Error(w, "banned", http.StatusForbidden)
+		return
+	}
 	store.EnsureMineSkins(u.ID)
 	store.EnsureHats(u.ID)
 	// reload so MineSkinID / HatID are valid if they were empty/legacy

@@ -97,6 +97,15 @@ func NewArena(store *Store, presence *Presence) *Arena {
 	}
 }
 
+// KickUser removes a player from any live hub (ban).
+func (a *Arena) KickUser(userID int64, reason string) {
+	_ = reason
+	a.Dequeue(userID)
+	if a.presence != nil {
+		a.presence.Kick(userID)
+	}
+}
+
 func newMatchID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,16 +17,19 @@ var (
 )
 
 type User struct {
-	ID          int64     `json:"id"`
-	Username    string    `json:"username"`
-	Cubes       int       `json:"cubes"`
-	SkinID      string    `json:"skinId"`
-	MineSkinID  string    `json:"mineSkinId"`
-	HatID       string    `json:"hatId"`
-	ClassID     string    `json:"classId"`
-	AvatarURL   string    `json:"avatarUrl,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	ViaTelegram bool      `json:"viaTelegram"`
+	ID          int64      `json:"id"`
+	Username    string     `json:"username"`
+	Cubes       int        `json:"cubes"`
+	SkinID      string     `json:"skinId"`
+	MineSkinID  string     `json:"mineSkinId"`
+	HatID       string     `json:"hatId"`
+	ClassID     string     `json:"classId"`
+	AvatarURL   string     `json:"avatarUrl,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	ViaTelegram bool       `json:"viaTelegram"`
+	IsAdmin     bool       `json:"isAdmin"`
+	BannedAt    *time.Time `json:"bannedAt,omitempty"`
+	BanReason   string     `json:"banReason,omitempty"`
 
 	passwordHash string
 	avatarCustom bool
@@ -34,13 +38,15 @@ type User struct {
 const userCols = `id, username, coalesce(password_hash, ''), cubes, skin_id,
 	coalesce(nullif(mine_skin_id, ''), 'classic'),
 	coalesce(nullif(hat_id, ''), 'none'), class_id,
-	coalesce(avatar_url, ''), avatar_custom, created_at, (telegram_id IS NOT NULL)`
+	coalesce(avatar_url, ''), avatar_custom, created_at, (telegram_id IS NOT NULL),
+	coalesce(is_admin, false), banned_at, coalesce(ban_reason, '')`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	err := row.Scan(
 		&u.ID, &u.Username, &u.passwordHash, &u.Cubes, &u.SkinID, &u.MineSkinID, &u.HatID, &u.ClassID,
 		&u.AvatarURL, &u.avatarCustom, &u.CreatedAt, &u.ViaTelegram,
+		&u.IsAdmin, &u.BannedAt, &u.BanReason,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNoUser
@@ -378,4 +384,224 @@ func (s *Store) GrantCubes(userID int64, amount int) (int, error) {
 		`UPDATE users SET cubes = cubes + $2 WHERE id = $1 RETURNING cubes`,
 		userID, amount).Scan(&balance)
 	return balance, err
+}
+
+// SyncAdminUsernames marks listed usernames as admin (case-insensitive).
+// Existing admins not in the list are left alone so DB grants survive.
+func (s *Store) SyncAdminUsernames(names []string) error {
+	if s.pool == nil || len(names) == 0 {
+		return nil
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+	for _, raw := range names {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, err := s.pool.Exec(ctx,
+			`UPDATE users SET is_admin = true WHERE lower(username) = lower($1)`, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) IsBanned(u *User) bool {
+	return u != nil && u.BannedAt != nil
+}
+
+// AdminListUsers returns a page of accounts for the admin panel.
+func (s *Store) AdminListUsers(q string, limit, offset int) ([]User, int, error) {
+	if s.pool == nil {
+		return nil, 0, ErrNoStore
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	q = strings.TrimSpace(q)
+	var total int
+	var rows pgx.Rows
+	var err error
+	if q == "" {
+		err = s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&total)
+		if err != nil {
+			return nil, 0, err
+		}
+		rows, err = s.pool.Query(ctx,
+			`SELECT `+userCols+` FROM users ORDER BY id DESC LIMIT $1 OFFSET $2`, limit, offset)
+	} else {
+		like := "%" + strings.ToLower(q) + "%"
+		err = s.pool.QueryRow(ctx,
+			`SELECT count(*) FROM users WHERE lower(username) LIKE $1`, like).Scan(&total)
+		if err != nil {
+			return nil, 0, err
+		}
+		rows, err = s.pool.Query(ctx,
+			`SELECT `+userCols+` FROM users WHERE lower(username) LIKE $1
+			 ORDER BY id DESC LIMIT $2 OFFSET $3`, like, limit, offset)
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]User, 0, limit)
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, *u)
+	}
+	return out, total, rows.Err()
+}
+
+type UserStats struct {
+	Kills   int `json:"kills"`
+	Deaths  int `json:"deaths"`
+	Damage  int `json:"damage"`
+	Wins    int `json:"wins"`
+	Sessions int `json:"sessions"`
+}
+
+func (s *Store) UserStats(userID int64) (UserStats, error) {
+	var st UserStats
+	if s.pool == nil {
+		return st, ErrNoStore
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+			coalesce(sum(kills), 0),
+			coalesce(sum(deaths), 0),
+			coalesce(sum(damage_dealt), 0),
+			count(*)
+		FROM sessions WHERE user_id = $1`, userID).Scan(&st.Kills, &st.Deaths, &st.Damage, &st.Sessions)
+	if err != nil {
+		return st, err
+	}
+	err = s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM match_wins WHERE user_id = $1`, userID).Scan(&st.Wins)
+	return st, err
+}
+
+type AdminUserPatch struct {
+	Username *string `json:"username"`
+	Cubes    *int    `json:"cubes"`
+	SkinID   *string `json:"skinId"`
+	HatID    *string `json:"hatId"`
+	ClassID  *string `json:"classId"`
+	IsAdmin  *bool   `json:"isAdmin"`
+}
+
+func (s *Store) AdminPatchUser(userID int64, patch AdminUserPatch) (*User, error) {
+	if s.pool == nil {
+		return nil, ErrNoStore
+	}
+	u, err := s.UserByID(userID)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+
+	if patch.Username != nil {
+		name, err := validateNickname(*patch.Username)
+		if err != nil {
+			return nil, err
+		}
+		_, err = s.pool.Exec(ctx, `UPDATE users SET username = $2 WHERE id = $1`, userID, name)
+		if isUniqueViolation(err) {
+			return nil, ErrUsernameTaken
+		}
+		if err != nil {
+			return nil, err
+		}
+		u.Username = name
+	}
+	if patch.Cubes != nil {
+		cubes := *patch.Cubes
+		if cubes < 0 {
+			cubes = 0
+		}
+		if _, err := s.pool.Exec(ctx, `UPDATE users SET cubes = $2 WHERE id = $1`, userID, cubes); err != nil {
+			return nil, err
+		}
+	}
+	if patch.SkinID != nil && *patch.SkinID != "" {
+		if _, err := s.pool.Exec(ctx, `UPDATE users SET skin_id = $2 WHERE id = $1`, userID, *patch.SkinID); err != nil {
+			return nil, err
+		}
+	}
+	if patch.HatID != nil && *patch.HatID != "" {
+		if _, err := s.pool.Exec(ctx, `UPDATE users SET hat_id = $2 WHERE id = $1`, userID, *patch.HatID); err != nil {
+			return nil, err
+		}
+	}
+	if patch.ClassID != nil && *patch.ClassID != "" {
+		if _, err := s.pool.Exec(ctx, `UPDATE users SET class_id = $2 WHERE id = $1`, userID, *patch.ClassID); err != nil {
+			return nil, err
+		}
+	}
+	if patch.IsAdmin != nil {
+		if _, err := s.pool.Exec(ctx, `UPDATE users SET is_admin = $2 WHERE id = $1`, userID, *patch.IsAdmin); err != nil {
+			return nil, err
+		}
+	}
+	return s.UserByID(userID)
+}
+
+func (s *Store) BanUser(userID int64, reason string) (*User, error) {
+	if s.pool == nil {
+		return nil, ErrNoStore
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+	reason = strings.TrimSpace(reason)
+	return scanUser(s.pool.QueryRow(ctx,
+		`UPDATE users SET banned_at = now(), ban_reason = $2 WHERE id = $1
+		 RETURNING `+userCols, userID, reason))
+}
+
+func (s *Store) UnbanUser(userID int64) (*User, error) {
+	if s.pool == nil {
+		return nil, ErrNoStore
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+	return scanUser(s.pool.QueryRow(ctx,
+		`UPDATE users SET banned_at = NULL, ban_reason = NULL WHERE id = $1
+		 RETURNING `+userCols, userID))
+}
+
+// ListTelegramIDs returns chat ids for bot broadcast.
+func (s *Store) ListTelegramIDs() ([]int64, error) {
+	if s.pool == nil {
+		return nil, ErrNoStore
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+	rows, err := s.pool.Query(ctx, `
+		SELECT telegram_id FROM users
+		WHERE telegram_id IS NOT NULL AND banned_at IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

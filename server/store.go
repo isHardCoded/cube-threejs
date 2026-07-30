@@ -37,6 +37,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_custom BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS mine_skin_id TEXT NOT NULL DEFAULT 'classic';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS hat_id TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS user_skins (
 	user_id  BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -114,7 +117,7 @@ CREATE TABLE IF NOT EXISTS user_blocks (
 CREATE INDEX IF NOT EXISTS user_blocks_blocked_idx ON user_blocks (blocked_id);
 
 -- Daily / weekly quest progress. period_key is a UTC day (YYYY-MM-DD) or
--- ISO week (YYYY-Www); the quest catalog itself lives in code.
+-- ISO week (YYYY-Www). Catalog lives in quests (seeded from code defaults).
 CREATE TABLE IF NOT EXISTS quest_progress (
 	user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
 	quest_id   TEXT NOT NULL,
@@ -125,6 +128,32 @@ CREATE TABLE IF NOT EXISTS quest_progress (
 );
 CREATE INDEX IF NOT EXISTS quest_progress_user_period_idx
 	ON quest_progress (user_id, period_key);
+
+CREATE TABLE IF NOT EXISTS quests (
+	id         TEXT PRIMARY KEY,
+	period     TEXT NOT NULL,
+	metric     TEXT NOT NULL,
+	target     INT NOT NULL,
+	reward     INT NOT NULL,
+	title_ru   TEXT NOT NULL DEFAULT '',
+	title_en   TEXT NOT NULL DEFAULT '',
+	enabled    BOOLEAN NOT NULL DEFAULT true,
+	sort_order INT NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS bot_posts (
+	id          BIGSERIAL PRIMARY KEY,
+	admin_id    BIGINT REFERENCES users (id) ON DELETE SET NULL,
+	text        TEXT NOT NULL DEFAULT '',
+	image_path  TEXT,
+	status      TEXT NOT NULL DEFAULT 'draft',
+	sent_ok     INT NOT NULL DEFAULT 0,
+	sent_fail   INT NOT NULL DEFAULT 0,
+	created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	sent_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS bot_posts_created_idx ON bot_posts (created_at DESC);
 `
 
 // NewStore fails instead of degrading: accounts and Cubes are meaningless
@@ -148,8 +177,12 @@ func NewStore(dsn string) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
+	s := &Store{pool: pool}
+	if err := s.SeedDefaultQuests(); err != nil {
+		log.Println("store: seed quests:", err)
+	}
 	log.Println("store: connected to Postgres")
-	return &Store{pool: pool}, nil
+	return s, nil
 }
 
 func (s *Store) Close() {

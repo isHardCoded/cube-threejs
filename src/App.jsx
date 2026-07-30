@@ -10,13 +10,16 @@ import ProfilePage from './pages/ProfilePage.jsx'
 import RatingPage from './pages/RatingPage.jsx'
 import FriendsPage from './pages/FriendsPage.jsx'
 import QuestsPage from './pages/QuestsPage.jsx'
+import AdminShell from './components/AdminShell.jsx'
+import AdminPage from './pages/AdminPage.jsx'
+import AdminQuestsPage from './pages/AdminQuestsPage.jsx'
+import AdminPostsPage from './pages/AdminPostsPage.jsx'
 import UserProfilePage from './pages/UserProfilePage.jsx'
 import PageFade from './components/PageFade.jsx'
 import Spinner from './components/Spinner.jsx'
 import { useAuth } from './auth/context.js'
 import { useLocale } from './i18n/LocaleContext.jsx'
 
-// Three.js is only needed by the 3D screens: keep it out of the menu bundle.
 const GamePage = lazy(() => import('./pages/GamePage.jsx'))
 const CharacterPage = lazy(() => import('./pages/CharacterPage.jsx'))
 
@@ -35,36 +38,65 @@ function RequireAuth({ children }) {
   return user ? children : <Navigate to="/auth" replace />
 }
 
-/** Menu routes share this shell; in-match /game stays outside. */
+function RequireAdmin({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <Splash />
+  if (!user) return <Navigate to="/auth" replace />
+  if (!user.isAdmin) return <Navigate to="/" replace />
+  return children
+}
+
 function MenuShell() {
   return <Outlet />
+}
+
+function GameRoutes() {
+  return (
+    <PageFade>
+      {(location) => (
+        <Routes location={location}>
+          <Route element={<MenuShell />}>
+            <Route path="/auth" element={<AuthPage />} />
+            <Route path="/" element={<RequireAuth><MenuPage /></RequireAuth>} />
+            <Route path="/play" element={<RequireAuth><ModePage /></RequireAuth>} />
+            <Route path="/play/training" element={<RequireAuth><TrainingMapPage /></RequireAuth>} />
+            <Route path="/play/pvp" element={<RequireAuth><PvpMapPage /></RequireAuth>} />
+            <Route path="/play/pve" element={<RequireAuth><PvePage /></RequireAuth>} />
+            <Route path="/character" element={<RequireAuth><CharacterPage /></RequireAuth>} />
+            <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+            <Route path="/u/:id" element={<RequireAuth><UserProfilePage /></RequireAuth>} />
+            <Route path="/rating" element={<RequireAuth><RatingPage /></RequireAuth>} />
+            <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
+            <Route path="/quests" element={<RequireAuth><QuestsPage /></RequireAuth>} />
+          </Route>
+          <Route path="/game" element={<RequireAuth><GamePage /></RequireAuth>} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      )}
+    </PageFade>
+  )
 }
 
 export default function App() {
   return (
     <Suspense fallback={<Splash />}>
-      <PageFade>
-        {(location) => (
-          <Routes location={location}>
-            <Route element={<MenuShell />}>
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/" element={<RequireAuth><MenuPage /></RequireAuth>} />
-              <Route path="/play" element={<RequireAuth><ModePage /></RequireAuth>} />
-              <Route path="/play/training" element={<RequireAuth><TrainingMapPage /></RequireAuth>} />
-              <Route path="/play/pvp" element={<RequireAuth><PvpMapPage /></RequireAuth>} />
-              <Route path="/play/pve" element={<RequireAuth><PvePage /></RequireAuth>} />
-              <Route path="/character" element={<RequireAuth><CharacterPage /></RequireAuth>} />
-              <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
-              <Route path="/u/:id" element={<RequireAuth><UserProfilePage /></RequireAuth>} />
-              <Route path="/rating" element={<RequireAuth><RatingPage /></RequireAuth>} />
-              <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
-              <Route path="/quests" element={<RequireAuth><QuestsPage /></RequireAuth>} />
-            </Route>
-            <Route path="/game" element={<RequireAuth><GamePage /></RequireAuth>} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        )}
-      </PageFade>
+      <Routes>
+        <Route
+          path="/admin"
+          element={(
+            <RequireAuth>
+              <RequireAdmin>
+                <AdminShell />
+              </RequireAdmin>
+            </RequireAuth>
+          )}
+        >
+          <Route index element={<AdminPage />} />
+          <Route path="quests" element={<AdminQuestsPage />} />
+          <Route path="posts" element={<AdminPostsPage />} />
+        </Route>
+        <Route path="*" element={<GameRoutes />} />
+      </Routes>
     </Suspense>
   )
 }

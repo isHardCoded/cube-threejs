@@ -112,3 +112,39 @@ export const quests = {
 export const badges = {
   get: () => api('/api/badges'),
 }
+
+export const admin = {
+  users: (q = '', limit = 50, offset = 0) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (q) params.set('q', q)
+    return api(`/api/admin/users?${params}`)
+  },
+  user: (id) => api(`/api/admin/users/${id}`),
+  patchUser: (id, body) => api(`/api/admin/users/${id}`, { method: 'PATCH', body }),
+  banUser: (id, reason = '') => api(`/api/admin/users/${id}/ban`, { method: 'POST', body: { reason } }),
+  unbanUser: (id) => api(`/api/admin/users/${id}/unban`, { method: 'POST', body: {} }),
+  quests: () => api('/api/admin/quests'),
+  createQuest: (body) => api('/api/admin/quests', { method: 'POST', body }),
+  patchQuest: (id, body) => api(`/api/admin/quests/${id}`, { method: 'PATCH', body }),
+  deleteQuest: (id) => api(`/api/admin/quests/${id}`, { method: 'DELETE' }),
+  posts: () => api('/api/admin/posts'),
+  createPost: async (text, imageFile) => {
+    const headers = {}
+    const token = getToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+    const form = new FormData()
+    form.append('text', text || '')
+    if (imageFile) form.append('image', imageFile)
+    let res
+    try {
+      res = await fetch(`${API_BASE}/api/admin/posts`, { method: 'POST', headers, body: form })
+    } catch {
+      throw new ApiError(t('common.serverDown'), 0)
+    }
+    let data = null
+    try { data = await res.json() } catch { /* ignore */ }
+    if (!res.ok) throw new ApiError(data?.error || t('common.error', { status: res.status }), res.status)
+    return data
+  },
+  publishPost: (id) => api(`/api/admin/posts/${id}/publish`, { method: 'POST', body: {} }),
+}
