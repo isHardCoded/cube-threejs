@@ -1,0 +1,79 @@
+---
+description: Reusable sun/shadow/post lighting stack — jungle is the approved template for other maps
+alwaysApply: true
+---
+
+# Map lighting template (jungle baseline)
+
+Jungle day look (player-tuned Jul 2026) is the **reference implementation** for sun, soft shadows, fill, AO, godrays, and grade. Other maps should copy this stack, then retune numbers per theme — do not invent a parallel lighting path.
+
+## Approved jungle day numbers
+
+Source: Light debug panel → baked into `src/game/themes/jungle.js`.
+
+| Knob | Value | Theme path |
+|------|------:|------------|
+| Sun | 4 | `day.sunIntensity` |
+| Hemi | 0.48 | `day.hemiIntensity` |
+| Fill | 0.21 | `gfx.fillIntensity` |
+| Exposure | 0.81 | `day.exposure` |
+| Bloom | 0.07 | `day.bloom` |
+| Godray | 0.21 | `gfx.godrayIntensity` |
+| Ray spread | 1.45 | `gfx.godraySpread` |
+| AO | 0.12 | `gfx.aoIntensity` |
+| Sat | 1.2 | `day.post.saturation` + `theme.post` |
+| Contrast | 1.08 | `day.post.contrast` |
+| Vignette | 0.9 | `day.post.vignette` |
+
+Night keeps its own `night.*` / `gfx.*Night` values; retune separately when porting.
+
+## Architecture (copy this)
+
+1. **Theme owns numbers** — `theme.day` / `theme.night` (sky, fog, hemi, sun, bloom, exposure, post), `theme.shadows`, `theme.gfx`.
+2. **`environment.js` wires once** — renderer, PCF soft sun shadows, fill, composer passes, day/night apply. Maps only supply config.
+3. **Live tweaks** — `getLightTweaks` / `setLightTweaks` in `environment.js` (HUD Light panel removed for now; re-enable when retuning). When a look is approved, bake into the theme.
+
+## Shadows (sun)
+
+- `renderer.shadowMap.type = THREE.PCFSoftShadowMap`
+- One `DirectionalLight` casts; opposite **fill has `castShadow = false`**
+- Wide frustum + follow focus (`theme.shadows.follow`, `sunOffset`, `extent` / `extentY`, `mapSize` 4096 desktop)
+- Soft contact: moderate `radius`, careful `bias` / `normalBias` (jungle: `-0.00035` / `0.035` / `5.5`)
+- **Selective casters** on backdrop (jungle pattern): palms / cliffs / bushes / rocks cast; dense grass / reeds **receive-only** — avoids shadow acne noise and cost
+- Arena floor tiles: receive, do not cast
+
+## Lights
+
+- Hemisphere + sun + fill (warm day / cooler night colours via `gfx.fillColor*`)
+- Accent point lights + underGlow from day/night presets
+- Tone mapping: **`NeutralToneMapping`** — preserves authored albedos (no ACES film wash)
+
+## Post stack (desktop; skip heavy passes on mobile)
+
+Order in `environment.js`:
+
+1. RenderPass (world layer)
+2. GTAO (`gfx.ao`) — light blend
+3. UnrealBloomPass
+4. Godray soft Gaussian wash (`gfx/godrayPass.js`) — **not** hard ray-march cones/tracers
+5. Grade (vignette / contrast / saturation / sharpen)
+6. OutputPass
+7. **Sprites** (nameplates/HP) on `SPRITE_LAYER` redrawn **after** post so bloom/godray do not trail UI
+
+Godray rules: soft wide wash only; intensity/spread from theme; disable at night; never draw over sprite layer.
+
+## Porting to a new map
+
+1. Copy jungle `shadows` + `gfx` blocks into the new theme; enable only what the map needs.
+2. Start from jungle **day** numbers above, then adjust with the Light panel.
+3. Bake approved values into `day` / `gfx` / `post`.
+4. Add selective cast/receive rules for that map’s backdrop density.
+5. Do **not** recolour GLB albedos to “fix” lighting — lights and post only (see jungle backdrop fidelity rule).
+
+## Key files
+
+- `src/game/environment.js` — shared wiring
+- `src/game/gfx/godrayPass.js` — soft godray
+- `src/game/themes/jungle.js` — reference `day` / `shadows` / `gfx`
+- `src/game/themes/jungle.js` → `applyBackdropShadows` — selective cast pattern
+- `src/game/environment.js` — `getLightTweaks` / `setLightTweaks` for retuning without UI

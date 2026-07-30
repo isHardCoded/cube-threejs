@@ -162,6 +162,57 @@ function prepareImported(root, { shadows = true, cast = true } = {}) {
   return root
 }
 
+/** Selective shadow casters — palms/cliffs/bushes/rocks cast; grass/reeds receive-only. */
+function applyBackdropShadows(root, { mobile = false } = {}) {
+  root.traverse((obj) => {
+    if (!obj.isMesh) return
+    const n = obj.name || ''
+    obj.receiveShadow = true
+
+    const isWaterish = n.startsWith('LakeWater_')
+      || n.startsWith('Ripple_')
+      || n.startsWith('ShoreRing_')
+      || n.startsWith('Sparkle_')
+      || n.startsWith('Foam_')
+      || n.startsWith('LilyPad_')
+      || n.startsWith('GROUND_')
+
+    const receiveOnly = isWaterish
+      || n.startsWith('VEG_Grass')
+      || n.startsWith('VEG_Reed')
+      || n.startsWith('VEG_Pebble')
+      || n.startsWith('VEG_Fern')
+      || n.startsWith('VEG_CornerGrass')
+      || n.startsWith('VEG_CornerFern')
+      || n.startsWith('VEG_OuterGrass')
+      || n.startsWith('VEG_RimGrass')
+      || n.startsWith('VEG_GrassFill')
+      || n.startsWith('VEG_FernFill')
+
+    const castCore = n.startsWith('VEG_Palm')
+      || n.startsWith('NatureKit_M_Cliff')
+
+    const castHeavy = castCore
+      || n.startsWith('VEG_Bush')
+      || n.startsWith('VEG_OuterBush')
+      || n.startsWith('VEG_RimBush')
+      || n.startsWith('VEG_CornerBush')
+      || n.startsWith('VEG_BushFill')
+      || n.startsWith('VEG_Boulder')
+      || n.startsWith('VEG_Stone')
+      || n.startsWith('VEG_WaterStone')
+
+    if (receiveOnly) {
+      obj.castShadow = false
+    } else if (mobile) {
+      obj.castShadow = castCore
+    } else {
+      obj.castShadow = castHeavy
+    }
+  })
+  return root
+}
+
 function cloneProp(url) {
   const root = cloneGltf(url)
   if (!root) return null
@@ -499,7 +550,7 @@ function createLakeSplashes(parent) {
   return { splash, update }
 }
 
-function createBackdrop(scene) {
+function createBackdrop(scene, _fx, opts = {}) {
   const group = new THREE.Group()
   scene.add(group)
 
@@ -510,11 +561,13 @@ function createBackdrop(scene) {
   const piranhas = []
   const lakeFx = createLakeSplashes(group)
   let authored = false
+  const mobile = !!opts.mobile
 
   const sceneRoot = cloneGltf(SCENE_URL)
   if (sceneRoot) {
     authored = true
     prepareImported(sceneRoot, { cast: false })
+    applyBackdropShadows(sceneRoot, { mobile })
     collectMats(sceneRoot, importedMats)
     // Do NOT candy-tint backdrop — colours come from Blender GLB as-is.
     group.add(sceneRoot)
@@ -549,11 +602,21 @@ function createBackdrop(scene) {
         for (const m of mats) {
           if (!m) continue
           if (isSurface || isDeep) {
+            // Stable lake colour — no fresnel / UV scroll (those strobed blue↔grey)
             m.transparent = true
-            m.opacity = isDeep ? 0.7 : 0.48
             m.depthWrite = false
-            // Keep Blender water albedo if present; only force candy when unmapped
-            if (m.color && !m.map) m.color.set(isDeep ? WATER_DEEP : WATER)
+            m.opacity = isDeep ? 0.58 : 0.4
+            if (m.color) m.color.set(isDeep ? WATER_DEEP : WATER)
+            // Kill sun specular “flashlight” that tracks shadow-follow
+            if ('roughness' in m) m.roughness = 1
+            if ('metalness' in m) m.metalness = 0
+            if ('envMapIntensity' in m) m.envMapIntensity = 0
+            if ('specularIntensity' in m) m.specularIntensity = 0
+            if (m.map) {
+              m.map.offset.set(0, 0)
+              m.map.needsUpdate = true
+            }
+            m.needsUpdate = true
           }
           if (names.some((x) => x === 'WaterFoam' || x === 'WaterRipple'
             || x === 'WaterShoreRing' || x === 'WaterSpark')) {
@@ -563,11 +626,24 @@ function createBackdrop(scene) {
                 : names.some((x) => x === 'WaterShoreRing') ? 0.5
                   : 0.75
             m.depthWrite = false
+            // Only scroll decorative FX maps, not the lake body
+            if (m.map && !waterMaps.includes(m.map)) {
+              m.map.wrapS = THREE.RepeatWrapping
+              m.map.wrapT = THREE.RepeatWrapping
+              waterMaps.push(m.map)
+            }
           }
-          if (m.map && !waterMaps.includes(m.map)) {
-            m.map.wrapS = THREE.RepeatWrapping
-            m.map.wrapT = THREE.RepeatWrapping
-            waterMaps.push(m.map)
+        }
+        obj.castShadow = false
+        obj.renderOrder = isDeep ? 1 : isSurface ? 2 : 3
+        if (obj.material) {
+          const ms = Array.isArray(obj.material) ? obj.material : [obj.material]
+          for (const m of ms) {
+            if (m) {
+              m.polygonOffset = true
+              m.polygonOffsetFactor = isDeep ? -1 : -2
+              m.polygonOffsetUnits = 1
+            }
           }
         }
       }
@@ -932,32 +1008,63 @@ export default {
 
   night: {
     sky: '#1a2e28', fogNear: 28, fogFar: 110,
-    hemiSky: '#4a7060', hemiGround: '#3a4830', hemiIntensity: 1.25,
-    sunColor: '#b8d0ff', sunIntensity: 1.35,
+    hemiSky: '#4a7060', hemiGround: '#3a4830', hemiIntensity: 1.05,
+    sunColor: '#b8d0ff', sunIntensity: 1.45,
     accentIntensity: 10,
     underGlow: FIREFLY, underGlowIntensity: 8,
     spot: '#e0ffe8', spotIntensity: 9,
-    bloom: 0.18, exposure: 1.05,
-    post: { vignette: 0.32, contrast: 1.04, saturation: 1.04, sharpen: 0.04 },
+    bloom: 0.16, exposure: 1.02,
+    post: { vignette: 0.34, contrast: 1.06, saturation: 1.03, sharpen: 0.04 },
   },
 
   day: {
-    // Stage 8 fog + Stage 9 mild grade
-    sky: '#7EB8D0', fogNear: 36, fogFar: 118,
-    hemiSky: '#C8DCE8', hemiGround: '#A8A090', hemiIntensity: 1.15,
-    sunColor: '#FFE8C4', sunIntensity: 1.2,
-    accentIntensity: 1.05,
-    underGlow: '#78B860', underGlowIntensity: 0.55,
-    spot: '#fff4e8', spotIntensity: 2.4,
-    bloom: 0.045, exposure: 0.92,
-    post: { vignette: 0.22, contrast: 1.05, saturation: 1.07, sharpen: 0.06 },
+    // Player-tuned Jul 2026 (Light panel) — keep as jungle day baseline
+    sky: '#6EC8E8', fogNear: 42, fogFar: 135,
+    hemiSky: '#E8F4FF', hemiGround: '#C8B890', hemiIntensity: 0.48,
+    sunColor: '#FFE2A8', sunIntensity: 4,
+    accentIntensity: 0.9,
+    underGlow: '#8AD070', underGlowIntensity: 0.4,
+    spot: '#fff6e8', spotIntensity: 2.1,
+    bloom: 0.07, exposure: 0.81,
+    post: { vignette: 0.9, contrast: 1.08, saturation: 1.2, sharpen: 0.04 },
   },
 
   createBackdrop,
   createProps,
 
-  // Stage 9: opt-in canvas grade (UI untouched).
-  post: { vignette: 0.28, contrast: 1.04, saturation: 1.05, sharpen: 0.05 },
+  // Stage 9: opt-in canvas grade (UI untouched). Matches approved day look.
+  post: { vignette: 0.9, contrast: 1.08, saturation: 1.2, sharpen: 0.04 },
+
+  // Lower / wider sun so soft light covers more of lake + arena
+  shadows: {
+    mapSize: 4096,
+    mapSizeMobile: 2048,
+    extent: 56,
+    extentY: 58,
+    near: 2,
+    far: 120,
+    bias: -0.00035,
+    normalBias: 0.035,
+    radius: 5.5,
+    follow: true,
+    sunOffset: [22, 28, 18],
+  },
+
+  // Desktop cinematic extras (skipped on mobile in environment.js).
+  gfx: {
+    ao: true,
+    aoIntensity: 0.12,
+    aoIntensityNight: 0.26,
+    aoRadius: 0.3,
+    godray: true,
+    // Soft wide wash — no visible cone/tracers on props
+    godrayIntensity: 0.21,
+    godraySpread: 1.45,
+    fillIntensity: 0.21,
+    fillIntensityNight: 0.12,
+    fillColor: '#ffe8c8',
+    fillColorNight: '#7a8aa0',
+  },
 
   // Softer multi-band toon + candy palette applied at GLB preload (Fall Guys).
   materialSteps: 7,

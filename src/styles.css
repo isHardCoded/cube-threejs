@@ -2238,31 +2238,6 @@ canvas.webgl {
   max-width: min(56vw, 250px);
   pointer-events: none;
 }
-.cam-yaw {
-  pointer-events: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: min(56vw, 220px);
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: var(--hud-bg);
-  color: var(--hud-ink);
-  font: 600 12px/1.2 ui-sans-serif, system-ui, sans-serif;
-}
-.cam-yaw__row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.cam-yaw__label {
-  opacity: 0.9;
-}
-.cam-yaw__range {
-  width: 100%;
-  accent-color: #8CDB66;
-  cursor: pointer;
-}
 .hud-bl__row {
   position: relative;
   display: flex;

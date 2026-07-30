@@ -4,8 +4,11 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js'
 import { themeFor } from './themes/index.js'
 import { floorY } from './layouts.js'
+import { createGodrayPass, updateGodraySun } from './gfx/godrayPass.js'
+import { SPRITE_LAYER } from './sprites.js'
 
 const DAY_KEY = 'cube-game-day'
 
@@ -35,7 +38,6 @@ const GradeShader = {
     varying vec2 vUv;
     void main() {
       vec4 color = texture2D(tDiffuse, vUv);
-      // Soft unsharp — tiny only (toy look, not cinematic)
       if (sharpen > 0.001) {
         vec2 px = vec2(1.0 / 1280.0, 1.0 / 720.0);
         vec3 blur = (
@@ -57,16 +59,32 @@ const GradeShader = {
   `,
 }
 
-// Phones get fewer samples and a lower pixel ratio; edges still read smooth
-// because multisampling is doing the work instead of raw resolution.
 const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
 const SAMPLES = isMobile ? 2 : 4
 const MAX_DPR = isMobile ? 1.75 : 2
+
+const DEFAULT_SHADOWS = {
+  mapSize: 2048,
+  mapSizeMobile: 2048,
+  extent: 16,
+  extentY: 20,
+  near: 1,
+  far: 60,
+  bias: -0.0006,
+  normalBias: 0.02,
+  radius: 3,
+  follow: false,
+  sunOffset: [12, 26, 10],
+}
 
 // Renderer, lights, the map's backdrop and the follow camera. Everything
 // map-specific comes from the theme; this module only wires it up.
 export function createEnvironment(canvas, mapId) {
   const theme = themeFor(mapId)
+  const shadowCfg = { ...DEFAULT_SHADOWS, ...(theme.shadows || {}) }
+  const gfx = theme.gfx || {}
+  const wantAo = !isMobile && !!gfx.ao
+  const wantGodray = !isMobile && !!gfx.godray
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_DPR))
@@ -85,9 +103,10 @@ export function createEnvironment(canvas, mapId) {
   // Jungle authored backdrop stretches ~100 units out; keep far plane roomy.
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 220)
   camera.position.set(0, 9, 10)
+  // Layer 0 = world (composer). Layer 1 = nameplates/popups (drawn after post).
+  camera.layers.enable(0)
+  camera.layers.enable(SPRITE_LAYER)
 
-  // The composer renders into its own target, so the renderer's `antialias` flag
-  // does nothing on its own — the multisampled target is what smooths the edges.
   const size = new THREE.Vector2()
   renderer.getDrawingBufferSize(size)
   const aaTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
@@ -96,15 +115,42 @@ export function createEnvironment(canvas, mapId) {
   })
   const composer = new EffectComposer(renderer, aaTarget)
   composer.addPass(new RenderPass(scene, camera))
+
+  let gtao = null
+  if (wantAo) {
+    gtao = new GTAOPass(scene, camera, size.x, size.y)
+    gtao.output = GTAOPass.OUTPUT.Default
+    gtao.blendIntensity = gfx.aoIntensity ?? 0.32
+    if (typeof gtao.updateGtaoMaterial === 'function') {
+      gtao.updateGtaoMaterial({
+        radius: gfx.aoRadius ?? 0.35,
+        distanceExponent: 1.5,
+        thickness: 0.85,
+        scale: 1.0,
+        samples: 8,
+        distanceFallOff: 0.85,
+      })
+    }
+    composer.addPass(gtao)
+  }
+
+  // Bloom before godrays so sky/palm gaps are bright enough to punch shafts through.
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
     theme.night.bloom,
-    0.5,  // radius: wide and faint reads as soft light, not as glare
-    0.85  // threshold: only the brightest neon blooms at all
+    0.55,
+    0.78,
   )
   composer.addPass(bloom)
 
-  // Optional theme grade (jungle Stage 9). Other maps skip — no cinematic stack.
+  let godray = null
+  if (wantGodray) {
+    godray = createGodrayPass({
+      spread: gfx.godraySpread,
+    })
+    composer.addPass(godray)
+  }
+
   let grade = null
   if (theme.post) {
     grade = new ShaderPass(GradeShader)
@@ -121,21 +167,36 @@ export function createEnvironment(canvas, mapId) {
   const hemi = new THREE.HemisphereLight(theme.night.hemiSky, theme.night.hemiGround, 1)
   scene.add(hemi)
 
-  // one directional light plays sun by day and moon by night
+  const [sunOx, sunOy, sunOz] = shadowCfg.sunOffset
   const sun = new THREE.DirectionalLight(theme.night.sunColor, 1)
-  sun.position.set(12, 26, 10)
+  sun.position.set(sunOx, sunOy, sunOz)
   sun.castShadow = true
-  sun.shadow.mapSize.set(2048, 2048)
-  sun.shadow.camera.left = -16
-  sun.shadow.camera.right = 16
-  sun.shadow.camera.top = 20
-  sun.shadow.camera.bottom = -16
-  sun.shadow.camera.near = 1
-  sun.shadow.camera.far = 60
-  sun.shadow.bias = -0.0006
-  sun.shadow.normalBias = 0.02
-  sun.shadow.radius = 3 // softer contact edges, in keeping with the cartoon look
+  const mapSize = isMobile
+    ? (shadowCfg.mapSizeMobile ?? 2048)
+    : (shadowCfg.mapSize ?? 2048)
+  sun.shadow.mapSize.set(mapSize, mapSize)
+  const ext = shadowCfg.extent
+  sun.shadow.camera.left = -ext
+  sun.shadow.camera.right = ext
+  sun.shadow.camera.top = shadowCfg.extentY ?? ext
+  sun.shadow.camera.bottom = -(shadowCfg.extentY ?? ext)
+  sun.shadow.camera.near = shadowCfg.near
+  sun.shadow.camera.far = shadowCfg.far
+  sun.shadow.bias = shadowCfg.bias
+  sun.shadow.normalBias = shadowCfg.normalBias
+  sun.shadow.radius = shadowCfg.radius
+  sun.shadow.camera.updateProjectionMatrix()
   scene.add(sun)
+  scene.add(sun.target)
+
+  // Soft opposite fill / rim — no shadows, keeps volume without washing albedo
+  const fill = new THREE.DirectionalLight(
+    gfx.fillColor || '#c8d8e8',
+    gfx.fillIntensity ?? 0,
+  )
+  fill.position.set(-(sunOx * 0.7), sunOy * 0.55, -(sunOz * 0.7))
+  fill.castShadow = false
+  scene.add(fill)
 
   const accentA = new THREE.PointLight(theme.accents[0], 1, 26)
   accentA.position.set(-7, 4, -7)
@@ -145,19 +206,102 @@ export function createEnvironment(canvas, mapId) {
   accentB.position.set(7, 4, 7)
   scene.add(accentB)
 
-  // light from below so the bottom platform floats over coloured haze
   const underGlow = new THREE.PointLight(theme.night.underGlow, 1, 22)
   underGlow.position.set(0, -4, 0)
   scene.add(underGlow)
 
-  // animated bits shared with the prop factories and the platform builder
   const fx = { blinkers: [], holos: [], platformSpots: [] }
 
-  const backdrop = theme.createBackdrop(scene, fx)
+  const backdrop = theme.createBackdrop(scene, fx, { mobile: isMobile })
 
-  // --- day / night ---
   let isDay = localStorage.getItem(DAY_KEY) === '1'
   let accentBase = theme.night.accentIntensity
+  let godrayDayIntensity = gfx.godrayIntensity ?? 0.2
+  const shadowFocus = new THREE.Vector3()
+  const sunWorld = new THREE.Vector3()
+
+  const lightTweaks = {
+    sunIntensity: 1,
+    hemiIntensity: 1,
+    fillIntensity: 0,
+    exposure: 1,
+    bloom: 0.05,
+    godray: 0,
+    godraySpread: 1.5,
+    ao: 0.12,
+    saturation: 1,
+    contrast: 1,
+    vignette: 0.2,
+    fogNear: 40,
+    fogFar: 120,
+    underGlow: 0.4,
+    accent: 1,
+  }
+
+  function syncTweaksFromMode() {
+    const m = isDay ? theme.day : theme.night
+    const p = m.post || theme.post || {}
+    lightTweaks.sunIntensity = m.sunIntensity
+    lightTweaks.hemiIntensity = m.hemiIntensity
+    lightTweaks.fillIntensity = isDay
+      ? (gfx.fillIntensity ?? 0)
+      : (gfx.fillIntensityNight ?? (gfx.fillIntensity ?? 0) * 0.45)
+    lightTweaks.exposure = m.exposure
+    lightTweaks.bloom = m.bloom
+    lightTweaks.godray = isDay ? (gfx.godrayIntensity ?? 0) : 0
+    lightTweaks.godraySpread = gfx.godraySpread ?? 1.5
+    lightTweaks.ao = isDay ? (gfx.aoIntensity ?? 0.12) : (gfx.aoIntensityNight ?? 0.26)
+    lightTweaks.saturation = p.saturation ?? 1
+    lightTweaks.contrast = p.contrast ?? 1
+    lightTweaks.vignette = p.vignette ?? 0.2
+    lightTweaks.fogNear = m.fogNear
+    lightTweaks.fogFar = m.fogFar
+    lightTweaks.underGlow = m.underGlowIntensity
+    lightTweaks.accent = m.accentIntensity
+  }
+
+  function applyLightTweaks() {
+    sun.intensity = lightTweaks.sunIntensity
+    hemi.intensity = lightTweaks.hemiIntensity
+    fill.intensity = lightTweaks.fillIntensity
+    renderer.toneMappingExposure = lightTweaks.exposure
+    bloom.strength = lightTweaks.bloom
+    scene.fog.near = lightTweaks.fogNear
+    scene.fog.far = lightTweaks.fogFar
+    underGlow.intensity = lightTweaks.underGlow
+    accentBase = lightTweaks.accent
+    godrayDayIntensity = isDay ? lightTweaks.godray : 0
+    if (godray) {
+      godray.uniforms.uSpread.value = lightTweaks.godraySpread
+      godray.enabled = isDay && lightTweaks.godray > 0.001
+      if (!isDay) godray.uniforms.uIntensity.value = 0
+    }
+    if (gtao) gtao.blendIntensity = lightTweaks.ao
+    if (grade) {
+      grade.uniforms.saturation.value = lightTweaks.saturation
+      grade.uniforms.contrast.value = lightTweaks.contrast
+      grade.uniforms.vignette.value = lightTweaks.vignette
+    }
+  }
+
+  function getLightTweaks() {
+    return { ...lightTweaks }
+  }
+
+  function setLightTweaks(partial = {}) {
+    Object.assign(lightTweaks, partial)
+    applyLightTweaks()
+    return getLightTweaks()
+  }
+
+  function applyShadowFollow(x, z) {
+    if (!shadowCfg.follow) return
+    shadowFocus.set(x, 0, z)
+    sun.target.position.copy(shadowFocus)
+    sun.target.updateMatrixWorld()
+    sun.position.set(x + sunOx, sunOy, z + sunOz)
+    fill.position.set(x - sunOx * 0.7, sunOy * 0.55, z - sunOz * 0.7)
+  }
 
   function setDayMode(day) {
     isDay = day
@@ -176,6 +320,11 @@ export function createEnvironment(canvas, mapId) {
     sun.color.set(m.sunColor)
     sun.intensity = m.sunIntensity
 
+    fill.intensity = day
+      ? (gfx.fillIntensity ?? 0)
+      : (gfx.fillIntensityNight ?? (gfx.fillIntensity ?? 0) * 0.45)
+    fill.color.set(day ? (gfx.fillColor || '#c8d8e8') : (gfx.fillColorNight || '#8898b0'))
+
     bloom.strength = m.bloom
     renderer.toneMappingExposure = m.exposure
     if (grade && m.post) {
@@ -183,6 +332,18 @@ export function createEnvironment(canvas, mapId) {
       grade.uniforms.contrast.value = m.post.contrast ?? grade.uniforms.contrast.value
       grade.uniforms.saturation.value = m.post.saturation ?? grade.uniforms.saturation.value
       grade.uniforms.sharpen.value = m.post.sharpen ?? grade.uniforms.sharpen.value
+    }
+
+    if (gtao) {
+      gtao.blendIntensity = day
+        ? (gfx.aoIntensity ?? 0.32)
+        : (gfx.aoIntensityNight ?? 0.4)
+    }
+
+    if (godray) {
+      godrayDayIntensity = day ? (gfx.godrayIntensity ?? 0.2) : 0
+      godray.enabled = day && godrayDayIntensity > 0
+      if (!day) godray.uniforms.uIntensity.value = 0
     }
 
     accentBase = m.accentIntensity
@@ -193,6 +354,8 @@ export function createEnvironment(canvas, mapId) {
       s.intensity = m.spotIntensity
     }
     backdrop.setDay(day)
+    syncTweaksFromMode()
+    applyLightTweaks()
   }
 
   function resize() {
@@ -201,6 +364,8 @@ export function createEnvironment(canvas, mapId) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_DPR))
     renderer.setSize(window.innerWidth, window.innerHeight)
     composer.setSize(window.innerWidth, window.innerHeight)
+    renderer.getDrawingBufferSize(size)
+    gtao?.setSize?.(size.x, size.y)
   }
 
   function update(dt, t) {
@@ -214,18 +379,14 @@ export function createEnvironment(canvas, mapId) {
       h.position.y = 2.0 + Math.sin(t * 2) * 0.08
     }
 
-    // accent lights breathe, which keeps the arena from looking baked
     accentA.intensity = accentBase * (1 + Math.sin(t * 1.7) * 0.16)
     accentB.intensity = accentBase * (1 + Math.cos(t * 1.3) * 0.16)
   }
 
-  // --- follow camera ---
   const camDist0 = 9.5
   const camHeight0 = 8.5
-  // Temporary review controls (degrees).
-  // yaw: orbit left/right. elev: 15..75 (default ~42 = atan(8.5/9.5)).
   let camYawDeg = 0
-  let camElevDeg = (Math.atan2(camHeight0, camDist0) * 180) / Math.PI
+  let camElevDeg = 30
   const camOffset = new THREE.Vector3(0, camHeight0, camDist0)
   const camTarget = new THREE.Vector3()
   const lookTarget = new THREE.Vector3(0, 0.5, 0)
@@ -251,11 +412,12 @@ export function createEnvironment(canvas, mapId) {
     return camElevDeg
   }
 
-  // focus: { x, z, level } of the die the camera rides with
   function updateCamera(dt, t, focus) {
     const fx2 = focus ? focus.x : 0
     const fz = focus ? focus.z : 0
     const lvlY = focus ? floorY(focus.level, theme.arenaLift || 0) : 0
+
+    applyShadowFollow(fx2 * 0.55, fz * 0.55)
 
     const yaw = (camYawDeg * Math.PI) / 180
     const elev = (camElevDeg * Math.PI) / 180
@@ -266,7 +428,6 @@ export function createEnvironment(canvas, mapId) {
       Math.cos(yaw) * Math.cos(elev) * radius,
     )
     camTarget.set(fx2 * 0.55 + Math.sin(t * 0.25) * 0.6, lvlY, fz * 0.55).add(camOffset)
-    // frame-rate independent smoothing: reaches 99.9% of the target in a second
     camera.position.lerp(camTarget, 1 - Math.pow(0.0006, dt))
     if (shake > 0) {
       shake = Math.max(0, shake - dt * 1.4)
@@ -276,15 +437,39 @@ export function createEnvironment(canvas, mapId) {
     lookGoal.set(fx2 * 0.6, lvlY + 0.5, fz * 0.6)
     lookTarget.lerp(lookGoal, 1 - Math.pow(0.0006, dt))
     camera.lookAt(lookTarget)
+
+    if (godray && isDay && godrayDayIntensity > 0) {
+      sun.getWorldPosition(sunWorld)
+      updateGodraySun(godray, camera, sunWorld, godrayDayIntensity)
+    }
   }
 
   function render() {
+    // World only through post — keeps godrays/bloom from trailing nameplates.
+    camera.layers.disable(SPRITE_LAYER)
     composer.render()
+    camera.layers.enable(SPRITE_LAYER)
+
+    // Overlay sprites without wiping the graded frame.
+    // (A normal scene render would redraw scene.background = blue sky over everything.)
+    const prevBg = scene.background
+    const prevFog = scene.fog
+    scene.background = null
+    scene.fog = null
+    camera.layers.disable(0)
+    renderer.autoClear = false
+    renderer.clearDepth()
+    renderer.render(scene, camera)
+    camera.layers.enable(0)
+    scene.background = prevBg
+    scene.fog = prevFog
+    renderer.autoClear = true
   }
 
   function dispose() {
     composer.dispose?.()
     aaTarget.dispose()
+    gtao?.dispose?.()
     renderer.dispose()
   }
 
@@ -294,6 +479,7 @@ export function createEnvironment(canvas, mapId) {
     resize, update, updateCamera, render, addShake, dispose,
     setCameraYaw, getCameraYaw,
     setCameraElev, getCameraElev,
+    getLightTweaks, setLightTweaks,
     splash(x, z, strength = 1) {
       return backdrop.splash?.(x, z, strength) || false
     },

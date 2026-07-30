@@ -20,8 +20,6 @@ export default function GamePage() {
   const [hud, setHud] = useState(EMPTY_HUD)
   const [isDay, setIsDay] = useState(false)
   const [assetsOpen, setAssetsOpen] = useState(false)
-  const [cameraYaw, setCameraYaw] = useState(0)
-  const [cameraElev, setCameraElev] = useState(42)
   const { logout, patchUser } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -92,16 +90,6 @@ export default function GamePage() {
     setAssetsOpen(true)
   }
 
-  function onCameraYaw(deg) {
-    setCameraYaw(deg)
-    gameRef.current?.setCameraYaw?.(deg)
-  }
-
-  function onCameraElev(deg) {
-    setCameraElev(deg)
-    gameRef.current?.setCameraElev?.(deg)
-  }
-
   return (
     <>
       <canvas className="webgl" ref={canvasRef} />
@@ -111,10 +99,6 @@ export default function GamePage() {
         onToggleDay={toggleDay}
         onMine={() => gameRef.current?.placeMine()}
         onOpenAssets={openAssets}
-        cameraYaw={cameraYaw}
-        onCameraYaw={onCameraYaw}
-        cameraElev={cameraElev}
-        onCameraElev={onCameraElev}
       />
       <MapAssetModal
         open={assetsOpen}

@@ -4,6 +4,15 @@ import { MAX_HP } from './dice.js'
 const PLATE_W = 160
 const PLATE_H = 56
 
+/** Overlay UI sprites — rendered after post so bloom/godrays never trail them. */
+export const SPRITE_LAYER = 1
+
+function tagOverlaySprite(sprite) {
+  sprite.layers.set(SPRITE_LAYER)
+  sprite.renderOrder = 10
+  return sprite
+}
+
 // Nameplate: nickname + HP bar + dash strip, all on one sprite above the die.
 export function createNameplate(name, isMe) {
   const c = document.createElement('canvas')
@@ -11,9 +20,10 @@ export function createNameplate(name, isMe) {
   c.height = PLATE_H
   const tex = new THREE.CanvasTexture(c)
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: tex, transparent: true, depthWrite: false,
+    map: tex, transparent: true, depthWrite: false, depthTest: false,
   }))
   sprite.scale.set(1.25, 1.25 * (PLATE_H / PLATE_W), 1)
+  tagOverlaySprite(sprite)
   return { sprite, ctx: c.getContext('2d'), tex, name: name || 'PLAYER', isMe }
 }
 
@@ -71,10 +81,11 @@ export function createPopups(scene) {
     ctx.fillText(text, 64, 48)
     const tex = new THREE.CanvasTexture(c)
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: tex, transparent: true, depthWrite: false,
+      map: tex, transparent: true, depthWrite: false, depthTest: false,
     }))
     sprite.scale.set(0.9, 0.45, 1)
     sprite.position.copy(worldPos)
+    tagOverlaySprite(sprite)
     scene.add(sprite)
     popups.push({ sprite, life: 1 })
   }

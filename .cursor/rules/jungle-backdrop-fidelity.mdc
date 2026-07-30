@@ -34,6 +34,11 @@ Canonical script: `art/jungle/scripts/fix_blender_fidelity_export.py`
 - Green `hemiGround` strong enough to tint grey atlas rocks lime.
 - Touching arena `surface.tileMap*` / prop toon path when fixing backdrop colours.
 
+## Lighting polish (allowed)
+
+Soft shadows / fill / AO / godrays in `environment.js` + `theme.shadows` / `theme.gfx` are OK.
+Do **not** recolour backdrop albedos to “fix” lighting — only lights, shadows, and post.
+
 ## Quick check after changes
 
 - Rocks sample grey atlas (not lime).
