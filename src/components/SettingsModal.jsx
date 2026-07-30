@@ -20,6 +20,10 @@ export default function SettingsModal({ open, onClose }) {
     setSoundOn(isSoundEnabled())
     setQuality(getQualityPreference())
     setGfxOpen(false)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
     function onKey(e) {
       if (e.key !== 'Escape') return
       if (gfxOpen) {
@@ -38,8 +42,14 @@ export default function SettingsModal({ open, onClose }) {
     function onPointer(e) {
       if (!gfxRef.current?.contains(e.target)) setGfxOpen(false)
     }
-    window.addEventListener('pointerdown', onPointer)
-    return () => window.removeEventListener('pointerdown', onPointer)
+    // Defer so the opening click doesn't immediately close the menu.
+    const id = window.setTimeout(() => {
+      window.addEventListener('pointerdown', onPointer)
+    }, 0)
+    return () => {
+      window.clearTimeout(id)
+      window.removeEventListener('pointerdown', onPointer)
+    }
   }, [gfxOpen])
 
   if (!open) return null
@@ -117,7 +127,6 @@ export default function SettingsModal({ open, onClose }) {
               </ul>
             )}
           </div>
-          <p className="settings-hint">{t('settings.graphicsHint')}</p>
         </div>
 
         <div className="modal__actions">

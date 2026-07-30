@@ -173,7 +173,6 @@ export const ru = {
   'settings.graphics.high': 'Высокая',
   'settings.graphics.balanced': 'Средняя',
   'settings.graphics.perf': 'Производительность',
-  'settings.graphicsHint': 'Применится в следующем матче. Авто на телефоне = Производительность.',
   'settings.close': 'Закрыть',
 
   'map.soon': 'скоро',
@@ -565,7 +564,6 @@ export const en = {
   'settings.graphics.high': 'High',
   'settings.graphics.balanced': 'Balanced',
   'settings.graphics.perf': 'Performance',
-  'settings.graphicsHint': 'Applies on the next match. Auto on phones uses Performance.',
   'settings.close': 'Close',
 
   'map.soon': 'soon',
