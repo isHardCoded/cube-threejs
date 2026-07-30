@@ -1,0 +1,42 @@
+---
+description: Polished medium-poly mesh style for jungle Blender models
+alwaysApply: true
+---
+
+# Jungle model style (mesh craft)
+
+Workflow: finish each prop as its own hero object first. Do not mass-generate or assemble the full map until individual assets are approved.
+
+## Silhouette & form
+
+- Faceted, but not primitive — keep large readable planes.
+- Silhouettes smoother than stock low-poly Cube / Icosphere / Cone.
+- Primary + secondary + tertiary forms on every tree, rock, and plant.
+- Slight asymmetry; no perfect symmetry.
+- Detail must read from `MAIN_GAME_CAMERA`. No invisible micro-detail.
+
+## Forbidden
+
+- Do not ship unedited Cube, Icosphere, or Cone as final meshes.
+- No photoreal scans, noisy subdivision, or tiny bevel chatter.
+
+## Mesh finish (default for most objects)
+
+- Bevel Modifier: 2–3 segments.
+- Bevel width ≈ 0.5–2% of object size (edges catch light).
+- Shade Smooth by Angle (or current Blender Auto Smooth equivalent).
+- Weighted Normal when it improves the result.
+- Controlled poly counts (medium-poly, not extreme low-poly).
+
+## Surface & grounding
+
+- Mild color gradient (height or facing).
+- Distinct light and dark planes — not a flat single shade.
+- Correct ground contact: trunks reach terrain; rocks partially embedded; plants follow normals.
+
+## Validation before approval
+
+- Readable silhouette from `MAIN_GAME_CAMERA`.
+- Bevels catch light on edges.
+- No floating contact.
+- Viewport screenshot + camera render of the single object (or small kit review).

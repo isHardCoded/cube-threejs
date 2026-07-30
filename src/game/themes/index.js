@@ -62,18 +62,34 @@ export function themeFor(id) {
 // clone synchronously. Safe to call for maps with no assets (no-op).
 export async function preloadThemeAssets(id) {
   const theme = themeFor(id)
-  const opts = {}
-  if (id === 'jungle') {
-    await preloadToonTextures(jungleTextureUrls())
-    // Explicit maps object strips glTF photo albedos; only candy water scrolls.
-    opts.maps = jungleTextureMaps()
-    opts.palette = theme.materialPalette || null
-    opts.steps = theme.materialSteps || 7
-    // Arena tiles stay flat Fall Guys colour — no moss photo noise.
-    theme.surface.tileMapA = null
-    theme.surface.tileMapB = null
-    theme.surface.baseMap = null
-    theme.surface.rimMap = null
+  if (id !== 'jungle') {
+    return preloadGltf(theme.assets || [], {})
   }
-  return preloadGltf(theme.assets || [], opts)
+
+  await preloadToonTextures(jungleTextureUrls())
+
+  const assets = theme.assets || []
+  const sceneUrl = assets.find((u) => String(u).includes('/backdrop/scene'))
+  const propUrls = assets.filter((u) => u !== sceneUrl)
+
+  // Backdrop: keep Blender materials / atlas / vertex colours exactly.
+  if (sceneUrl) {
+    await preloadGltf([sceneUrl], { preserveMaterials: true })
+  }
+
+  // Arena obstacle props stay on the candy toon path (unchanged look).
+  if (propUrls.length) {
+    await preloadGltf(propUrls, {
+      // Strip photo albedos on prop GLBs — flat candy + palette.
+      maps: jungleTextureMaps(),
+      palette: theme.materialPalette || null,
+      steps: theme.materialSteps || 7,
+    })
+  }
+
+  // Arena tiles stay flat Fall Guys colour — no moss photo noise.
+  theme.surface.tileMapA = null
+  theme.surface.tileMapB = null
+  theme.surface.baseMap = null
+  theme.surface.rimMap = null
 }

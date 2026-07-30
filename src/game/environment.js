@@ -220,7 +220,13 @@ export function createEnvironment(canvas, mapId) {
   }
 
   // --- follow camera ---
-  const camOffset = new THREE.Vector3(0, 8.5, 9.5)
+  const camDist0 = 9.5
+  const camHeight0 = 8.5
+  // Temporary review controls (degrees).
+  // yaw: orbit left/right. elev: 15..75 (default ~42 = atan(8.5/9.5)).
+  let camYawDeg = 0
+  let camElevDeg = (Math.atan2(camHeight0, camDist0) * 180) / Math.PI
+  const camOffset = new THREE.Vector3(0, camHeight0, camDist0)
   const camTarget = new THREE.Vector3()
   const lookTarget = new THREE.Vector3(0, 0.5, 0)
   const lookGoal = new THREE.Vector3()
@@ -228,12 +234,37 @@ export function createEnvironment(canvas, mapId) {
 
   const addShake = (v) => { shake = Math.max(shake, v) }
 
+  function setCameraYaw(deg) {
+    camYawDeg = Number.isFinite(deg) ? deg : 0
+  }
+
+  function getCameraYaw() {
+    return camYawDeg
+  }
+
+  function setCameraElev(deg) {
+    if (!Number.isFinite(deg)) return
+    camElevDeg = Math.max(12, Math.min(78, deg))
+  }
+
+  function getCameraElev() {
+    return camElevDeg
+  }
+
   // focus: { x, z, level } of the die the camera rides with
   function updateCamera(dt, t, focus) {
     const fx2 = focus ? focus.x : 0
     const fz = focus ? focus.z : 0
     const lvlY = focus ? floorY(focus.level, theme.arenaLift || 0) : 0
 
+    const yaw = (camYawDeg * Math.PI) / 180
+    const elev = (camElevDeg * Math.PI) / 180
+    const radius = Math.hypot(camDist0, camHeight0)
+    camOffset.set(
+      Math.sin(yaw) * Math.cos(elev) * radius,
+      Math.sin(elev) * radius,
+      Math.cos(yaw) * Math.cos(elev) * radius,
+    )
     camTarget.set(fx2 * 0.55 + Math.sin(t * 0.25) * 0.6, lvlY, fz * 0.55).add(camOffset)
     // frame-rate independent smoothing: reaches 99.9% of the target in a second
     camera.position.lerp(camTarget, 1 - Math.pow(0.0006, dt))
@@ -261,6 +292,8 @@ export function createEnvironment(canvas, mapId) {
     scene, camera, renderer, fx, theme,
     setDayMode, isDay: () => isDay,
     resize, update, updateCamera, render, addShake, dispose,
+    setCameraYaw, getCameraYaw,
+    setCameraElev, getCameraElev,
     splash(x, z, strength = 1) {
       return backdrop.splash?.(x, z, strength) || false
     },

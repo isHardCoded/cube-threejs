@@ -31,6 +31,8 @@ function TimerIcon({ kind }) {
 export default function Hud({
   status, timer, timerKind, timerDanger, alive, banner, isDay, onToggleDay,
   mine, mineReady, onMine, onOpenAssets, lives, maxLives = 5,
+  cameraYaw = 0, onCameraYaw,
+  cameraElev = 42, onCameraElev,
 }) {
   const { t } = useLocale()
   const controls = [
@@ -120,6 +122,36 @@ export default function Hud({
       </div>
 
       <div className="hud-bl">
+        {onCameraYaw && (
+          <div className="cam-yaw">
+            <label className="cam-yaw__row">
+              <span className="cam-yaw__label">Yaw {Math.round(cameraYaw)}°</span>
+              <input
+                className="cam-yaw__range"
+                type="range"
+                min={-180}
+                max={180}
+                step={1}
+                value={cameraYaw}
+                onChange={(e) => onCameraYaw(Number(e.target.value))}
+              />
+            </label>
+            {onCameraElev && (
+              <label className="cam-yaw__row">
+                <span className="cam-yaw__label">Pitch {Math.round(cameraElev)}°</span>
+                <input
+                  className="cam-yaw__range"
+                  type="range"
+                  min={15}
+                  max={75}
+                  step={1}
+                  value={cameraElev}
+                  onChange={(e) => onCameraElev(Number(e.target.value))}
+                />
+              </label>
+            )}
+          </div>
+        )}
         <div className="hud-bl__row">
           {onOpenAssets && (
             <button

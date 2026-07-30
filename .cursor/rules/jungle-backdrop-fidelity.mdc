@@ -1,0 +1,42 @@
+---
+description: Keep jungle backdrop colours 1:1 with Blender (export + runtime)
+alwaysApply: true
+---
+
+# Jungle backdrop colour fidelity
+
+Approved working state (Jul 2026): Blender materials/atlas/vertex colours reach the game unchanged. Do not reintroduce candy remaps on the dressed backdrop.
+
+## Runtime (must keep)
+
+- `scene.glb` loads with `preserveMaterials: true` — **no** `MeshToon` / palette / foliageFlat / green multiply.
+- Arena prop GLBs (`tree`, `stump`, `fern`, `vine`, `piranha`) stay on the separate candy toon path.
+- Do not call `tintByMaterialName` / day-night palette on backdrop mats (`PixelPalette*`, `Material*`, `MAT_GroundMix`).
+- Cache-bust `scene.glb` (`?v=gfxN`) after every re-export.
+- Split preload in `themes/index.js`: backdrop ≠ props.
+
+## Export (must keep)
+
+Canonical script: `art/jungle/scripts/fix_blender_fidelity_export.py`
+
+- Restore **original** NatureKit `Texture.png` — never brighten/gamma-hack the atlas.
+- Bake `PixelPalette_JungleMid/Warm/Dark` HueSat into separate textures (glTF drops HueSat nodes).
+- Bake ground `Col` mask → `ColBake` display RGB; export **only** `ColBake` as COLOR_0 (stash `Col`, restore after). Multiple colour layers → grey ground.
+- Palms: Principled `Material.001` (trunk) + `Material.002` (fronds); both face slots required.
+- Before export: uniquify linked VEG meshes **without** `materials.clear()` (clear resets face `material_index` → palms lose leaves; shared meshes → all bushes become one PixelPalette).
+
+## Forbidden regressions
+
+- Stripping glTF maps with a restrictive `maps={}` on the backdrop.
+- Forcing flat greens on `VEG_Bush` / reeds / rocks.
+- RGB boost on `PixelPalette` (salad rocks).
+- Remapping `Material.001` / `Material.002` / rocks to candy palette.
+- Green `hemiGround` strong enough to tint grey atlas rocks lime.
+- Touching arena `surface.tileMap*` / prop toon path when fixing backdrop colours.
+
+## Quick check after changes
+
+- Rocks sample grey atlas (not lime).
+- Bushes keep Mid/Warm/Dark variants in GLB.
+- Each `VEG_Palm_*` has trunk + frond materials.
+- Ground shows grass / sand / basin (not flat grey).

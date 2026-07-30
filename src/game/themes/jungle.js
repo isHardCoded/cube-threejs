@@ -28,7 +28,7 @@ const PIRANHA_FIN = '#D04058'
 const LAKE_Y = -3.15
 const LAKE_SWIM_R = 10.5
 
-const SCENE_URL = assetUrl('jungle', 'backdrop', 'scene') + '?v=gfx10'
+const SCENE_URL = assetUrl('jungle', 'backdrop', 'scene') + '?v=gfx18'
 const TREE_URL = assetUrl('jungle', 'props', 'tree')
 const STUMP_URL = assetUrl('jungle', 'props', 'stump')
 const FERN_URL = assetUrl('jungle', 'props', 'fern')
@@ -75,6 +75,7 @@ const DAY_PALETTE = {
   FarLeaf: '#619E94', FarLeafDark: '#477A80',
   FrameLeaf: '#52B86B', FrameLeafDark: '#388C57',
   DepthHaze: '#8CB8D1',
+  // Dressed-card NatureKit / DesertKit / ground: keep Blender colours (no candy remap)
 }
 const NIGHT_PALETTE = {
   Wood: '#6a5868', WoodDark: '#5a4a52', PalmWood: '#6a5868', ArenaWood: '#6a5868',
@@ -96,13 +97,32 @@ function matKey(name) {
   return (name || '').replace(/\.\d+$/, '')
 }
 
+function paletteHex(palette, name) {
+  if (!palette || !name) return null
+  if (palette[name]) return palette[name]
+  const stripped = matKey(name)
+  if (palette[stripped]) return palette[stripped]
+  return null
+}
+
+function isAuthoredBackdropMat(name) {
+  const n = name || ''
+  return n.startsWith('PixelPalette')
+    || n === 'MAT_GroundMix'
+    || n === 'Material'
+    || n.startsWith('Material.')
+}
+
 function tintByMaterialName(root, palette) {
   if (!root || !palette) return root
   root.traverse((obj) => {
     if (!obj.isMesh) return
     const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
     for (const m of mats) {
-      const hex = palette[matKey(m?.name)]
+      if (m?.vertexColors) continue // baked ground / colour attributes
+      if (m?.map) continue // NatureKit atlas / water maps
+      if (isAuthoredBackdropMat(m?.name)) continue
+      const hex = paletteHex(palette, m?.name)
       if (hex && m?.color) m.color.set(hex)
     }
   })
@@ -496,7 +516,7 @@ function createBackdrop(scene) {
     authored = true
     prepareImported(sceneRoot, { cast: false })
     collectMats(sceneRoot, importedMats)
-    tintByMaterialName(sceneRoot, DAY_PALETTE)
+    // Do NOT candy-tint backdrop — colours come from Blender GLB as-is.
     group.add(sceneRoot)
 
     // After glTF, multi-material insects often share local (0,0,0) under
@@ -524,8 +544,17 @@ function createBackdrop(scene) {
 
       if (isWater) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+        const isDeep = names.some((x) => x === 'WaterDeep')
+        const isSurface = names.some((x) => x === 'Water')
         for (const m of mats) {
           if (!m) continue
+          if (isSurface || isDeep) {
+            m.transparent = true
+            m.opacity = isDeep ? 0.7 : 0.48
+            m.depthWrite = false
+            // Keep Blender water albedo if present; only force candy when unmapped
+            if (m.color && !m.map) m.color.set(isDeep ? WATER_DEEP : WATER)
+          }
           if (names.some((x) => x === 'WaterFoam' || x === 'WaterRipple'
             || x === 'WaterShoreRing' || x === 'WaterSpark')) {
             m.transparent = true
@@ -716,11 +745,7 @@ function createBackdrop(scene) {
       }
     },
     setDay(day) {
-      const pal = day ? DAY_PALETTE : NIGHT_PALETTE
-      for (const m of importedMats) {
-        const hex = pal[matKey(m.name)]
-        if (hex) m.color.set(hex)
-      }
+      // Backdrop keeps Blender colours day and night; only motes dim.
       motes.material.opacity = day ? 0.1 : 0.55
     },
     splash(x, z, strength = 1) {
@@ -919,8 +944,8 @@ export default {
   day: {
     // Stage 8 fog + Stage 9 mild grade
     sky: '#7EB8D0', fogNear: 36, fogFar: 118,
-    hemiSky: '#C8DCE8', hemiGround: '#7AA868', hemiIntensity: 1.28,
-    sunColor: '#FFE8C4', sunIntensity: 1.35,
+    hemiSky: '#C8DCE8', hemiGround: '#A8A090', hemiIntensity: 1.15,
+    sunColor: '#FFE8C4', sunIntensity: 1.2,
     accentIntensity: 1.05,
     underGlow: '#78B860', underGlowIntensity: 0.55,
     spot: '#fff4e8', spotIntensity: 2.4,

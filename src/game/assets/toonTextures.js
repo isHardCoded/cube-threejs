@@ -22,7 +22,7 @@ function prepare(tex, repeat = 1.2) {
 }
 
 export function textureUrl(mapId, name) {
-  return `/assets/maps/${mapId}/textures/${name}.png?v=fallguys1`
+  return `/assets/maps/${mapId}/textures/${name}.png?v=gfx16`
 }
 
 export async function preloadToonTextures(urls) {
@@ -64,7 +64,7 @@ function cloneMap(tex, repeat) {
   return m
 }
 
-/** Soft candy water bands only — every other material stays flat colour. */
+/** Soft candy water scroll maps. NatureKit atlas stays on the GLB (keepSourceMaps). */
 export function jungleTextureMaps() {
   const water = getToonTexture(textureUrl('jungle', 'water'))
   return {

@@ -191,6 +191,10 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     setDayMode: (day) => env.setDayMode(day),
     isDay: () => env.isDay(),
     placeMine: () => input.placeMine(),
+    setCameraYaw: (deg) => env.setCameraYaw?.(deg),
+    getCameraYaw: () => env.getCameraYaw?.() ?? 0,
+    setCameraElev: (deg) => env.setCameraElev?.(deg),
+    getCameraElev: () => env.getCameraElev?.() ?? 42,
     stop() {
       cancelAnimationFrame(raf)
       clearTimeout(statusTimer)
