@@ -544,15 +544,13 @@ func (h *Hub) onJoin(c *Client) {
 		"mineCooldownMs": MineCooldown.Milliseconds(),
 		"maxMines":       MaxMinesAlive,
 		"maxLives":       MaxLives,
-		// only my own mines: enemy traps stay hidden until they blow up.
-		// A reconnect gets them back because player ids are per account.
-		"mines": h.minesOf(p.ID),
+		// every armed mine is visible to everyone (own and enemy).
+		"mines": h.allMines(),
 		// the client draws obstacles from this, so both sides agree on what blocks
 		"map":    h.gameMap.ID,
 		"layout": h.gameMap.Levels,
 		// every cube is rendered from this catalog, so skins look the same for all
 		"skins": Skins,
-		// only I see my mines, so one mineSkinId is enough
 		"mineSkinId": c.mineSkinID,
 		"mineSkins":  MineSkins,
 	}

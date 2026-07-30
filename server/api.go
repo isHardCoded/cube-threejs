@@ -15,11 +15,12 @@ import (
 type API struct {
 	store   *Store
 	arena   *Arena
+	online  *Online
 	limiter *rateLimiter
 	origins []string // empty means "reflect any origin"
 }
 
-func NewAPI(store *Store, arena *Arena) *API {
+func NewAPI(store *Store, arena *Arena, online *Online) *API {
 	var origins []string
 	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
 		if o = strings.TrimSpace(o); o != "" {
@@ -31,7 +32,7 @@ func NewAPI(store *Store, arena *Arena) *API {
 	}
 	// 30/min still makes brute force pointless against bcrypt, while leaving
 	// room for several real players sharing one NAT address.
-	return &API{store: store, arena: arena, limiter: newRateLimiter(30, time.Minute), origins: origins}
+	return &API{store: store, arena: arena, online: online, limiter: newRateLimiter(30, time.Minute), origins: origins}
 }
 
 func (a *API) Handler() http.Handler {
@@ -51,6 +52,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/match/queue", a.matchQueue)
 	mux.HandleFunc("DELETE /api/match/queue", a.matchCancel)
 	mux.HandleFunc("GET /api/match/status", a.matchStatus)
+	mux.HandleFunc("POST /api/online/heartbeat", a.onlineHeartbeat)
+	mux.HandleFunc("GET /api/online", a.onlineList)
 	a.registerFriendRoutes(mux)
 	a.registerQuestRoutes(mux)
 	a.registerAdminRoutes(mux)
@@ -468,6 +471,53 @@ func (a *API) matchStatus(w http.ResponseWriter, r *http.Request) {
 		out["mode"] = s.Match.Mode
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (a *API) onlineHeartbeat(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	a.online.Touch(u.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (a *API) onlineList(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	// Keep the viewer themselves visible even if this is their first poll.
+	a.online.Touch(u.ID)
+
+	ids := a.online.IDs()
+	users, err := a.store.UsersPublicByIDs(ids)
+	if err != nil {
+		log.Println("api online:", err)
+		writeErr(w, http.StatusInternalServerError, "ошибка сервера")
+		return
+	}
+	byID := make(map[int64]OnlineUser, len(users))
+	for _, p := range users {
+		byID[p.ID] = p
+	}
+	out := make([]OnlineUser, 0, len(ids))
+	for _, id := range ids {
+		p, ok := byID[id]
+		if !ok {
+			continue
+		}
+		switch {
+		case a.arena.presence != nil && a.arena.presence.InGame(id):
+			p.Status = "game"
+		case a.arena.IsSearching(id):
+			p.Status = "search"
+		default:
+			p.Status = "app"
+		}
+		out = append(out, p)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"players": out})
 }
 
 // --- rate limiting ----------------------------------------------------------

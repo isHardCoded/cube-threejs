@@ -114,6 +114,7 @@ export const ru = {
 
   'pvp.hint': 'Выбери одну или несколько карт — найдём соперника с пересечением',
   'pvp.hintSize': 'Сколько кубов в комнате? Раунд стартует, как только соберутся двое',
+  'pvp.online.label': 'Онлайн',
   'pvp.continue': 'Продолжить',
   'pvp.find': 'Найти игру',
   'pvp.searching': 'Ищем соперника…',
@@ -505,6 +506,7 @@ export const en = {
 
   'pvp.hint': 'Pick one or more maps — we match when choices overlap',
   'pvp.hintSize': 'How many cubes in the room? The round starts as soon as two are in',
+  'pvp.online.label': 'Online',
   'pvp.continue': 'Continue',
   'pvp.find': 'Find match',
   'pvp.searching': 'Searching…',

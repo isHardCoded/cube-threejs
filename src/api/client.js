@@ -104,6 +104,11 @@ export const matchmaking = {
   status: () => api('/api/match/status'),
 }
 
+export const online = {
+  heartbeat: () => api('/api/online/heartbeat', { method: 'POST', body: {} }),
+  list: () => api('/api/online'),
+}
+
 export const quests = {
   list: () => api('/api/quests'),
   claim: (id) => api('/api/quests/claim', { method: 'POST', body: { id } }),

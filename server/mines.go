@@ -17,8 +17,8 @@ const (
 	MaxMinesAlive = 2 // per player
 )
 
-// A mine is only ever sent to the player who placed it: a trap everyone can see
-// is just a wall. Victims learn about it from the explosion.
+// A mine is visible to everyone once armed: opponents can see and avoid it.
+// Stepping on someone else's mine still triggers the boom.
 type Mine struct {
 	Level  int    `json:"level"`
 	X      int    `json:"x"`
@@ -43,6 +43,15 @@ func (h *Hub) minesOf(id string) []*Mine {
 		if m.Owner == id {
 			out = append(out, m)
 		}
+	}
+	return out
+}
+
+// allMines lists every armed mine for welcome snapshots.
+func (h *Hub) allMines() []*Mine {
+	out := make([]*Mine, 0, len(h.mines))
+	for _, m := range h.mines {
+		out = append(out, m)
 	}
 	return out
 }
@@ -74,9 +83,9 @@ func (h *Hub) placeMine(p *Player, now time.Time) {
 	m := &Mine{Level: l, X: x, Z: z, Owner: p.ID, SkinID: skin, expires: now.Add(MineLifetime)}
 	h.mines[mineKey(l, x, z)] = m
 	p.mineReadyAt = now.Add(MineCooldown)
-	h.sendTo(p, map[string]any{
+	h.broadcast(map[string]any{
 		"t": "mine", "level": l, "x": x, "z": z,
-		"skinId": skin, "expiresMs": MineLifetime.Milliseconds(),
+		"owner": p.ID, "skinId": skin, "expiresMs": MineLifetime.Milliseconds(),
 	})
 }
 
@@ -108,14 +117,12 @@ func (h *Hub) mineTrigger(p *Player, now time.Time) {
 	}
 }
 
-// removeMine disarms a mine and tells its owner, who is the only one drawing it.
+// removeMine disarms a mine and tells everyone drawing it.
 func (h *Hub) removeMine(m *Mine) {
 	delete(h.mines, mineKey(m.Level, m.X, m.Z))
-	if owner := h.players[m.Owner]; owner != nil {
-		h.sendTo(owner, map[string]any{
-			"t": "mineGone", "level": m.Level, "x": m.X, "z": m.Z,
-		})
-	}
+	h.broadcast(map[string]any{
+		"t": "mineGone", "level": m.Level, "x": m.X, "z": m.Z,
+	})
 }
 
 func (h *Hub) expireMines(now time.Time) {

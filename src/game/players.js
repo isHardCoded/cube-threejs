@@ -400,6 +400,12 @@ export function createPlayers(env, arena) {
 
   function enqueueMove(p, data) {
     p.queue.push(data)
+    // Launch is queued after the step onto the pad. If that step is still
+    // rolling, cut the leftover so we don't sit still on the tramp for a beat.
+    if (data.t === 'launch' && p.anim?.type === 'roll') {
+      const remain = (1 - p.anim.t) * p.anim.time
+      if (remain > 0.04) p.anim.time = p.anim.t * p.anim.time + 0.04
+    }
     // if animations fall behind the server, fast-forward everything but the last
     while (p.queue.length > 2) applyMoveInstantly(p, p.queue.shift())
   }
@@ -433,9 +439,9 @@ export function createPlayers(env, arena) {
         to: new THREE.Vector3(m.p.x, dieY(toLevel), m.p.z),
         axis: new THREE.Vector3(1, 0, 0),
         startQuat: p.group.quaternion.clone(),
-        arc: 2.6,
+        arc: 3.2,
         target: m.p,
-        time: 1.45,
+        time: 1.65,
       }
       // the pad visibly kicks the cube off
       const plat = arena.platforms[fromLevel]

@@ -362,6 +362,18 @@ func (a *Arena) Status(userID int64) SearchState {
 	return SearchState{State: "idle"}
 }
 
+// IsSearching is true while the account is in the queue or holding a match ticket.
+func (a *Arena) IsSearching(userID int64) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	a.sweepLocked(now)
+	if a.liveTicketLocked(userID, now) != nil {
+		return true
+	}
+	return a.entryLocked(userID) != nil
+}
+
 // ClaimMatch clears the ticket once the player is in the room. The seat stays
 // theirs: they are holding it in person now.
 func (a *Arena) ClaimMatch(userID int64, matchID string) {

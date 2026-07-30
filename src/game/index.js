@@ -140,7 +140,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
 
     // ability button: countdown, or armed/out of max
     const cooling = Math.max(0, players.local.mineReadyAt - performance.now())
-    const out = mines.count()
+    const out = mines.countOwned(players.state.myId)
     const mineReady = cooling === 0 && out < players.local.maxMines && players.canPlay()
     const mine = cooling > 0
       ? `${Math.ceil(cooling / 1000)}`
@@ -186,13 +186,17 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
 
     // platforms above mine are hidden so they don't block the view of the arena;
     // while watching, the camera sits over the platform where the fight is.
-    // During a trampoline launch, reveal the destination early and keep the
-    // camera locked to the cube's height so the level swap doesn't hitch.
+    // While a trampoline is live on my floor, keep the next floor already shown —
+    // flipping that whole group visible on the first launch frame was a hitch.
     const me = players.me()
     const watching = !me || me.spectating || me.gone
     let viewLevel = watching ? protocol.phase.level : me.level
-    if (!watching && me.anim?.type === 'launch' && me.anim.toLevel != null) {
-      viewLevel = Math.max(viewLevel, me.anim.toLevel)
+    if (!watching) {
+      if (me.anim?.type === 'launch' && me.anim.toLevel != null) {
+        viewLevel = Math.max(viewLevel, me.anim.toLevel)
+      } else if (me.level < 2 && arena.platforms[me.level]?.trampKey) {
+        viewLevel = Math.max(viewLevel, me.level + 1)
+      }
     }
 
     arena.update(dt, t, viewLevel)

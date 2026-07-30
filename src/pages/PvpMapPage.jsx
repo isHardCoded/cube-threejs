@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Search, X } from 'lucide-react'
 import { DEFAULT_MAP, MAPS } from '../config/maps.js'
-import { matchmaking } from '../api/client.js'
+import { matchmaking, online as onlineApi } from '../api/client.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 import Spinner from '../components/Spinner.jsx'
 
 const POLL_MS = 900
+const ONLINE_POLL_MS = 3000
 
 // The server forgets a searcher who stops polling, so a run of failed polls means
 // our slot is gone: stop pretending to search rather than spin forever.
@@ -40,9 +41,28 @@ export default function PvpMapPage() {
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState(() => RETURN_MESSAGES[state?.reason] || '')
+  const [onlineCount, setOnlineCount] = useState(0)
   const pollRef = useRef(null)
   // one search attempt; going stale disowns every request still in flight for it
   const runRef = useRef(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const res = await onlineApi.list()
+        if (!cancelled) setOnlineCount((res.players || []).length)
+      } catch {
+        // keep the last count; a blip should not blank the card
+      }
+    }
+    load()
+    const id = setInterval(load, ONLINE_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
 
   function toggle(id) {
     if (searching) return
@@ -148,6 +168,12 @@ export default function PvpMapPage() {
       <div className={`screen__box pvp-box${searching ? ' is-searching' : ''}`}>
         <div className="pvp-maps" aria-hidden={searching}>
           <div className="pvp-maps__inner">
+            <div className="online-card" aria-live="polite">
+              <span className="online-card__dot" aria-hidden="true" />
+              <span className="online-card__count">{onlineCount}</span>
+              <span className="online-card__label">{t('pvp.online.label')}</span>
+            </div>
+
             <div className="pvp-hint">{t(onMaps ? 'pvp.hint' : 'pvp.hintSize')}</div>
 
             {onMaps ? (

@@ -8,13 +8,11 @@ const POOP_BITS = [0x5c3a1a, 0x8b5e34, 0x6b4423, 0xa07040]
 const MAX_FLASHES = 3
 const MAX_BITS = 16
 
-// Mines the local player laid, plus the explosions everyone sees. The server
-// only tells you about your own mines, so an enemy trap has nothing to draw
-// until it goes off.
+// Mines on the board (own and enemy) plus the explosions everyone sees.
 export function createMines(scene, theme = null) {
   const lift = () => theme?.arenaLift || 0
   const yOf = (level) => floorY(level, lift())
-  const mines = new Map() // `${level}:${cellKey}` -> { group, light }
+  const mines = new Map() // `${level}:${cellKey}` -> { group, light, owner, level }
   const blasts = []
   let skinId = DEFAULT_MINE_SKIN
 
@@ -54,14 +52,15 @@ export function createMines(scene, theme = null) {
     skinId = id || DEFAULT_MINE_SKIN
   }
 
-  function add(level, x, z) {
+  function add(level, x, z, { skinId: sid, owner } = {}) {
     const id = key(level, x, z)
     if (mines.has(id)) return
 
-    const { group, lamp } = createMineModel(skinId)
+    const look = sid || skinId
+    const { group, lamp } = createMineModel(look)
     group.position.set(x, yOf(level) + 0.02, z)
     scene.add(group)
-    mines.set(id, { group, lamp, level })
+    mines.set(id, { group, lamp, level, owner: owner || null })
   }
 
   function remove(level, x, z) {
@@ -73,6 +72,14 @@ export function createMines(scene, theme = null) {
     // dispose after the boom frame so GPU work doesn't stack with VFX
     const g = m.group
     setTimeout(() => disposeMineModel(g), 0)
+  }
+
+  function countOwned(ownerId) {
+    let n = 0
+    for (const m of mines.values()) {
+      if (m.owner === ownerId) n += 1
+    }
+    return n
   }
 
   function takeRing() {
@@ -201,5 +208,5 @@ export function createMines(scene, theme = null) {
 
   const count = () => mines.size
 
-  return { add, remove, boom, clear, count, update, setSkin }
+  return { add, remove, boom, clear, count, countOwned, update, setSkin }
 }

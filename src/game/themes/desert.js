@@ -5,6 +5,8 @@ import { blob, canvasTexture, cellRng, createDrift, geo, glow, pick, solid, toon
 // A sun-baked cartoon oasis. This is the one map built for day mode first, so
 // the palette is warm sandstone with turquoise water accents; night keeps the
 // same sand but drops it under a cool moon with campfire-amber highlights.
+// Rendering (shadows / AO / godrays / grade / soft toon) matches jungle until
+// an authored Blender desert scene lands.
 const SAND = '#e9c78d'
 const SAND_DEEP = '#dbb277'
 const TERRA = '#b4673f'
@@ -13,6 +15,7 @@ const OASIS = '#3fd6c4'
 
 const STONE = '#c9a274' // carved sandstone: props are a shade darker than the floor
 const WOOD = '#8a6444'
+const TOON = { steps: 7 }
 
 // wind ripples in the sand, drawn light so the terracotta decal colour tints them
 const decalTex = canvasTexture((ctx) => {
@@ -52,20 +55,21 @@ const padTex = canvasTexture((ctx) => {
   }
 })
 
-function createBackdrop(scene) {
+function createBackdrop(scene, _fx, opts = {}) {
+  const castMode = opts.shadowCast || 'heavy'
   const group = new THREE.Group()
   scene.add(group)
 
   // Two sand tones and one rock tone for the whole horizon: the dune ring is 18
   // meshes, and giving each its own material would cost 18 shader programs to
   // draw what reads as a single stretch of desert.
-  const duneMat = toon(SAND)
-  const duneShadeMat = toon(SAND_DEEP)
-  const rockMat = toon('#b8703f')
-  const seaMat = toon('#dcb27a')
-  const trunkMat = toon(WOOD)
-  const frondMat = toon('#57946a')
-  const birdMat = toon('#5a4636')
+  const duneMat = toon(SAND, TOON)
+  const duneShadeMat = toon(SAND_DEEP, TOON)
+  const rockMat = toon('#b8703f', TOON)
+  const seaMat = toon('#dcb27a', TOON)
+  const trunkMat = toon(WOOD, TOON)
+  const frondMat = toon('#57946a', TOON)
+  const birdMat = toon('#5a4636', TOON)
   const discMat = new THREE.MeshBasicMaterial({ color: '#fff3c4', fog: false })
   const hazeMat = new THREE.MeshBasicMaterial({
     color: '#ffd89a', fog: false, transparent: true, opacity: 0.18, depthWrite: false,
@@ -82,10 +86,30 @@ function createBackdrop(scene) {
     [birdMat, '#5a4636', '#2b2842'],
   ]
 
+  function receiveOnly(mesh, name) {
+    mesh.name = name
+    mesh.receiveShadow = true
+    mesh.castShadow = false
+    mesh.userData.shadowCastTier = 'never'
+  }
+  function castCore(mesh, name) {
+    mesh.name = name
+    mesh.receiveShadow = true
+    mesh.userData.shadowCastTier = 'core'
+    mesh.castShadow = true
+  }
+  function castHeavy(mesh, name) {
+    mesh.name = name
+    mesh.receiveShadow = true
+    mesh.userData.shadowCastTier = 'heavy'
+    mesh.castShadow = castMode === 'heavy'
+  }
+
   // the sand sea the arena floats over
   const sea = new THREE.Mesh(geo('desert:sea', () => new THREE.PlaneGeometry(220, 220)), seaMat)
   sea.rotation.x = -Math.PI / 2
   sea.position.y = -24
+  receiveOnly(sea, 'DesertSea')
   group.add(sea)
 
   const duneGeo = geo('desert:dune', () => blob(1, 1))
@@ -98,6 +122,7 @@ function createBackdrop(scene) {
     dune.scale.set(w, h, w * (0.7 + Math.random() * 0.4))
     dune.position.set(Math.cos(angle) * radius, -22, Math.sin(angle) * radius)
     dune.rotation.y = Math.random() * Math.PI
+    receiveOnly(dune, 'DesertDune')
     group.add(dune)
   }
 
@@ -115,10 +140,12 @@ function createBackdrop(scene) {
     body.scale.set(w, h, w)
     body.position.set(x, -22 + h / 2, z)
     body.rotation.y = Math.random() * Math.PI
+    castCore(body, 'DesertMesa')
     group.add(body)
     const skirt = new THREE.Mesh(skirtGeo, duneShadeMat)
     skirt.scale.set(w * 1.15, 3, w * 1.15)
     skirt.position.set(x, -22 + 1.5, z)
+    receiveOnly(skirt, 'DesertMesaSkirt')
     group.add(skirt)
   }
 
@@ -136,6 +163,7 @@ function createBackdrop(scene) {
     trunk.scale.setScalar(s)
     trunk.position.set(x, -19.5 + 3.5 * s, z)
     trunk.rotation.z = (Math.random() - 0.5) * 0.25
+    castHeavy(trunk, 'DesertPalmTrunk')
     group.add(trunk)
     // two stacked crowns: a single flat blob read as an umbrella from up here
     for (const [ly, lr] of [[7.0, 1.5], [6.4, 1.1]]) {
@@ -143,6 +171,7 @@ function createBackdrop(scene) {
       crown.scale.set(lr * s, 0.42 * s, lr * s)
       crown.position.set(x, -19.5 + ly * s, z)
       crown.rotation.y = Math.random() * Math.PI
+      castHeavy(crown, 'DesertPalmCrown')
       group.add(crown)
     }
   }
@@ -224,7 +253,7 @@ function createProps(fx) {
     const landmark = x === 0 && z === 0
     const arms = rnd() < 0.35 ? 2 : 1
     const g = new THREE.Group()
-    const green = toon('#63a06d')
+    const green = toon('#63a06d', TOON)
 
     const trunk = solid(new THREE.Mesh(
       geo('desert:cactusTrunk', () => new THREE.CapsuleGeometry(0.17, 0.86, 6, 8)), green))
@@ -247,7 +276,7 @@ function createProps(fx) {
     if (rnd() < 0.55) {
       const flower = new THREE.Mesh(
         geo('desert:flower', () => new THREE.SphereGeometry(0.055, 8, 6)),
-        toon(pick(rnd, flowerColors)))
+        toon(pick(rnd, flowerColors), TOON))
       flower.position.y = 1.22
       g.add(flower)
     }
@@ -271,7 +300,7 @@ function createProps(fx) {
     g.add(stalk)
 
     const trunk = solid(new THREE.Mesh(
-      geo('desert:palmTrunk', () => new THREE.CylinderGeometry(0.055, 0.09, 1.6, 7)), toon(WOOD)))
+      geo('desert:palmTrunk', () => new THREE.CylinderGeometry(0.055, 0.09, 1.6, 7)), toon(WOOD, TOON)))
     trunk.position.y = 0.8
     stalk.add(trunk)
 
@@ -283,7 +312,7 @@ function createProps(fx) {
       geom.scale(1, 0.34, 1)
       return geom
     })
-    const frondMat = toon('#5aa06b')
+    const frondMat = toon('#5aa06b', TOON)
     for (let i = 0; i < count; i++) {
       const frond = new THREE.Mesh(frondGeo, frondMat)
       frond.rotation.set(0, (i / count) * Math.PI * 2 + rnd() * 0.3, -0.42 - rnd() * 0.3)
@@ -292,7 +321,7 @@ function createProps(fx) {
     }
 
     const nutGeo = geo('desert:coconut', () => new THREE.SphereGeometry(0.045, 8, 6))
-    const nutMat = toon('#7a5230')
+    const nutMat = toon('#7a5230', TOON)
     for (const side of [-1, 1]) {
       const nut = new THREE.Mesh(nutGeo, nutMat)
       nut.position.set(side * 0.06, 1.5, 0.05)
@@ -307,14 +336,14 @@ function createProps(fx) {
   function rock(x, z) {
     const rnd = cellRng(x, z)
     const g = new THREE.Group()
-    const mat = toon(STONE)
+    const mat = toon(STONE, TOON)
     const boulder = solid(new THREE.Mesh(geo('desert:rock', () => blob(0.34, 0)), mat))
     boulder.position.y = 0.29
     boulder.scale.set(1 + rnd() * 0.08, 0.82 + rnd() * 0.12, 1 + rnd() * 0.08)
     boulder.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3)
     g.add(boulder)
 
-    const pebble = solid(new THREE.Mesh(geo('desert:pebble', () => blob(0.12, 0)), toon('#ab8055')))
+    const pebble = solid(new THREE.Mesh(geo('desert:pebble', () => blob(0.12, 0)), toon('#ab8055', TOON)))
     pebble.position.set((rnd() - 0.5) * 0.42, 0.09, 0.16 + rnd() * 0.14)
     pebble.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3)
     g.add(pebble)
@@ -327,8 +356,8 @@ function createProps(fx) {
   function ruin(x, z) {
     const rnd = cellRng(x, z)
     const g = new THREE.Group()
-    const stone = toon(STONE)
-    const carved = toon('#a67f52')
+    const stone = toon(STONE, TOON)
+    const carved = toon('#a67f52', TOON)
 
     const plinth = solid(new THREE.Mesh(
       geo('desert:ruinBase', () => new RoundedBoxGeometry(0.44, 0.14, 0.44, 2, 0.04)), stone))
@@ -372,7 +401,7 @@ function createProps(fx) {
   function rockPile(x, z) {
     const rnd = cellRng(x, z)
     const g = new THREE.Group()
-    const mat = toon('#bc9265')
+    const mat = toon('#bc9265', TOON)
     const chunkGeo = geo('desert:chunk', () => blob(0.13, 0))
     for (let i = 0; i < 4; i++) {
       const chunk = solid(new THREE.Mesh(chunkGeo, mat))
@@ -389,7 +418,7 @@ function createProps(fx) {
   function trampoline() {
     const g = new THREE.Group()
     const base = solid(new THREE.Mesh(
-      new THREE.CylinderGeometry(0.42, 0.46, 0.14, 20), toon('#8a5a3c')))
+      new THREE.CylinderGeometry(0.42, 0.46, 0.14, 20), toon('#8a5a3c', TOON)))
     base.position.y = 0.07
     g.add(base)
     const ring = new THREE.Mesh(
@@ -417,6 +446,9 @@ export default {
 
   surface: {
     tileA: SAND, tileB: SAND_DEEP,
+    tileC: '#f0d4a0', tileD: '#c9925a',
+    tileBevel: 0.11, tileBevelSegs: 3,
+    tileHeightJitter: 0.022,
     base: '#a2683f',
     rim: ['#b07a4c', '#8a5a3a'], rebar: '#8b6b3e',
     grid: [TERRA, '#8f5334'],
@@ -429,25 +461,60 @@ export default {
   accents: [AMBER, OASIS],
 
   night: {
-    sky: '#1a1f47', fogNear: 28, fogFar: 88,
-    hemiSky: '#4c5aa6', hemiGround: '#4a3130', hemiIntensity: 1.2,
-    sunColor: '#b9c9ff', sunIntensity: 1.5,
-    accentIntensity: 9,
+    sky: '#1a1f47', fogNear: 28, fogFar: 110,
+    hemiSky: '#4c5aa6', hemiGround: '#4a3130', hemiIntensity: 1.05,
+    sunColor: '#b9c9ff', sunIntensity: 1.45,
+    accentIntensity: 10,
     underGlow: '#d9915a', underGlowIntensity: 8,
-    spot: '#e6eeff', spotIntensity: 12,
-    bloom: 0.16, exposure: 1.0,
+    spot: '#e6eeff', spotIntensity: 9,
+    bloom: 0.16, exposure: 1.02,
+    post: { vignette: 0.34, contrast: 1.06, saturation: 1.03, sharpen: 0.04 },
   },
 
   day: {
-    sky: '#a9d6f2', fogNear: 42, fogFar: 132,
-    hemiSky: '#f4faff', hemiGround: '#d8a978', hemiIntensity: 2.0,
-    sunColor: '#fff0c4', sunIntensity: 2.7,
-    accentIntensity: 2.5,
-    underGlow: '#e0a468', underGlowIntensity: 2.5,
-    spot: '#ffffff', spotIntensity: 6,
-    bloom: 0.06, exposure: 1.0,
+    // Same approved lighting stack as jungle — warm desert sky/sand kept.
+    sky: '#a9d6f2', fogNear: 42, fogFar: 135,
+    hemiSky: '#f4faff', hemiGround: '#d8a978', hemiIntensity: 0.48,
+    sunColor: '#fff0c4', sunIntensity: 4,
+    accentIntensity: 0.9,
+    underGlow: '#e0a468', underGlowIntensity: 0.4,
+    spot: '#fff6e8', spotIntensity: 2.1,
+    bloom: 0.07, exposure: 0.81,
+    post: { vignette: 0.9, contrast: 1.08, saturation: 1.2, sharpen: 0.04 },
   },
 
   createBackdrop,
   createProps,
+
+  post: { vignette: 0.9, contrast: 1.08, saturation: 1.2, sharpen: 0.04 },
+
+  shadows: {
+    mapSize: 2048,
+    mapSizeMobile: 1024,
+    extent: 56,
+    extentY: 58,
+    near: 2,
+    far: 120,
+    bias: -0.00035,
+    normalBias: 0.035,
+    radius: 5.5,
+    follow: true,
+    sunOffset: [22, 28, 18],
+  },
+
+  gfx: {
+    ao: true,
+    aoIntensity: 0.12,
+    aoIntensityNight: 0.26,
+    aoRadius: 0.3,
+    godray: true,
+    godrayIntensity: 0.21,
+    godraySpread: 1.45,
+    fillIntensity: 0.21,
+    fillIntensityNight: 0.12,
+    fillColor: '#ffe8c8',
+    fillColorNight: '#7a8aa0',
+  },
+
+  materialSteps: 7,
 }

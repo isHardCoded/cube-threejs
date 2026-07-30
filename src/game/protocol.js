@@ -93,9 +93,11 @@ export function createProtocol({
         pm.local.maxLives = msg.maxLives || 5
         // obstacles come from the server, so the arena is built on first welcome
         arena.build(msg.layout)
-        // mines survive a reconnect: the server hands mine back
+        // mines survive a reconnect: the server hands every armed mine back
         mines.clear()
-        for (const m of msg.mines || []) mines.add(m.level, m.x, m.z)
+        for (const m of msg.mines || []) {
+          mines.add(m.level, m.x, m.z, { skinId: m.skinId, owner: m.owner })
+        }
         if (msg.destroyed) {
           msg.destroyed.forEach((cells, l) => {
             for (const [x, z] of cells || []) arena.destroyCellVisual(l, x, z, false)
@@ -244,13 +246,16 @@ export function createProtocol({
         arena.showTramp(msg.level, msg.x, msg.z)
         break
 
-      // only ever sent to the player who laid it
-      case 'mine':
-        mines.add(msg.level, msg.x, msg.z)
-        pm.local.mineReadyAt = performance.now() + pm.local.mineCooldownMs
-        if ((msg.skinId || '') === 'poop') sfx.poopArm()
-        else sfx.arm()
+      // armed mines are broadcast to everyone (own + enemy)
+      case 'mine': {
+        mines.add(msg.level, msg.x, msg.z, { skinId: msg.skinId, owner: msg.owner })
+        if (msg.owner === myId()) {
+          pm.local.mineReadyAt = performance.now() + pm.local.mineCooldownMs
+          if ((msg.skinId || '') === 'poop') sfx.poopArm()
+          else sfx.arm()
+        }
         break
+      }
 
       case 'mineGone':
         mines.remove(msg.level, msg.x, msg.z)

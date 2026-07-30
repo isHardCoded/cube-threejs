@@ -1,9 +1,11 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
-import { auth as authApi } from '../api/client.js'
+import { auth as authApi, online as onlineApi } from '../api/client.js'
 import { getToken, setToken } from './tokenStore.js'
 import { tg } from '../game/telegram.js'
 import { getStoredHatId } from '../game/hatStore.js'
 import { AuthContext } from './context.js'
+
+const HEARTBEAT_MS = 5000
 
 function withLocalHat(user) {
   if (!user) return user
@@ -62,6 +64,25 @@ export function AuthProvider({ children }) {
     })
     return () => { cancelled = true }
   }, [accept])
+
+  // Keep the account marked online while the SPA is open (menu, search, match).
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    const beat = () => {
+      if (cancelled || document.visibilityState === 'hidden') return
+      onlineApi.heartbeat().catch(() => {})
+    }
+    beat()
+    const id = setInterval(beat, HEARTBEAT_MS)
+    const onVis = () => { if (document.visibilityState === 'visible') beat() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [user])
 
   const value = useMemo(() => ({
     user,

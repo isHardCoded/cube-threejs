@@ -1,6 +1,6 @@
 export const HALF = 4        // each platform spans cells [-HALF..HALF]
 export const LEVELS = 3
-export const LEVEL_H = 7     // vertical distance between platforms
+export const LEVEL_H = 12    // vertical distance between platforms
 
 export const levelY = (l) => l * LEVEL_H
 // Optional theme.arenaLift raises level-0 so a floating arena reads above the ground.

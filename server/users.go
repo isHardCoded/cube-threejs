@@ -161,6 +161,34 @@ func (s *Store) UserByID(id int64) (*User, error) {
 	return scanUser(s.pool.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE id = $1`, id))
 }
 
+// UsersPublicByIDs returns id/username/avatar for the given accounts (any order).
+func (s *Store) UsersPublicByIDs(ids []int64) ([]OnlineUser, error) {
+	if len(ids) == 0 {
+		return []OnlineUser{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, username, coalesce(avatar_url, '')
+		FROM users
+		WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]OnlineUser, 0, len(ids))
+	for rows.Next() {
+		var u OnlineUser
+		if err := rows.Scan(&u.ID, &u.Username, &u.AvatarURL); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // UserByTelegram finds or creates the account bound to a Telegram id.
 // photoURL from initData is kept in sync until the user uploads a custom avatar.
 func (s *Store) UserByTelegram(telegramID int64, name, photoURL string) (*User, error) {

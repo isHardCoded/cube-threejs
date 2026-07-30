@@ -47,3 +47,10 @@ func (p *Presence) Kick(userID int64) {
 		hub.evict <- userID
 	}
 }
+
+// InGame reports whether the account currently holds a seat in any hub.
+func (p *Presence) InGame(userID int64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.at[userID] != nil
+}
