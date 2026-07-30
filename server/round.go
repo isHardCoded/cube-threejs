@@ -98,6 +98,9 @@ func (h *Hub) startRound() {
 	h.roundStartedAt = time.Now()
 	h.readySince = time.Time{}
 	h.resetRound() // rebuilds the arena and revives everyone, spectators included
+	for _, p := range h.players {
+		p.foughtRound = true
+	}
 	log.Printf("%s: round started with %d players", h.gameMap.ID, len(h.players))
 }
 
@@ -112,6 +115,8 @@ func (h *Hub) enterWaiting() {
 func (h *Hub) endRound(winner *Player, now time.Time) {
 	h.roundState = roundOver
 	h.roundEndsAt = now.Add(IntermissionTime)
+
+	h.creditQuestProgress(winner)
 
 	msg := map[string]any{"t": "roundOver", "nextInMs": IntermissionTime.Milliseconds()}
 	if winner == nil {
@@ -133,6 +138,40 @@ func (h *Hub) endRound(winner *Player, now time.Time) {
 			h.gameMap.ID, winner.ID, winner.roundKills, reward)
 	}
 	h.broadcast(msg)
+}
+
+// creditQuestProgress records play / kills / win toward daily and weekly quests.
+// Writes run off the hub goroutine so a slow database never freezes the arena.
+func (h *Hub) creditQuestProgress(winner *Player) {
+	type bump struct {
+		userID int64
+		metric string
+		delta  int
+	}
+	var jobs []bump
+	for _, p := range h.players {
+		if !p.foughtRound || p.userID == 0 {
+			continue
+		}
+		jobs = append(jobs, bump{p.userID, questMetricPlay, 1})
+		if p.roundKills > 0 {
+			jobs = append(jobs, bump{p.userID, questMetricKills, p.roundKills})
+		}
+	}
+	if winner != nil && winner.foughtRound && winner.userID != 0 {
+		jobs = append(jobs, bump{winner.userID, questMetricWin, 1})
+	}
+	if len(jobs) == 0 {
+		return
+	}
+	store := h.store
+	go func() {
+		for _, j := range jobs {
+			if err := store.AddQuestProgress(j.userID, j.metric, j.delta); err != nil {
+				log.Printf("quest progress %s +%d for %d: %v", j.metric, j.delta, j.userID, err)
+			}
+		}
+	}()
 }
 
 func (h *Hub) roundTick(now time.Time) {

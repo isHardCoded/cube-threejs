@@ -22,6 +22,11 @@ const (
 	// slightly below the client's 140ms send gate so network jitter never
 	// bunches two legit moves into a cooldown denial (which snaps the cube back)
 	RollCooldown = 110 * time.Millisecond
+	// Jitter absorber: an input that arrives a hair early is played instead of
+	// refused, because every denial snaps the client's predicted cube back a
+	// cell. Accepting it costs nothing — the next slot is still counted from the
+	// one that was due, so pressing early cannot outpace RollCooldown.
+	InputGrace   = 45 * time.Millisecond
 	DashCooldown = 5 * time.Second
 	JumpCooldown = 1200 * time.Millisecond
 	RespawnDelay = 3 * time.Second
@@ -64,6 +69,40 @@ type Player struct {
 	deaths      int
 	damageDealt int
 	roundKills  int
+	// true if this player was on the board when the live round started; mid-round
+	// spectators stay false so they do not farm quest progress from the sidelines
+	foughtRound bool
+}
+
+// onCooldown reports whether an input arriving now is still inside a cooldown.
+func onCooldown(now, until time.Time) bool {
+	return now.Add(InputGrace).Before(until)
+}
+
+// claimMove takes the player's next movement slot, or reports that the roll
+// cooldown has not run out yet. Only player commands go through here: movement
+// the world causes (knockback, launch) is not rate limited.
+func (p *Player) claimMove(now time.Time) bool {
+	if onCooldown(now, p.nextMoveAt) {
+		return false
+	}
+	// The next slot is counted from the one that was due, so a press let through
+	// early on jitter cannot pull the whole rhythm forward move after move.
+	from := p.nextMoveAt
+	if from.Before(now) {
+		from = now
+	}
+	p.nextMoveAt = from.Add(RollCooldown)
+	return true
+}
+
+// holdMoves keeps movement on cooldown for at least d. It never pulls an
+// existing deadline forward, and never pushes it past what the client's own
+// send gate expects — that gate is what keeps rolls from being denied.
+func (p *Player) holdMoves(now time.Time, d time.Duration) {
+	if until := now.Add(d); p.nextMoveAt.Before(until) {
+		p.nextMoveAt = until
+	}
 }
 
 type command struct {
@@ -783,19 +822,19 @@ func (h *Hub) onCommand(cmd command) {
 	}
 	switch cmd.msg.T {
 	case "move":
-		if now.Before(p.nextMoveAt) {
+		if !p.claimMove(now) {
 			h.sendTo(p, map[string]any{"t": "denied", "reason": "cooldown"})
 			return
 		}
 		h.doRoll(p, dx, dz, now)
 	case "dash":
-		if now.Before(p.dashReadyAt) {
+		if onCooldown(now, p.dashReadyAt) {
 			h.sendTo(p, map[string]any{"t": "denied", "reason": "dash_cooldown"})
 			return
 		}
 		h.doDash(p, dx, dz, now)
 	case "jump":
-		if now.Before(p.jumpReadyAt) {
+		if onCooldown(now, p.jumpReadyAt) {
 			h.sendTo(p, map[string]any{"t": "denied", "reason": "jump_cooldown"})
 			return
 		}
@@ -803,6 +842,8 @@ func (h *Hub) onCommand(cmd command) {
 	}
 }
 
+// doRoll steps one cell. The roll cooldown is already spent by the caller, so
+// this only decides what the cell does to the player.
 func (h *Hub) doRoll(p *Player, dx, dz int, now time.Time) {
 	nx, nz := p.X+dx, p.Z+dz
 	l := p.Level
@@ -811,13 +852,11 @@ func (h *Hub) doRoll(p *Player, dx, dz int, now time.Time) {
 		return
 	}
 	if target := h.playerAt(l, nx, nz); target != nil {
-		p.nextMoveAt = now.Add(RollCooldown)
 		h.resolveHit(p, target, dx, dz, now)
 		return
 	}
 	p.X, p.Z = nx, nz
 	p.Orient = p.Orient.Roll(dx, dz)
-	p.nextMoveAt = now.Add(RollCooldown)
 	h.broadcast(map[string]any{"t": "move", "p": p})
 	if h.isHole(l, nx, nz) {
 		h.fallDeath(p, now)
@@ -855,7 +894,7 @@ func (h *Hub) doDash(p *Player, dx, dz int, now time.Time) {
 		}
 	}
 	p.dashReadyAt = now.Add(DashCooldown)
-	p.nextMoveAt = now.Add(RollCooldown)
+	p.holdMoves(now, RollCooldown)
 	if moved > 0 {
 		h.broadcast(map[string]any{"t": "move", "p": p, "dash": true, "cells": moved})
 	}
@@ -878,7 +917,7 @@ func (h *Hub) doJump(p *Player, dx, dz int, now time.Time) {
 	lx, lz := p.X+2*dx, p.Z+2*dz
 	mx, mz := p.X+dx, p.Z+dz
 	p.jumpReadyAt = now.Add(JumpCooldown)
-	p.nextMoveAt = now.Add(RollCooldown)
+	p.holdMoves(now, RollCooldown)
 
 	// over the fence into the void
 	if !inBounds(lx, lz) {

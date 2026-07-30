@@ -15,8 +15,24 @@ export const ru = {
   'menu.play': 'Играть',
   'menu.rating': 'Рейтинг',
   'menu.friends': 'Друзья',
+  'menu.quests': 'Квесты',
   'menu.looks': 'Внешний вид',
   'menu.settings': 'Настройки',
+
+  'quests.title': 'Квесты',
+  'quests.back': 'Назад',
+  'quests.daily': 'Ежедневные',
+  'quests.weekly': 'Еженедельные',
+  'quests.claim': 'Забрать',
+  'quests.claiming': '…',
+  'quests.claimed': 'Получено',
+  'quests.reward': 'Награда',
+  'quests.daily_play': 'Сыграть 3 матча',
+  'quests.daily_kills': 'Сделать 5 киллов',
+  'quests.daily_win': 'Выиграть 1 матч',
+  'quests.weekly_play': 'Сыграть 15 матчей',
+  'quests.weekly_kills': 'Сделать 25 киллов',
+  'quests.weekly_win': 'Выиграть 5 матчей',
 
   'modes.title': 'Режим',
   'modes.back': 'Назад',
@@ -298,6 +314,9 @@ export const ru = {
   'err.notFriends': 'не в друзьях',
   'err.userBlocked': 'пользователь заблокирован',
   'err.cannotSelf': 'нельзя добавить себя',
+  'err.questNotFound': 'квест не найден',
+  'err.questIncomplete': 'квест ещё не выполнен',
+  'err.questClaimed': 'награда уже получена',
 }
 
 export const en = {
@@ -313,8 +332,24 @@ export const en = {
   'menu.play': 'Play',
   'menu.rating': 'Rating',
   'menu.friends': 'Friends',
+  'menu.quests': 'Quests',
   'menu.looks': 'Looks',
   'menu.settings': 'Settings',
+
+  'quests.title': 'Quests',
+  'quests.back': 'Back',
+  'quests.daily': 'Daily',
+  'quests.weekly': 'Weekly',
+  'quests.claim': 'Claim',
+  'quests.claiming': '…',
+  'quests.claimed': 'Claimed',
+  'quests.reward': 'Reward',
+  'quests.daily_play': 'Play 3 matches',
+  'quests.daily_kills': 'Get 5 kills',
+  'quests.daily_win': 'Win 1 match',
+  'quests.weekly_play': 'Play 15 matches',
+  'quests.weekly_kills': 'Get 25 kills',
+  'quests.weekly_win': 'Win 5 matches',
 
   'modes.title': 'Mode',
   'modes.back': 'Back',
@@ -596,6 +631,9 @@ export const en = {
   'err.notFriends': 'not friends',
   'err.userBlocked': 'user is blocked',
   'err.cannotSelf': 'cannot add yourself',
+  'err.questNotFound': 'quest not found',
+  'err.questIncomplete': 'quest not complete yet',
+  'err.questClaimed': 'reward already claimed',
 }
 
 // Server (and older client) Russian messages → i18n keys
@@ -624,5 +662,8 @@ export const ERROR_ALIASES = {
   'не в друзьях': 'err.notFriends',
   'пользователь заблокирован': 'err.userBlocked',
   'нельзя добавить себя': 'err.cannotSelf',
+  'квест не найден': 'err.questNotFound',
+  'квест ещё не выполнен': 'err.questIncomplete',
+  'награда уже получена': 'err.questClaimed',
   'Сервер недоступен': 'common.serverDown',
 }

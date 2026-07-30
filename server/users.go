@@ -27,8 +27,8 @@ type User struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	ViaTelegram bool      `json:"viaTelegram"`
 
-	passwordHash  string
-	avatarCustom  bool
+	passwordHash string
+	avatarCustom bool
 }
 
 const userCols = `id, username, coalesce(password_hash, ''), cubes, skin_id,
@@ -356,4 +356,26 @@ func (s *Store) AwardCubes(userID int64, mapID string, amount int) (int, error) 
 		return 0, err
 	}
 	return balance, nil
+}
+
+// GrantCubes adds currency without a match_wins row — quests and other
+// non-match sources use this so the rating ledger stays about wins only.
+func (s *Store) GrantCubes(userID int64, amount int) (int, error) {
+	if s.pool == nil {
+		return 0, ErrNoStore
+	}
+	if amount <= 0 {
+		u, err := s.UserByID(userID)
+		if err != nil {
+			return 0, err
+		}
+		return u.Cubes, nil
+	}
+	ctx, cancel := dbCtx()
+	defer cancel()
+	var balance int
+	err := s.pool.QueryRow(ctx,
+		`UPDATE users SET cubes = cubes + $2 WHERE id = $1 RETURNING cubes`,
+		userID, amount).Scan(&balance)
+	return balance, err
 }

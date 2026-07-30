@@ -52,6 +52,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/match/queue", a.matchCancel)
 	mux.HandleFunc("GET /api/match/status", a.matchStatus)
 	a.registerFriendRoutes(mux)
+	a.registerQuestRoutes(mux)
 	return a.withCORS(mux)
 }
 

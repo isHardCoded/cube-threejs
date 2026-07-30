@@ -9,6 +9,7 @@ import PvePage from './pages/PvePage.jsx'
 import ProfilePage from './pages/ProfilePage.jsx'
 import RatingPage from './pages/RatingPage.jsx'
 import FriendsPage from './pages/FriendsPage.jsx'
+import QuestsPage from './pages/QuestsPage.jsx'
 import UserProfilePage from './pages/UserProfilePage.jsx'
 import PageFade from './components/PageFade.jsx'
 import Spinner from './components/Spinner.jsx'
@@ -57,6 +58,7 @@ export default function App() {
               <Route path="/u/:id" element={<RequireAuth><UserProfilePage /></RequireAuth>} />
               <Route path="/rating" element={<RequireAuth><RatingPage /></RequireAuth>} />
               <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
+              <Route path="/quests" element={<RequireAuth><QuestsPage /></RequireAuth>} />
             </Route>
             <Route path="/game" element={<RequireAuth><GamePage /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />

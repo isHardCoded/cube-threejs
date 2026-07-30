@@ -10,6 +10,10 @@ import { haptic, hapticHeavy } from './telegram.js'
 const ROLL_TIME = 0.13
 const DASH_TIME = 0.10
 const JUMP_TIME = 0.36
+// How long a predicted move may wait for its confirmation. A command the server
+// never answers (dropped input, lost packet) would otherwise leave my cube
+// standing on a cell it was never given, until some later move exposes it.
+const PREDICTION_TTL_MS = 1200
 const smoothstep = (t) => t * t * (3 - 2 * t)
 
 // Player registry: dice meshes, server-driven animations and local prediction.
@@ -192,7 +196,7 @@ export function createPlayers(env, arena) {
     // an occupied cell means attack: send the move but keep the cube in place
     if (playerAtCell(l, nx, nz)) return true
     const next = rollOrient(p.orient || { top: 1, east: 3, south: 2 }, dx, dz)
-    predictions.push({ x: nx, z: nz })
+    predictions.push({ x: nx, z: nz, at: performance.now() })
     p.orient = next
     enqueueMove(p, {
       predicted: true,
@@ -218,7 +222,7 @@ export function createPlayers(env, arena) {
       if (arena.isHole(l, nx, nz) || arena.isTramp(l, nx, nz)) break
     }
     if (steps === 0) return
-    predictions.push({ x, z })
+    predictions.push({ x, z, at: performance.now() })
     enqueueMove(p, {
       predicted: true, dash: true,
       p: { id: p.id, level: l, x, z, ...p.orient },
@@ -444,6 +448,12 @@ export function createPlayers(env, arena) {
     }
 
     const mine = me()
+
+    // an unanswered prediction is a lie about where I stand: give it up rather
+    // than keep playing from a cell the server may never confirm
+    if (mine && predictions.length > 0 && performance.now() - predictions[0].at > PREDICTION_TTL_MS) {
+      rollbackPrediction(mine)
+    }
 
     // the ring rides under my cube, on the ground of its platform
     marker.visible = !!mine && !mine.dead && !mine.gone && mine.level <= visibleUpTo

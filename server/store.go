@@ -112,6 +112,19 @@ CREATE TABLE IF NOT EXISTS user_blocks (
 	CHECK (blocker_id <> blocked_id)
 );
 CREATE INDEX IF NOT EXISTS user_blocks_blocked_idx ON user_blocks (blocked_id);
+
+-- Daily / weekly quest progress. period_key is a UTC day (YYYY-MM-DD) or
+-- ISO week (YYYY-Www); the quest catalog itself lives in code.
+CREATE TABLE IF NOT EXISTS quest_progress (
+	user_id    BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+	quest_id   TEXT NOT NULL,
+	period_key TEXT NOT NULL,
+	value      INT NOT NULL DEFAULT 0,
+	claimed_at TIMESTAMPTZ,
+	PRIMARY KEY (user_id, quest_id, period_key)
+);
+CREATE INDEX IF NOT EXISTS quest_progress_user_period_idx
+	ON quest_progress (user_id, period_key);
 `
 
 // NewStore fails instead of degrading: accounts and Cubes are meaningless

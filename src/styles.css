@@ -95,6 +95,38 @@ html, body, #root {
 
 body { touch-action: manipulation; }
 
+/* Tab focus: drop the browser’s black ring; keep a green cue for keyboard only. */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 3px;
+}
+.btn:focus-visible,
+.lang-switch__btn:focus-visible,
+.avatar:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px var(--paper-2),
+    0 0 0 6px var(--green),
+    0 6px 0 var(--green-deep),
+    0 12px 20px rgba(11, 113, 51, .22);
+}
+.btn--alt:focus-visible {
+  box-shadow:
+    0 0 0 3px var(--paper-2),
+    0 0 0 6px var(--green),
+    0 6px 0 var(--sun-deep),
+    0 12px 20px rgba(209, 148, 26, .22);
+}
+.btn--ghost:focus-visible {
+  box-shadow:
+    0 0 0 3px var(--paper-2),
+    0 0 0 6px var(--green),
+    0 6px 0 var(--edge);
+}
+
 /* Language switch — floating on auth; inline inside settings. */
 .lang-switch {
   position: fixed;
@@ -311,6 +343,160 @@ canvas.webgl {
 }
 .menu-pair .btn {
   min-width: 0;
+}
+
+.menu-btn--badge {
+  position: relative;
+}
+.menu-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  z-index: 2;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  background: var(--coral);
+  border-radius: 999px;
+  box-shadow: 0 2px 0 var(--coral-deep);
+  pointer-events: none;
+}
+
+.quests.screen__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  max-height: min(58vh, 520px);
+  padding: 0;
+  overflow: hidden;
+}
+.quests__tabs {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 100%;
+  padding: 10px 10px 0;
+}
+.quests__tabs .friends-tab {
+  width: 100%;
+}
+.quests__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.quest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.quest-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(15, 42, 29, .04);
+  border: 2px solid var(--edge);
+  border-radius: 16px;
+  opacity: 0;
+  animation: mapPop .4s var(--hop) both;
+}
+.quest-card.is-claimable {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+.quest-card.is-claimed {
+  animation: mapPopClaimed .4s var(--hop) both;
+}
+@keyframes mapPopClaimed {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: .72;
+    transform: none;
+  }
+}
+.quest-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.quest-card__title {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.quest-card__reward {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--green-dark);
+  line-height: 1;
+}
+.quest-card__reward-unit {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--ink-dim);
+  text-transform: lowercase;
+}
+.quest-card__meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+.quest-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(15, 42, 29, .12);
+  overflow: hidden;
+}
+.quest-bar__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--green), var(--green-dark));
+  box-shadow: 0 0 0 1px rgba(11, 113, 51, .15);
+  transition: width .25s ease;
+}
+.quest-card__claim {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.quest-card__done {
+  align-self: flex-end;
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--ink-dim);
+}
+
+.menu-rise {
+  opacity: 0;
+  animation: mapPop .4s var(--hop) both;
 }
 
 .btn--tiny {
@@ -589,7 +775,7 @@ canvas.webgl {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font: 900 12px/1.1 var(--font);
+  font: 900 13px/1.1 var(--font);
   color: var(--ink-dim);
   background: var(--paper);
   border: none;
@@ -611,14 +797,16 @@ canvas.webgl {
   opacity: 1;
 }
 .friends-tab__badge {
+  box-sizing: border-box;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 1px 5px 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 900;
+  line-height: 1;
   color: #fff;
   background: var(--coral);
   border-radius: 999px;
@@ -1447,15 +1635,18 @@ canvas.webgl {
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 6px;
+  width: 100%;
   padding: 6px;
   background: var(--green-soft);
   border-radius: var(--r);
 }
 .tab {
+  min-width: 0;
+  width: 100%;
   padding: 13px 4px;
-  font: 900 13px var(--font);
+  font: 900 13px/1.1 var(--font);
   color: var(--ink-dim);
   background: none;
   border: none;
@@ -2046,6 +2237,31 @@ canvas.webgl {
   gap: 8px;
   max-width: min(56vw, 250px);
   pointer-events: none;
+}
+.cam-yaw {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: min(56vw, 220px);
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--hud-bg);
+  color: var(--hud-ink);
+  font: 600 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+.cam-yaw__row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cam-yaw__label {
+  opacity: 0.9;
+}
+.cam-yaw__range {
+  width: 100%;
+  accent-color: #8CDB66;
+  cursor: pointer;
 }
 .hud-bl__row {
   position: relative;

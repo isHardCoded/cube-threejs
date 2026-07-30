@@ -103,3 +103,12 @@ export const matchmaking = {
   cancel: () => api('/api/match/queue', { method: 'DELETE' }),
   status: () => api('/api/match/status'),
 }
+
+export const quests = {
+  list: () => api('/api/quests'),
+  claim: (id) => api('/api/quests/claim', { method: 'POST', body: { id } }),
+}
+
+export const badges = {
+  get: () => api('/api/badges'),
+}

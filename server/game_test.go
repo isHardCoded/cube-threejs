@@ -149,6 +149,42 @@ func TestLevel2CrumbleResets(t *testing.T) {
 	}
 }
 
+func TestMoveSlotRefusesSpamButAbsorbsJitter(t *testing.T) {
+	p := &Player{}
+	now := time.Now()
+	if !p.claimMove(now) {
+		t.Fatal("the first move should always be free")
+	}
+	if p.claimMove(now.Add(10 * time.Millisecond)) {
+		t.Fatal("a spammed move must be refused")
+	}
+	// a move that comes in a hair early is played rather than denied, because a
+	// denial snaps the client's predicted cube back
+	if !p.claimMove(now.Add(RollCooldown - 20*time.Millisecond)) {
+		t.Fatal("a move arriving within the grace window should be accepted")
+	}
+	if want := now.Add(2 * RollCooldown); !p.nextMoveAt.Equal(want) {
+		t.Fatalf("early move pulled the rhythm forward: next=%v want=%v", p.nextMoveAt, want)
+	}
+}
+
+func TestSpammedDashIsRefusedAndLeavesTheCubeAlone(t *testing.T) {
+	h := testHub()
+	p := addTestPlayer(h, "p", 0, 0, 0)
+	c := &Client{player: p}
+	p.client = c
+	cmd := command{client: c, msg: clientMsg{T: "dash", DZ: -1}}
+
+	h.onCommand(cmd)
+	if p.Z != -2 {
+		t.Fatalf("first dash should cover two cells, got z=%d", p.Z)
+	}
+	h.onCommand(cmd)
+	if p.Z != -2 {
+		t.Fatalf("dash inside its cooldown must not move the cube, got z=%d", p.Z)
+	}
+}
+
 func TestLevelsIsolated(t *testing.T) {
 	h := testHub()
 	addTestPlayer(h, "a", 0, 1, 0)

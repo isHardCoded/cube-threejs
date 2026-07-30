@@ -9,6 +9,11 @@ import { t } from '../i18n/t.js'
 
 const POPUP_OFFSET = new THREE.Vector3(0, 1.4, 0)
 
+// Denials that refuse something the cube already predicted. Anything else
+// (a jump, a mine) predicts nothing, so rolling back would only snap the cube
+// off moves that are still perfectly valid.
+const PREDICTED_DENIALS = new Set(['blocked', 'cooldown', 'dash_cooldown'])
+
 const KICK_MESSAGES = {
   another_session: 'game.otherSession',
   opponent_left: 'game.opponentLeft',
@@ -316,7 +321,7 @@ export function createProtocol({
           hapticError()
           sfx.deny()
         }
-        if ((msg.reason === 'blocked' || msg.reason === 'cooldown') && pm.predictions.length > 0) {
+        if (PREDICTED_DENIALS.has(msg.reason) && pm.predictions.length > 0) {
           pm.rollbackPrediction(pm.me())
         }
         break
