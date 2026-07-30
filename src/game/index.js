@@ -85,7 +85,12 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
 
   const clock = new THREE.Clock()
   let raf = 0
+  let fpsFrames = 0
+  let fpsWindow = 0
+  let fpsShown = 0
+
   const lastHud = {
+    fps: 0,
     timer: '', timerKind: '', alive: '', banner: '', mine: '', mineReady: null, lives: null,
   }
 
@@ -165,6 +170,19 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   function tick() {
     const dt = Math.min(clock.getDelta(), 0.05)
     const t = clock.elapsedTime
+
+    fpsFrames += 1
+    fpsWindow += dt
+    if (fpsWindow >= 0.5) {
+      const nextFps = Math.round(fpsFrames / fpsWindow)
+      fpsFrames = 0
+      fpsWindow = 0
+      if (nextFps !== fpsShown) {
+        fpsShown = nextFps
+        lastHud.fps = nextFps
+        onHud({ fps: nextFps })
+      }
+    }
 
     // platforms above mine are hidden so they don't block the view of the arena;
     // while watching, the camera sits over the platform where the fight is

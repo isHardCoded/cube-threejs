@@ -163,7 +163,7 @@ function prepareImported(root, { shadows = true, cast = true } = {}) {
 }
 
 /** Selective shadow casters — palms/cliffs/bushes/rocks cast; grass/reeds receive-only. */
-function applyBackdropShadows(root, { mobile = false } = {}) {
+function applyBackdropShadows(root, { castMode = 'heavy' } = {}) {
   root.traverse((obj) => {
     if (!obj.isMesh) return
     const n = obj.name || ''
@@ -204,10 +204,16 @@ function applyBackdropShadows(root, { mobile = false } = {}) {
 
     if (receiveOnly) {
       obj.castShadow = false
-    } else if (mobile) {
-      obj.castShadow = castCore
+      obj.userData.shadowCastTier = 'never'
+    } else if (castCore) {
+      obj.userData.shadowCastTier = 'core'
+      obj.castShadow = true
+    } else if (castHeavy) {
+      obj.userData.shadowCastTier = 'heavy'
+      obj.castShadow = castMode === 'heavy'
     } else {
-      obj.castShadow = castHeavy
+      obj.castShadow = false
+      obj.userData.shadowCastTier = 'never'
     }
   })
   return root
@@ -562,12 +568,13 @@ function createBackdrop(scene, _fx, opts = {}) {
   const lakeFx = createLakeSplashes(group)
   let authored = false
   const mobile = !!opts.mobile
+  const castMode = opts.shadowCast || (mobile ? 'core' : 'heavy')
 
   const sceneRoot = cloneGltf(SCENE_URL)
   if (sceneRoot) {
     authored = true
     prepareImported(sceneRoot, { cast: false })
-    applyBackdropShadows(sceneRoot, { mobile })
+    applyBackdropShadows(sceneRoot, { castMode })
     collectMats(sceneRoot, importedMats)
     // Do NOT candy-tint backdrop — colours come from Blender GLB as-is.
     group.add(sceneRoot)
@@ -1036,9 +1043,10 @@ export default {
   post: { vignette: 0.9, contrast: 1.08, saturation: 1.2, sharpen: 0.04 },
 
   // Lower / wider sun so soft light covers more of lake + arena
+  // Base shadow volume; quality profiles scale mapSize + extent at runtime.
   shadows: {
-    mapSize: 4096,
-    mapSizeMobile: 2048,
+    mapSize: 2048,
+    mapSizeMobile: 1024,
     extent: 56,
     extentY: 58,
     near: 2,
@@ -1050,7 +1058,7 @@ export default {
     sunOffset: [22, 28, 18],
   },
 
-  // Desktop cinematic extras (skipped on mobile in environment.js).
+  // Post extras — quality profiles keep these ON, often at half-res.
   gfx: {
     ao: true,
     aoIntensity: 0.12,

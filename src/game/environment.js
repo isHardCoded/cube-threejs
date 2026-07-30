@@ -8,6 +8,11 @@ import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js'
 import { themeFor } from './themes/index.js'
 import { floorY } from './layouts.js'
 import { createGodrayPass, updateGodraySun } from './gfx/godrayPass.js'
+import {
+  getQualityPreference,
+  resolveProfile,
+  stepTier,
+} from './gfx/quality.js'
 import { SPRITE_LAYER } from './sprites.js'
 
 const DAY_KEY = 'cube-game-day'
@@ -59,10 +64,6 @@ const GradeShader = {
   `,
 }
 
-const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-const SAMPLES = isMobile ? 2 : 4
-const MAX_DPR = isMobile ? 1.75 : 2
-
 const DEFAULT_SHADOWS = {
   mapSize: 2048,
   mapSizeMobile: 2048,
@@ -83,11 +84,16 @@ export function createEnvironment(canvas, mapId) {
   const theme = themeFor(mapId)
   const shadowCfg = { ...DEFAULT_SHADOWS, ...(theme.shadows || {}) }
   const gfx = theme.gfx || {}
-  const wantAo = !isMobile && !!gfx.ao
-  const wantGodray = !isMobile && !!gfx.godray
+
+  let qualityPref = getQualityPreference()
+  let profile = resolveProfile(qualityPref)
+  let adaptiveTier = profile.id
+
+  const wantAo = !!gfx.ao && profile.ao
+  const wantGodray = !!gfx.godray && profile.godray
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_DPR))
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.maxDpr))
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -111,14 +117,16 @@ export function createEnvironment(canvas, mapId) {
   renderer.getDrawingBufferSize(size)
   const aaTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
     type: THREE.HalfFloatType,
-    samples: SAMPLES,
+    samples: profile.msaaSamples,
   })
   const composer = new EffectComposer(renderer, aaTarget)
   composer.addPass(new RenderPass(scene, camera))
 
   let gtao = null
   if (wantAo) {
-    gtao = new GTAOPass(scene, camera, size.x, size.y)
+    const aoW = Math.max(1, Math.round(size.x * profile.aoScale))
+    const aoH = Math.max(1, Math.round(size.y * profile.aoScale))
+    gtao = new GTAOPass(scene, camera, aoW, aoH)
     gtao.output = GTAOPass.OUTPUT.Default
     gtao.blendIntensity = gfx.aoIntensity ?? 0.32
     if (typeof gtao.updateGtaoMaterial === 'function') {
@@ -127,7 +135,7 @@ export function createEnvironment(canvas, mapId) {
         distanceExponent: 1.5,
         thickness: 0.85,
         scale: 1.0,
-        samples: 8,
+        samples: profile.aoSamples,
         distanceFallOff: 0.85,
       })
     }
@@ -136,7 +144,10 @@ export function createEnvironment(canvas, mapId) {
 
   // Bloom before godrays so sky/palm gaps are bright enough to punch shafts through.
   const bloom = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    new THREE.Vector2(
+      Math.max(1, Math.round(size.x * profile.bloomScale)),
+      Math.max(1, Math.round(size.y * profile.bloomScale)),
+    ),
     theme.night.bloom,
     0.55,
     0.78,
@@ -171,21 +182,34 @@ export function createEnvironment(canvas, mapId) {
   const sun = new THREE.DirectionalLight(theme.night.sunColor, 1)
   sun.position.set(sunOx, sunOy, sunOz)
   sun.castShadow = true
-  const mapSize = isMobile
-    ? (shadowCfg.mapSizeMobile ?? 2048)
-    : (shadowCfg.mapSize ?? 2048)
-  sun.shadow.mapSize.set(mapSize, mapSize)
-  const ext = shadowCfg.extent
-  sun.shadow.camera.left = -ext
-  sun.shadow.camera.right = ext
-  sun.shadow.camera.top = shadowCfg.extentY ?? ext
-  sun.shadow.camera.bottom = -(shadowCfg.extentY ?? ext)
-  sun.shadow.camera.near = shadowCfg.near
-  sun.shadow.camera.far = shadowCfg.far
-  sun.shadow.bias = shadowCfg.bias
-  sun.shadow.normalBias = shadowCfg.normalBias
-  sun.shadow.radius = shadowCfg.radius
-  sun.shadow.camera.updateProjectionMatrix()
+
+  function applyShadowVolume() {
+    const mapSize = profile.shadowMapSize
+    if (sun.shadow.mapSize.x !== mapSize) {
+      sun.shadow.mapSize.set(mapSize, mapSize)
+      if (sun.shadow.map) {
+        sun.shadow.map.dispose()
+        sun.shadow.map = null
+      }
+    }
+    const ext = shadowCfg.extent * profile.shadowExtentScale
+    const extY = (shadowCfg.extentY ?? shadowCfg.extent) * profile.shadowExtentScale
+    sun.shadow.camera.left = -ext
+    sun.shadow.camera.right = ext
+    sun.shadow.camera.top = extY
+    sun.shadow.camera.bottom = -extY
+    sun.shadow.camera.near = shadowCfg.near
+    sun.shadow.camera.far = shadowCfg.far
+    sun.shadow.bias = shadowCfg.bias
+    sun.shadow.normalBias = shadowCfg.normalBias
+    // Keep softness readable as mapSize drops
+    const sizeRatio = mapSize / 2048
+    sun.shadow.radius = shadowCfg.radius * Math.max(0.85, Math.min(1.15, 1 / Math.sqrt(sizeRatio)))
+    sun.shadow.camera.updateProjectionMatrix()
+    return ext
+  }
+
+  let shadowExtent = applyShadowVolume()
   scene.add(sun)
   scene.add(sun.target)
 
@@ -212,13 +236,25 @@ export function createEnvironment(canvas, mapId) {
 
   const fx = { blinkers: [], holos: [], platformSpots: [] }
 
-  const backdrop = theme.createBackdrop(scene, fx, { mobile: isMobile })
+  const backdrop = theme.createBackdrop(scene, fx, {
+    mobile: profile.id === 'perf',
+    shadowCast: profile.shadowCast,
+  })
+
+  const shadowCasters = []
+  scene.traverse((obj) => {
+    if (!obj.isMesh) return
+    const tier = obj.userData.shadowCastTier
+    if (tier === 'core' || tier === 'heavy') shadowCasters.push(obj)
+  })
 
   let isDay = localStorage.getItem(DAY_KEY) === '1'
   let accentBase = theme.night.accentIntensity
   let godrayDayIntensity = gfx.godrayIntensity ?? 0.2
   const shadowFocus = new THREE.Vector3()
   const sunWorld = new THREE.Vector3()
+  const camForward = new THREE.Vector3()
+  const casterWorld = new THREE.Vector3()
 
   const lightTweaks = {
     sunIntensity: 1,
@@ -303,6 +339,34 @@ export function createEnvironment(canvas, mapId) {
     fill.position.set(x - sunOx * 0.7, sunOy * 0.55, z - sunOz * 0.7)
   }
 
+  function updateShadowCasterCull() {
+    if (!profile.cameraShadowCull || shadowCasters.length === 0) return
+    camera.getWorldDirection(camForward)
+    const maxDist = shadowExtent * 1.15
+    const maxDistSq = maxDist * maxDist
+    const allowHeavy = profile.shadowCast === 'heavy'
+
+    for (let i = 0; i < shadowCasters.length; i++) {
+      const obj = shadowCasters[i]
+      const tier = obj.userData.shadowCastTier
+      if (tier === 'heavy' && !allowHeavy) {
+        obj.castShadow = false
+        continue
+      }
+      obj.getWorldPosition(casterWorld)
+      const dx = casterWorld.x - shadowFocus.x
+      const dz = casterWorld.z - shadowFocus.z
+      if (dx * dx + dz * dz > maxDistSq) {
+        obj.castShadow = false
+        continue
+      }
+      // Drop casters far behind the view — sun still covers arena via follow volume.
+      casterWorld.sub(camera.position)
+      const depth = casterWorld.dot(camForward)
+      obj.castShadow = depth > -shadowExtent * 0.35
+    }
+  }
+
   function setDayMode(day) {
     isDay = day
     localStorage.setItem(DAY_KEY, day ? '1' : '0')
@@ -358,14 +422,48 @@ export function createEnvironment(canvas, mapId) {
     applyLightTweaks()
   }
 
+  function resizePostTargets() {
+    renderer.getDrawingBufferSize(size)
+    if (gtao) {
+      const aoW = Math.max(1, Math.round(size.x * profile.aoScale))
+      const aoH = Math.max(1, Math.round(size.y * profile.aoScale))
+      gtao.setSize(aoW, aoH)
+    }
+    bloom.setSize(
+      Math.max(1, Math.round(size.x * profile.bloomScale)),
+      Math.max(1, Math.round(size.y * profile.bloomScale)),
+    )
+  }
+
   function resize() {
     camera.aspect = window.innerWidth / window.innerHeight
     camera.updateProjectionMatrix()
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_DPR))
+    const dpr = Math.min(window.devicePixelRatio, profile.maxDpr)
+    renderer.setPixelRatio(dpr)
     renderer.setSize(window.innerWidth, window.innerHeight)
+    composer.setPixelRatio(dpr)
     composer.setSize(window.innerWidth, window.innerHeight)
-    renderer.getDrawingBufferSize(size)
-    gtao?.setSize?.(size.x, size.y)
+    // Composer resets pass sizes to full res — re-apply cheaper AO/bloom scales.
+    resizePostTargets()
+  }
+
+  // Adaptive quality (Auto only): ease DPR/AO/bloom down if FPS tanks.
+  let fpsEma = 60
+  let adaptCooldown = 2.5
+  let adaptHold = 0
+
+  function applyAdaptiveTier(nextTier) {
+    if (nextTier === adaptiveTier) return
+    adaptiveTier = nextTier
+    profile = resolveProfile(nextTier)
+    shadowExtent = applyShadowVolume()
+    const dpr = Math.min(window.devicePixelRatio, profile.maxDpr)
+    renderer.setPixelRatio(dpr)
+    composer.setPixelRatio(dpr)
+    resizePostTargets()
+    if (gtao && typeof gtao.updateGtaoMaterial === 'function') {
+      gtao.updateGtaoMaterial({ samples: profile.aoSamples })
+    }
   }
 
   function update(dt, t) {
@@ -381,6 +479,30 @@ export function createEnvironment(canvas, mapId) {
 
     accentA.intensity = accentBase * (1 + Math.sin(t * 1.7) * 0.16)
     accentB.intensity = accentBase * (1 + Math.cos(t * 1.3) * 0.16)
+
+    if (qualityPref === 'auto' && dt > 0 && dt < 0.25) {
+      const fps = 1 / dt
+      fpsEma = fpsEma * 0.9 + fps * 0.1
+      adaptCooldown = Math.max(0, adaptCooldown - dt)
+      adaptHold = Math.max(0, adaptHold - dt)
+      if (adaptCooldown <= 0 && adaptHold <= 0) {
+        if (fpsEma < 38) {
+          applyAdaptiveTier(stepTier(adaptiveTier, -1))
+          adaptCooldown = 3.5
+          adaptHold = 6
+        } else if (fpsEma > 56) {
+          const base = resolveProfile('auto').id
+          const next = stepTier(adaptiveTier, 1)
+          // Never climb above the device's auto baseline in this session
+          const order = ['perf', 'balanced', 'high']
+          if (order.indexOf(next) <= order.indexOf(base) && next !== adaptiveTier) {
+            applyAdaptiveTier(next)
+            adaptCooldown = 5
+            adaptHold = 8
+          }
+        }
+      }
+    }
   }
 
   const camDist0 = 9.5
@@ -438,6 +560,8 @@ export function createEnvironment(canvas, mapId) {
     lookTarget.lerp(lookGoal, 1 - Math.pow(0.0006, dt))
     camera.lookAt(lookTarget)
 
+    updateShadowCasterCull()
+
     if (godray && isDay && godrayDayIntensity > 0) {
       sun.getWorldPosition(sunWorld)
       updateGodraySun(godray, camera, sunWorld, godrayDayIntensity)
@@ -473,6 +597,14 @@ export function createEnvironment(canvas, mapId) {
     renderer.dispose()
   }
 
+  function getQuality() {
+    return {
+      preference: qualityPref,
+      active: adaptiveTier,
+      profile: { ...profile },
+    }
+  }
+
   return {
     scene, camera, renderer, fx, theme,
     setDayMode, isDay: () => isDay,
@@ -480,6 +612,7 @@ export function createEnvironment(canvas, mapId) {
     setCameraYaw, getCameraYaw,
     setCameraElev, getCameraElev,
     getLightTweaks, setLightTweaks,
+    getQuality,
     splash(x, z, strength = 1) {
       return backdrop.splash?.(x, z, strength) || false
     },

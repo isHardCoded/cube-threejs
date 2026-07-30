@@ -1470,14 +1470,38 @@ canvas.webgl {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  margin-bottom: 14px;
   padding: 12px 14px;
   background: var(--green-soft);
   border-radius: var(--r);
+}
+.settings-row--stack {
+  flex-direction: column;
+  align-items: stretch;
 }
 .settings-row__label {
   font-size: 15px;
   font-weight: 800;
   color: var(--ink);
+}
+.settings-select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 2px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  background: color-mix(in srgb, var(--paper) 92%, white);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+}
+.settings-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-weight: 600;
 }
 .settings-toggle {
   position: relative;
@@ -1976,6 +2000,23 @@ canvas.webgl {
   top: calc(12px + var(--pad-top));
   transform: translateX(-50%);
   z-index: 2;
+}
+
+.hud-fps {
+  position: absolute;
+  left: calc(10px + var(--pad-left));
+  top: calc(10px + var(--pad-top));
+  z-index: 3;
+  padding: 4px 8px;
+  font: 800 12px/1.2 var(--font);
+  letter-spacing: .02em;
+  color: rgba(234, 255, 241, .92);
+  background: rgba(6, 24, 16, .55);
+  border: 1px solid rgba(234, 255, 241, .12);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Compact status stack at the very top of the arena. */
