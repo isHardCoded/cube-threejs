@@ -1484,24 +1484,112 @@ canvas.webgl {
   font-weight: 800;
   color: var(--ink);
 }
-.settings-select {
-  width: 100%;
-  margin-top: 6px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 2px solid color-mix(in srgb, var(--ink) 14%, transparent);
-  background: color-mix(in srgb, var(--paper) 92%, white);
-  color: var(--ink);
-  font: inherit;
-  font-weight: 700;
-  font-size: 14px;
-}
 .settings-hint {
   margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.35;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   font-weight: 600;
+}
+
+.gfx-menu {
+  position: relative;
+  width: 100%;
+  margin-top: 6px;
+  z-index: 2;
+}
+.gfx-menu__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  border: none;
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  font-size: 14px;
+  box-shadow: 0 3px 0 var(--edge);
+  cursor: pointer;
+  transition: transform .12s var(--hop), box-shadow .12s ease;
+}
+.gfx-menu__trigger:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--edge);
+}
+.gfx-menu.is-open .gfx-menu__trigger {
+  background: var(--green-soft);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--green-deep) 35%, var(--edge));
+}
+.gfx-menu__chev {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-right: 2.5px solid var(--ink);
+  border-bottom: 2.5px solid var(--ink);
+  transform: rotate(45deg) translate(-1px, -2px);
+  opacity: .55;
+  transition: transform .18s var(--hop);
+}
+.gfx-menu.is-open .gfx-menu__chev {
+  transform: rotate(225deg) translate(-1px, -1px);
+  opacity: .8;
+}
+.gfx-menu__list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8px);
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--paper-2);
+  border-radius: 16px;
+  box-shadow: 0 6px 0 var(--edge), 0 18px 28px rgba(15, 42, 29, .18);
+  animation: gfx-menu-pop .2s var(--hop);
+  z-index: 5;
+}
+@keyframes gfx-menu-pop {
+  from { opacity: 0; transform: translateY(-6px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+.gfx-menu__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.gfx-menu__option:hover,
+.gfx-menu__option:focus-visible {
+  background: var(--green-soft);
+  outline: none;
+}
+.gfx-menu__option.is-active {
+  background: var(--green);
+  color: #0b2416;
+  box-shadow: 0 2px 0 var(--green-deep);
+}
+.gfx-menu__check {
+  width: 8px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-right: 2.5px solid currentColor;
+  border-bottom: 2.5px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -2px);
 }
 .settings-toggle {
   position: relative;

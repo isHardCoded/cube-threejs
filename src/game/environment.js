@@ -91,11 +91,12 @@ export function createEnvironment(canvas, mapId) {
 
   const wantAo = !!gfx.ao && profile.ao
   const wantGodray = !!gfx.godray && profile.godray
+  const wantShadows = profile.shadows !== false
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.maxDpr))
   renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.shadowMap.enabled = true
+  renderer.shadowMap.enabled = wantShadows
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   // Neutral keeps the flat cartoon colours; ACES was pulling everything towards
   // a smoky film look and washing the neon into a haze.
@@ -181,9 +182,14 @@ export function createEnvironment(canvas, mapId) {
   const [sunOx, sunOy, sunOz] = shadowCfg.sunOffset
   const sun = new THREE.DirectionalLight(theme.night.sunColor, 1)
   sun.position.set(sunOx, sunOy, sunOz)
-  sun.castShadow = true
+  sun.castShadow = wantShadows
 
   function applyShadowVolume() {
+    const enabled = profile.shadows !== false
+    renderer.shadowMap.enabled = enabled
+    sun.castShadow = enabled
+    if (!enabled) return shadowCfg.extent * profile.shadowExtentScale
+
     const mapSize = profile.shadowMapSize
     if (sun.shadow.mapSize.x !== mapSize) {
       sun.shadow.mapSize.set(mapSize, mapSize)
@@ -340,6 +346,10 @@ export function createEnvironment(canvas, mapId) {
   }
 
   function updateShadowCasterCull() {
+    if (profile.shadows === false) {
+      for (let i = 0; i < shadowCasters.length; i++) shadowCasters[i].castShadow = false
+      return
+    }
     if (!profile.cameraShadowCull || shadowCasters.length === 0) return
     camera.getWorldDirection(camForward)
     const maxDist = shadowExtent * 1.15
@@ -457,6 +467,7 @@ export function createEnvironment(canvas, mapId) {
     adaptiveTier = nextTier
     profile = resolveProfile(nextTier)
     shadowExtent = applyShadowVolume()
+    if (gtao) gtao.enabled = !!profile.ao
     const dpr = Math.min(window.devicePixelRatio, profile.maxDpr)
     renderer.setPixelRatio(dpr)
     composer.setPixelRatio(dpr)
