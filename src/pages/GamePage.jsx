@@ -12,7 +12,7 @@ import { sfx } from '../game/sfx.js'
 
 const EMPTY_HUD = {
   status: '', timer: '', timerKind: '', timerDanger: false, alive: '', banner: '',
-  mine: '', mineReady: false, fps: 0, ping: null,
+  mine: '', mineReady: false, fps: 0, ping: null, canStart: false,
 }
 
 export default function GamePage() {
@@ -50,13 +50,26 @@ export default function GamePage() {
             // a match that ended without us is not a reason to leave PvP: drop
             // the player back on the search screen so they can queue again
             const backToSearch = !!matchId && reason !== 'another_session'
-            navigate(backToSearch ? '/play/pvp' : '/', { replace: true, state: { reason } })
+            const backToPve = mode === 'arena' && reason !== 'another_session'
+            navigate(
+              backToSearch ? '/play/pvp' : backToPve ? '/play/pve' : '/',
+              { replace: true, state: { reason } },
+            )
             return
           }
-          // a match room that is gone answers the socket with 404, which is not an
-          // auth problem: keep the session and let them search for another one
+          // Socket never opened (404 match, unknown mode, server restart…). Keep
+          // the session — only a real 401-style reject should force re-login, and
+          // solo modes must never look like a stolen token.
           if (matchId) {
             navigate('/play/pvp', { replace: true, state: { reason: 'match_gone' } })
+            return
+          }
+          if (mode === 'arena') {
+            navigate('/play/pve', { replace: true, state: { reason: 'connect_failed' } })
+            return
+          }
+          if (mode === 'training') {
+            navigate('/play/training', { replace: true, state: { reason: 'connect_failed' } })
             return
           }
           logout()
@@ -81,8 +94,10 @@ export default function GamePage() {
   }, [])
 
   function toggleDay() {
-    const next = !gameRef.current.isDay()
-    gameRef.current.setDayMode(next)
+    const game = gameRef.current
+    if (!game) return
+    const next = !game.isDay()
+    game.setDayMode(next)
     setIsDay(next)
   }
 
@@ -99,6 +114,7 @@ export default function GamePage() {
         isDay={isDay}
         onToggleDay={toggleDay}
         onMine={() => gameRef.current?.placeMine()}
+        onStartMatch={() => gameRef.current?.startMatch()}
         onOpenAssets={openAssets}
       />
       <MapAssetModal

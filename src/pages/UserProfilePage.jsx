@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Ban, Check, UserMinus, UserPlus, X } from 'lucide-react'
 import Avatar from '../components/Avatar.jsx'
+import CubesMark from '../components/CubesMark.jsx'
 import Spinner from '../components/Spinner.jsx'
 import { friends as friendsApi } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
@@ -71,8 +72,8 @@ export default function UserProfilePage() {
           <div className="screen__card profile-card">
             <Avatar user={card} size="lg" />
             <div className="profile-card__name">{card.username}</div>
-            <div className="profile-card__meta">
-              <span className="profile-card__label">{t('menu.cubes')}</span>
+            <div className="profile-card__meta profile-card__meta--cubes">
+              <CubesMark size={24} />
               <span>{card.cubes}</span>
             </div>
             {card.createdAt && (

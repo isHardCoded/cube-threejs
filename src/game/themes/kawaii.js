@@ -1,5 +1,8 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import {
+  markCast, markReceive, POLISHED_POST, POLISHED_POST_NIGHT, POLISHED_SHADOWS, polishedGfx,
+} from './gfxPolish.js'
 import { blob, canvasTexture, cellRng, createDrift, geo, glow, pick, solid, toon } from './kit.js'
 
 // Soft Hello Kitty candy world: pink + baby blue + cream white, still cel-shaded
@@ -48,7 +51,8 @@ const padTex = canvasTexture((ctx) => {
   ctx.fill()
 })
 
-function createBackdrop(scene) {
+function createBackdrop(scene, _fx, opts = {}) {
+  const castMode = opts.shadowCast || 'heavy'
   const group = new THREE.Group()
   scene.add(group)
 
@@ -68,6 +72,7 @@ function createBackdrop(scene) {
   const sea = new THREE.Mesh(geo('kawaii:sea', () => new THREE.PlaneGeometry(220, 220)), floorMat)
   sea.rotation.x = -Math.PI / 2
   sea.position.y = -24
+  markReceive(sea)
   group.add(sea)
 
   // Soft candy hills on the horizon
@@ -81,6 +86,7 @@ function createBackdrop(scene) {
     hill.scale.set(w, h, w * 0.75)
     hill.position.set(Math.cos(angle) * radius, -22, Math.sin(angle) * radius)
     hill.rotation.y = Math.random() * Math.PI
+    markReceive(hill)
     group.add(hill)
   }
 
@@ -94,6 +100,7 @@ function createBackdrop(scene) {
       const puff = new THREE.Mesh(puffGeo, cloudMat)
       puff.scale.setScalar(0.7 + Math.random() * 0.5)
       puff.position.set((j - 1) * 0.9, Math.sin(j) * 0.2, (j % 2) * 0.35)
+      markCast(puff, 'heavy', castMode)
       cloud.add(puff)
     }
     const angle = (i / 7) * Math.PI * 2
@@ -369,19 +376,34 @@ export default {
     accentIntensity: 10,
     underGlow: PINK, underGlowIntensity: 9,
     spot: '#ffe8f8', spotIntensity: 11,
-    bloom: 0.18, exposure: 1.0,
+    bloom: 0.18, exposure: 1.02,
+    post: POLISHED_POST_NIGHT,
   },
 
   day: {
-    sky: '#c8ecff', fogNear: 40, fogFar: 128,
-    hemiSky: '#f4fbff', hemiGround: '#ffd0e6', hemiIntensity: 1.65,
-    sunColor: '#fff5fb', sunIntensity: 1.95,
-    accentIntensity: 2.2,
-    underGlow: '#ffc0dc', underGlowIntensity: 2.1,
-    spot: '#ffffff', spotIntensity: 4.5,
-    bloom: 0.05, exposure: 0.94,
+    // Player-tuned Light panel (Jul 2026)
+    sky: '#c8ecff', fogNear: 42, fogFar: 135,
+    hemiSky: '#f4fbff', hemiGround: '#ffd0e6', hemiIntensity: 0.55,
+    sunColor: '#fff5fb', sunIntensity: 2.7,
+    accentIntensity: 1.2,
+    underGlow: '#ffc0dc', underGlowIntensity: 0.7,
+    spot: '#ffffff', spotIntensity: 2.2,
+    bloom: 0.02, exposure: 0.86,
+    post: { vignette: 0.9, contrast: 1.15, saturation: 1.2, sharpen: 0.04 },
   },
 
   createBackdrop,
   createProps,
+
+  post: { vignette: 0.9, contrast: 1.15, saturation: 1.2, sharpen: 0.04 },
+  shadows: POLISHED_SHADOWS,
+  gfx: polishedGfx({
+    aoIntensity: 0.57,
+    godrayIntensity: 0.31,
+    godraySpread: 1.45,
+    fillIntensity: 0.77,
+    fillColor: '#ffe4f0',
+    fillColorNight: '#7a6a98',
+  }),
+  materialSteps: 7,
 }

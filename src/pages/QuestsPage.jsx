@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Gift } from 'lucide-react'
 import Spinner from '../components/Spinner.jsx'
+import CubesMark from '../components/CubesMark.jsx'
 import { quests as questsApi } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
@@ -27,7 +28,7 @@ function QuestCard({ quest, claiming, onClaim, t, locale, delay }) {
         <div className="quest-card__title">{title}</div>
         <div className="quest-card__reward" title={t('quests.reward')}>
           +{quest.reward}
-          <span className="quest-card__reward-unit">{t('menu.cubes')}</span>
+          <CubesMark size={22} className="quest-card__reward-mark" />
         </div>
       </div>
 

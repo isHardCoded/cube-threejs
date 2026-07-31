@@ -1,4 +1,7 @@
 import * as THREE from 'three'
+import {
+  markCast, markReceive, POLISHED_POST, POLISHED_POST_NIGHT, POLISHED_SHADOWS, polishedGfx,
+} from './gfxPolish.js'
 import { blob, canvasTexture, cellRng, createDrift, geo, glow, pick, solid, toon } from './kit.js'
 
 // Underwater reef arena: teal water column, coral props, rising bubbles.
@@ -41,7 +44,8 @@ const padTex = canvasTexture((ctx) => {
   }
 })
 
-function createBackdrop(scene) {
+function createBackdrop(scene, _fx, opts = {}) {
+  const castMode = opts.shadowCast || 'heavy'
   const group = new THREE.Group()
   scene.add(group)
 
@@ -64,6 +68,7 @@ function createBackdrop(scene) {
   const sea = new THREE.Mesh(geo('ocean:sea', () => new THREE.PlaneGeometry(220, 220)), floorMat)
   sea.rotation.x = -Math.PI / 2
   sea.position.y = -24
+  markReceive(sea)
   group.add(sea)
 
   const ridgeGeo = geo('ocean:ridge', () => blob(1, 1))
@@ -76,6 +81,7 @@ function createBackdrop(scene) {
     ridge.scale.set(w, h, w * 0.7)
     ridge.position.set(Math.cos(angle) * radius, -22, Math.sin(angle) * radius)
     ridge.rotation.y = Math.random() * Math.PI
+    markReceive(ridge)
     group.add(ridge)
   }
 
@@ -89,6 +95,7 @@ function createBackdrop(scene) {
     const pillar = new THREE.Mesh(pillarGeo, rockMat)
     pillar.position.set(x, -18, z)
     pillar.scale.set(1, 1 + Math.random() * 0.4, 1)
+    markCast(pillar, 'core', castMode)
     group.add(pillar)
   }
 
@@ -291,19 +298,29 @@ export default {
     accentIntensity: 12,
     underGlow: TEAL, underGlowIntensity: 10,
     spot: '#c0e8ff', spotIntensity: 9,
-    bloom: 0.22, exposure: 0.95,
+    bloom: 0.22, exposure: 0.98,
+    post: POLISHED_POST_NIGHT,
   },
 
   day: {
-    sky: '#3aa8c8', fogNear: 28, fogFar: 100,
-    hemiSky: '#b8f0ff', hemiGround: '#3a8a90', hemiIntensity: 1.7,
-    sunColor: '#e8fff8', sunIntensity: 2.0,
-    accentIntensity: 3.0,
-    underGlow: '#40d0c8', underGlowIntensity: 3.2,
-    spot: '#ffffff', spotIntensity: 5,
-    bloom: 0.08, exposure: 0.98,
+    sky: '#3aa8c8', fogNear: 42, fogFar: 130,
+    hemiSky: '#b8f0ff', hemiGround: '#3a8a90', hemiIntensity: 0.55,
+    sunColor: '#e8fff8', sunIntensity: 3.6,
+    accentIntensity: 1.6,
+    underGlow: '#40d0c8', underGlowIntensity: 1.0,
+    spot: '#ffffff', spotIntensity: 2.4,
+    bloom: 0.08, exposure: 0.86,
+    post: POLISHED_POST,
   },
 
   createBackdrop,
   createProps,
+
+  post: POLISHED_POST,
+  shadows: POLISHED_SHADOWS,
+  gfx: polishedGfx({
+    fillColor: '#c8f0ff',
+    fillColorNight: '#4a7088',
+  }),
+  materialSteps: 7,
 }

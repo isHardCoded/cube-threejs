@@ -448,8 +448,9 @@ canvas.webgl {
 .quest-card__reward {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   font-size: 18px;
   font-weight: 900;
   color: var(--green-dark);
@@ -460,6 +461,11 @@ canvas.webgl {
   font-weight: 800;
   color: var(--ink-dim);
   text-transform: lowercase;
+}
+.quest-card__reward-mark {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 .quest-card__meta {
   display: flex;
@@ -931,6 +937,10 @@ canvas.webgl {
   border-radius: 22px;
   box-shadow: 0 5px 0 var(--edge);
   opacity: 0;
+  font: inherit;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
   animation: podiumRise .45s var(--hop) forwards;
   transition: transform .2s var(--hop), box-shadow .2s var(--hop);
 }
@@ -1144,6 +1154,234 @@ canvas.webgl {
   height: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
+}
+
+.pvp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 18px;
+  text-align: center;
+}
+.pvp-empty__text {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+
+.lobby-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lobby-card {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  color: inherit;
+  background: var(--paper-2);
+  border: 3px solid var(--edge);
+  border-radius: 18px;
+  box-shadow: 0 4px 0 var(--edge);
+  cursor: pointer;
+  opacity: 0;
+  animation: podiumRise .4s var(--hop) forwards;
+  transition: transform .2s var(--hop), box-shadow .2s var(--hop);
+}
+@media (hover: hover) {
+  .lobby-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 7px 0 var(--edge);
+  }
+}
+.lobby-card:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--edge);
+}
+.lobby-card.is-full {
+  opacity: 0.72;
+}
+.lobby-card__art {
+  min-height: 76px;
+  background:
+    linear-gradient(135deg, #dfe8e2, #c5d4cb) center / cover no-repeat;
+  border-right: 3px solid var(--edge);
+}
+.lobby-card__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.lobby-card__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lobby-card__map {
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.lobby-card__count {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--green-dark);
+  flex: 0 0 auto;
+}
+.lobby-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+
+.lobby-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lobby-detail__art {
+  height: 148px;
+  border-radius: 22px;
+  border: 3px solid var(--edge);
+  box-shadow: 0 4px 0 var(--edge);
+  background:
+    linear-gradient(135deg, #dfe8e2, #c5d4cb) center / cover no-repeat;
+}
+.lobby-detail__map {
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.1;
+  padding: 0 2px;
+}
+.lobby-detail__note {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--green-dark);
+  padding: 0 2px;
+}
+
+.lobby-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lobby-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-dim);
+  background: #eef2ef;
+  border-radius: 999px;
+}
+.lobby-pill svg {
+  flex: 0 0 auto;
+  color: #6a7a70;
+}
+
+.lobby-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  background: #f4f7f5;
+  border: 2px solid rgba(15, 42, 29, .08);
+  border-radius: 20px;
+}
+.lobby-roster__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lobby-roster__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--ink);
+}
+.lobby-roster__title svg {
+  color: #6a7a70;
+}
+.lobby-roster__count {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink-dim);
+}
+.lobby-roster__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lobby-roster__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.lobby-roster__who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.lobby-roster__who .avatar {
+  border-radius: 50%;
+}
+.lobby-roster__name {
+  font-size: 15px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lobby-roster__crown {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  color: var(--green-dark);
+  background: #fff;
+  border: 1.5px solid rgba(15, 42, 29, .1);
+  border-radius: 999px;
+}
+
+.lobby-panel {
+  gap: 16px;
+}
+.lobby-actions {
+  margin-top: 2px;
+}
+.lobby-actions__join {
+  flex: 1;
+  min-height: 52px;
+  font-size: 18px;
+}
+.lobby-actions .btn--icon {
+  flex: 0 0 auto;
+  width: 52px;
+  min-width: 52px;
+  height: 52px;
+  padding: 0;
 }
 
 .pve-soon {
@@ -1830,6 +2068,21 @@ canvas.webgl {
   font-weight: 800;
   color: var(--ink-dim);
 }
+.cubes__mark,
+.cubes-mark {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+  image-rendering: auto;
+}
+.profile-card__meta--cubes {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 900;
+  color: var(--green-dark);
+}
 
 /* map picker */
 
@@ -2131,12 +2384,12 @@ canvas.webgl {
 
 .hud-fps {
   position: absolute;
-  left: 50%;
-  bottom: calc(10px + var(--pad-bottom));
-  top: auto;
-  transform: translateX(-50%);
-  z-index: 3;
-  padding: 4px 8px;
+  left: calc(12px + var(--pad-left));
+  top: calc(12px + var(--pad-top));
+  bottom: auto;
+  transform: none;
+  z-index: 21;
+  padding: 5px 9px;
   font: 800 12px/1.2 var(--font);
   letter-spacing: .02em;
   color: rgba(234, 255, 241, .92);
@@ -2341,6 +2594,35 @@ canvas.webgl {
   box-shadow: 0 1px 0 var(--coral-deep), 0 3px 8px rgba(0, 0, 0, .2);
 }
 
+.arcade-btn--start {
+  position: absolute;
+  left: 50%;
+  bottom: calc(88px + var(--pad-bottom));
+  transform: translateX(-50%);
+  z-index: 3;
+  min-width: 180px;
+  padding: 12px 22px;
+  font: 900 15px/1 var(--font);
+  letter-spacing: .04em;
+  color: #14301c;
+  background: var(--green);
+  border: 2px solid rgba(20, 48, 28, .18);
+  border-radius: 16px;
+  box-shadow: 0 5px 0 var(--green-deep), 0 10px 16px rgba(0, 0, 0, .25);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .arcade-btn--start:hover {
+    transform: translateX(-50%) translateY(-3px);
+    filter: brightness(1.04);
+    box-shadow: 0 7px 0 var(--green-deep), 0 14px 20px rgba(0, 0, 0, .28);
+  }
+}
+.arcade-btn--start:active {
+  transform: translateX(-50%) translateY(2px);
+  box-shadow: 0 1px 0 var(--green-deep), 0 3px 8px rgba(0, 0, 0, .2);
+}
+
 .arcade-btn--icon {
   position: relative;
   width: 44px;
@@ -2352,12 +2634,29 @@ canvas.webgl {
   display: block;
 }
 
-/* Mine ability lives bottom-right so the left corner can hold the controls. */
-.ability {
+/* Skill bar: bomb + future abilities, bottom-center. */
+.hud-skills {
   position: absolute;
-  right: calc(14px + var(--pad-right));
-  bottom: calc(54px + var(--pad-bottom));
+  left: 50%;
+  bottom: calc(18px + var(--pad-bottom));
+  transform: translateX(-50%);
   z-index: 20;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 12px;
+  pointer-events: none;
+}
+.hud-skills .ability {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  pointer-events: auto;
+}
+
+/* Individual ability chip (shared by skills in the bar). */
+.ability {
   width: 56px;
   min-width: 56px;
   min-height: 56px;
@@ -2420,9 +2719,77 @@ canvas.webgl {
   position: relative;
 }
 
+.light-debug {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: min(56vw, 220px);
+  max-width: min(72vw, 260px);
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--hud-bg);
+  color: var(--hud-ink);
+  border: 1px solid rgba(234, 255, 241, .12);
+  font: 600 12px/1.2 var(--font);
+  backdrop-filter: blur(8px);
+}
+.light-debug__toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.95;
+}
+.light-debug__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.light-debug__row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.light-debug__label {
+  opacity: 0.9;
+  font-variant-numeric: tabular-nums;
+}
+.light-debug__range {
+  width: 100%;
+  accent-color: #8CDB66;
+  cursor: pointer;
+}
+.light-debug__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.light-debug__btn {
+  appearance: none;
+  flex: 1;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: rgba(140, 219, 102, 0.22);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.light-debug__btn--ghost {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .hud-lives {
   position: absolute;
-  top: calc(12px + var(--pad-top));
+  top: calc(44px + var(--pad-top));
   left: calc(12px + var(--pad-left));
   z-index: 20;
   display: flex;
@@ -2785,16 +3152,24 @@ canvas.webgl {
     height: 16px;
   }
   .ability {
-    right: calc(8px + var(--pad-right));
-    bottom: calc(14px + var(--pad-bottom));
-    width: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    width: 48px;
+    min-width: 48px;
+    min-height: 48px;
   }
   .ability__meta {
     min-width: 18px;
     padding: 1px 4px;
     font-size: 9px;
+  }
+  .hud-skills {
+    bottom: calc(12px + var(--pad-bottom));
+    gap: 10px;
+  }
+  .hud-fps {
+    left: calc(8px + var(--pad-left));
+    top: calc(8px + var(--pad-top));
+    font-size: 11px;
+    padding: 4px 7px;
   }
   .hud-bl {
     left: calc(8px + var(--pad-left));
@@ -2808,7 +3183,7 @@ canvas.webgl {
   .hint__close { width: 28px; font-size: 18px; border-radius: 0 12px 12px 0; }
   .hint__fab { width: 36px; height: 36px; font-size: 16px; border-radius: 11px; }
   .hud-lives {
-    top: calc(8px + var(--pad-top));
+    top: calc(36px + var(--pad-top));
     left: calc(8px + var(--pad-left));
     padding: 5px 8px;
     border-radius: 11px;
@@ -2851,6 +3226,8 @@ canvas.webgl {
     width: 44px;
     min-width: 44px;
     min-height: 44px;
+  }
+  .hud-skills {
     bottom: calc(10px + var(--pad-bottom));
   }
   .hint__panel { font-size: 10px; padding: 8px; }

@@ -122,6 +122,8 @@ type Hub struct {
 	id         string
 	mode       string // training | pvp | ""
 	maxPlayers int    // 0 = unlimited
+	hostID     int64  // account that can force-start a waiting lobby
+	hosted     bool   // true if opened via Create Lobby (may wait alone)
 	onEmpty    func(*Hub)
 	onJoined   func(userID int64)
 	onLeft     func(userID int64)
@@ -165,6 +167,14 @@ type Hub struct {
 	phaseEndsAt  time.Time // calm deadline
 	crumbleOrder [][2]int
 	nextTileAt   time.Time
+
+	// Arena PvE (ModeArena): hostile cubes, survival / kill-goal waves
+	mobs         map[string]*ArenaMob
+	nextMobSeq   int
+	nextMobSpawn time.Time
+	arenaKills   int
+	arenaEndsAt  time.Time
+	gridHalf     int // 0 = default Half; Arena uses a wider floor
 }
 
 // Each map is a separate world: its own hub, round timer and player list.
@@ -186,6 +196,7 @@ func NewHub(store *Store, gameMap *GameMap, presence *Presence) *Hub {
 		h.destroyed[l] = make(map[[2]int]bool)
 	}
 	h.clearMines()
+	h.mobs = make(map[string]*ArenaMob)
 	h.startCalm(0, false)
 	return h
 }
@@ -288,12 +299,15 @@ func (h *Hub) closeMatch(reason string) {
 	h.stop()
 }
 
-// watchMatch keeps a match room honest. Its guest list is fixed at two accounts,
-// so nobody else can ever fill it: an opponent who never connects, or who walks
-// out, has to end the room instead of leaving the other player rolling around an
-// empty arena with no way back to the menu.
+// watchMatch keeps a match room honest after a fight has started. Anonymous
+// duel rooms that never get a second cube still close after MatchWaitWindow;
+// hosted lobbies stay open in waiting so friends can join from the browser.
 func (h *Hub) watchMatch(now time.Time) {
 	if h.mode != ModePvP || h.closing {
+		return
+	}
+	if h.roundState == roundWaiting && h.hosted {
+		h.thinSince = time.Time{}
 		return
 	}
 	if len(h.players) >= MinRoundPlayers {
@@ -348,6 +362,18 @@ func inBounds(x, z int) bool {
 	return x >= -Half && x <= Half && z >= -Half && z <= Half
 }
 
+func (h *Hub) gridSpan() int {
+	if h != nil && h.gridHalf > 0 {
+		return h.gridHalf
+	}
+	return Half
+}
+
+func (h *Hub) inBounds(x, z int) bool {
+	hh := h.gridSpan()
+	return x >= -hh && x <= hh && z >= -hh && z <= hh
+}
+
 // isHole: the tile has crumbled away — stepping here means falling to your death.
 func (h *Hub) isHole(l, x, z int) bool {
 	return h.destroyed[l][[2]int{x, z}]
@@ -368,7 +394,13 @@ func (h *Hub) playerAt(l, x, z int) *Player {
 }
 
 func (h *Hub) cellFree(l, x, z int) bool {
-	return inBounds(x, z) && !h.isBlocked(l, x, z) && !h.isHole(l, x, z) && h.playerAt(l, x, z) == nil
+	if !h.inBounds(x, z) || h.isBlocked(l, x, z) || h.isHole(l, x, z) || h.playerAt(l, x, z) != nil {
+		return false
+	}
+	if h.isArena() && l == 0 && h.mobAt(x, z) != nil {
+		return false
+	}
+	return true
 }
 
 func (h *Hub) isTramp(l, x, z int) bool {
@@ -377,15 +409,16 @@ func (h *Hub) isTramp(l, x, z int) bool {
 }
 
 func (h *Hub) freeSpawnCellOn(l int) (int, int, bool) {
+	hh := h.gridSpan()
 	for i := 0; i < 64; i++ {
-		x := mrand.Intn(2*Half+1) - Half
-		z := mrand.Intn(2*Half+1) - Half
+		x := mrand.Intn(2*hh+1) - hh
+		z := mrand.Intn(2*hh+1) - hh
 		if h.cellFree(l, x, z) && !h.isTramp(l, x, z) {
 			return x, z, true
 		}
 	}
-	for x := -Half; x <= Half; x++ {
-		for z := -Half; z <= Half; z++ {
+	for x := -hh; x <= hh; x++ {
+		for z := -hh; z <= hh; z++ {
 			if h.cellFree(l, x, z) && !h.isTramp(l, x, z) {
 				return x, z, true
 			}
@@ -396,8 +429,9 @@ func (h *Hub) freeSpawnCellOn(l int) (int, int, bool) {
 
 func (h *Hub) countFree(l int) int {
 	n := 0
-	for x := -Half; x <= Half; x++ {
-		for z := -Half; z <= Half; z++ {
+	hh := h.gridSpan()
+	for x := -hh; x <= hh; x++ {
+		for z := -hh; z <= hh; z++ {
 			if h.cellFree(l, x, z) && !h.isTramp(l, x, z) {
 				n++
 			}
@@ -511,6 +545,9 @@ func (h *Hub) onJoin(c *Client) {
 	}
 
 	l, x, z := h.spawnCell()
+	if h.isArena() {
+		l, x, z = 0, 0, 0 // centre of the flat floor
+	}
 	p := &Player{
 		ID: id, Name: sanitizeName(c.name), SkinID: c.skinID, HatID: c.hatID, ClassID: c.classID,
 		Level: l, X: x, Z: z,
@@ -522,8 +559,8 @@ func (h *Hub) onJoin(c *Client) {
 		MineSkinID: c.mineSkinID,
 	}
 	// a fight in progress is not joinable: watch it out and start with everyone
-	// else in the next round
-	if h.roundState != roundWaiting {
+	// else in the next round. Solo Arena always restarts instead.
+	if !h.isArena() && h.roundState != roundWaiting {
 		p.Spectating = true
 		p.Dead = true
 	}
@@ -534,12 +571,18 @@ func (h *Hub) onJoin(c *Client) {
 	}
 	h.store.SessionStarted(p.userID)
 
+	// Arena must be live before welcome so the first snapshot already has the
+	// timer / kill goal — otherwise the HUD sits on "practice".
+	if h.isArena() && !p.Spectating {
+		h.prepareArena(time.Now())
+	}
+
 	others := make([]*Player, 0, len(h.players))
 	for _, pl := range h.players {
 		others = append(others, pl)
 	}
 	welcome := map[string]any{
-		"t": "welcome", "id": p.ID, "players": others,
+		"t": "welcome", "id": p.ID, "mode": h.mode, "players": others,
 		"dashCooldownMs": DashCooldown.Milliseconds(),
 		"jumpCooldownMs": JumpCooldown.Milliseconds(),
 		"mineCooldownMs": MineCooldown.Milliseconds(),
@@ -558,11 +601,21 @@ func (h *Hub) onJoin(c *Client) {
 	for k, v := range h.worldSnapshot() {
 		welcome[k] = v
 	}
+	if h.isArena() {
+		welcome["maxLives"] = 1
+		welcome["maxHp"] = ArenaMaxHP
+		welcome["half"] = h.gridSpan()
+		welcome["mobs"] = h.mobList()
+		welcome["arena"] = h.arenaInfo(time.Now())
+	}
 	h.sendTo(p, welcome)
 	for _, pl := range h.players {
 		if pl.ID != p.ID {
 			h.sendTo(pl, map[string]any{"t": "join", "p": p})
 		}
+	}
+	if h.mode == ModePvP {
+		h.broadcast(map[string]any{"t": "round", "round": h.roundInfo()})
 	}
 	role := "playing"
 	if p.Spectating {
@@ -620,6 +673,9 @@ func (h *Hub) onLeave(c *Client) {
 	h.dropPlayer(p)
 	h.presence.Leave(p.userID, h)
 	log.Printf("leave %s on %s, players=%d", p.ID, h.gameMap.ID, len(h.players))
+	if h.mode == ModePvP && len(h.players) > 0 {
+		h.broadcast(map[string]any{"t": "round", "round": h.roundInfo()})
+	}
 	// the seat is free again, so the lobby can take somebody else
 	if h.onLeft != nil {
 		h.onLeft(p.userID)
@@ -766,7 +822,7 @@ func (h *Hub) onTick() {
 
 	// respawns while lives remain (practice never spends them); the intermission
 	// leaves the board frozen, so nobody comes back during it
-	if h.roundState != roundOver {
+	if h.roundState != roundOver && !h.isArena() {
 		for _, p := range h.players {
 			// spectators are the ones out of lives (or waiting for the next round)
 			if p.Dead && !p.Spectating && now.After(p.respawnAt) {
@@ -782,12 +838,16 @@ func (h *Hub) onTick() {
 	}
 
 	h.expireMines(now)
+	h.arenaTick(now)
 	h.roundTick(now)
 	h.watchMatch(now)
 
 	// the arena holds still while the result is on screen
 	if h.closing || h.roundState == roundOver {
 		return
+	}
+	if h.isArena() {
+		return // flat floor, no crumble waves
 	}
 	switch h.phaseMode {
 	case modeCalm:
@@ -799,6 +859,17 @@ func (h *Hub) onTick() {
 	}
 }
 
+// hostStart lets the lobby host skip the fill wait and begin with whoever is in.
+func (h *Hub) hostStart(p *Player) {
+	if h.mode != ModePvP || h.hostID == 0 || p.userID != h.hostID {
+		return
+	}
+	if h.roundState != roundWaiting || len(h.players) < MinRoundPlayers {
+		return
+	}
+	h.startRound()
+}
+
 // ---------------------------------------------------------------------------
 // commands
 // ---------------------------------------------------------------------------
@@ -806,12 +877,24 @@ func (h *Hub) onTick() {
 func (h *Hub) onCommand(cmd command) {
 	p := cmd.client.player
 	// input from a retired connection (kicked or already gone) is ignored
-	if p == nil || p.Dead || h.players[p.ID] != p {
+	if p == nil || h.players[p.ID] != p {
+		return
+	}
+	// host start is allowed even if the cube is somehow marked dead in waiting
+	if cmd.msg.T == "start" {
+		h.hostStart(p)
+		return
+	}
+	if p.Dead {
 		return
 	}
 	now := time.Now()
 	// abilities carry no direction, so they skip the movement validation below
 	if cmd.msg.T == "mine" {
+		if h.isArena() {
+			h.sendTo(p, map[string]any{"t": "denied", "reason": "blocked"})
+			return
+		}
 		h.placeMine(p, now)
 		return
 	}
@@ -855,13 +938,19 @@ func (h *Hub) onCommand(cmd command) {
 func (h *Hub) doRoll(p *Player, dx, dz int, now time.Time) {
 	nx, nz := p.X+dx, p.Z+dz
 	l := p.Level
-	if !inBounds(nx, nz) || h.isBlocked(l, nx, nz) {
+	if !h.inBounds(nx, nz) || h.isBlocked(l, nx, nz) {
 		h.sendTo(p, map[string]any{"t": "denied", "reason": "blocked"})
 		return
 	}
 	if target := h.playerAt(l, nx, nz); target != nil {
 		h.resolveHit(p, target, dx, dz, now)
 		return
+	}
+	if h.isArena() {
+		if mob := h.mobAt(nx, nz); mob != nil {
+			h.resolveMobHit(p, mob, dx, dz, now, false)
+			return
+		}
 	}
 	p.X, p.Z = nx, nz
 	p.Orient = p.Orient.Roll(dx, dz)
@@ -878,14 +967,21 @@ func (h *Hub) doDash(p *Player, dx, dz int, now time.Time) {
 	moved := 0
 	fell := false
 	var victim *Player
+	var mob *ArenaMob
 	for step := 0; step < 2; step++ {
 		nx, nz := p.X+dx, p.Z+dz
-		if !inBounds(nx, nz) || h.isBlocked(l, nx, nz) {
+		if !h.inBounds(nx, nz) || h.isBlocked(l, nx, nz) {
 			break
 		}
 		if t := h.playerAt(l, nx, nz); t != nil {
 			victim = t
 			break
+		}
+		if h.isArena() {
+			if m := h.mobAt(nx, nz); m != nil {
+				mob = m
+				break
+			}
 		}
 		p.X, p.Z = nx, nz
 		moved++
@@ -908,6 +1004,8 @@ func (h *Hub) doDash(p *Player, dx, dz int, now time.Time) {
 	}
 	if victim != nil {
 		h.resolveHit(p, victim, dx, dz, now)
+	} else if mob != nil {
+		h.resolveMobHit(p, mob, dx, dz, now, false)
 	}
 	if fell {
 		h.fallDeath(p, now)
@@ -928,7 +1026,7 @@ func (h *Hub) doJump(p *Player, dx, dz int, now time.Time) {
 	p.holdMoves(now, RollCooldown)
 
 	// over the fence into the void
-	if !inBounds(lx, lz) {
+	if !h.inBounds(lx, lz) {
 		p.X, p.Z = lx, lz // client animates the arc out of the arena
 		h.broadcast(map[string]any{"t": "move", "p": p, "jump": true})
 		h.fallDeath(p, now)
@@ -944,6 +1042,17 @@ func (h *Hub) doJump(p *Player, dx, dz int, now time.Time) {
 			h.landed(p, now)
 		}
 		return
+	}
+	if h.isArena() {
+		if m := h.mobAt(lx, lz); m != nil {
+			p.X, p.Z = lx, lz
+			h.broadcast(map[string]any{"t": "move", "p": p, "jump": true, "stomp": true})
+			h.resolveMobHit(p, m, dx, dz, now, true)
+			if !p.Dead {
+				h.landed(p, now)
+			}
+			return
+		}
 	}
 
 	// landing on an intact obstacle: fall short onto the middle cell if possible
@@ -1102,13 +1211,13 @@ func (h *Hub) displaceFrom(p *Player, dx, dz int) (bool, bool) {
 func (h *Hub) knockback(p *Player, dx, dz int) (bool, bool) {
 	l := p.Level
 	nx, nz := p.X+dx, p.Z+dz
-	if !inBounds(nx, nz) {
+	if !h.inBounds(nx, nz) {
 		return false, false
 	}
 	blocked := h.isBlocked(l, nx, nz) || h.otherPlayerAt(l, nx, nz, p) != nil
 	if blocked {
 		bx, bz := p.X-dx, p.Z-dz
-		if !inBounds(bx, bz) || h.isBlocked(l, bx, bz) || h.otherPlayerAt(l, bx, bz, p) != nil {
+		if !h.inBounds(bx, bz) || h.isBlocked(l, bx, bz) || h.otherPlayerAt(l, bx, bz, p) != nil {
 			return false, false
 		}
 		p.X, p.Z = bx, bz
@@ -1178,6 +1287,10 @@ func (h *Hub) die(p *Player, cause string, now time.Time) {
 		msg["respawnMs"] = RespawnDelay.Milliseconds()
 	}
 	h.broadcast(msg)
+
+	if h.isArena() && h.roundState == roundLive {
+		h.endArena(false, now)
+	}
 }
 
 func (h *Hub) fallDeath(p *Player, now time.Time) {

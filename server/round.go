@@ -86,6 +86,8 @@ func (h *Hub) roundInfo() map[string]any {
 		"players":    len(h.players),
 		"minPlayers": MinRoundPlayers,
 		"room":       h.maxPlayers, // lobby size, so the HUD can show 3/8
+		"hostId":     h.hostID,
+		"canStart":   h.roundState == roundWaiting && h.hostID != 0 && len(h.players) >= MinRoundPlayers,
 	}
 	if h.roundState == roundOver {
 		info["nextInMs"] = time.Until(h.roundEndsAt).Milliseconds()
@@ -177,16 +179,28 @@ func (h *Hub) creditQuestProgress(winner *Player) {
 func (h *Hub) roundTick(now time.Time) {
 	switch h.roundState {
 	case roundWaiting:
+		if h.isArena() {
+			return // startArena runs from onJoin / arenaTick
+		}
 		if h.readyToStart(now) {
 			h.startRound()
 		}
 	case roundLive:
+		if h.isArena() {
+			return // win/lose handled in arenaTick
+		}
 		if h.aliveCount() <= 1 {
 			h.endRound(h.lastAlive(), now)
 		}
 	case roundOver:
 		if now.After(h.roundEndsAt) {
 			switch {
+			case h.isArena():
+				if len(h.players) >= 1 {
+					h.startArena(now)
+				} else {
+					h.enterWaiting()
+				}
 			case len(h.players) >= MinRoundPlayers:
 				h.startRound()
 			case h.mode == ModePvP:
@@ -209,6 +223,9 @@ type awardResult struct {
 // a world. The new balance comes back through a channel, so only the hub
 // goroutine ever touches players and their connections.
 func (h *Hub) award(p *Player, amount int) {
+	if h.store == nil || p == nil || amount <= 0 {
+		return
+	}
 	userID, mapID := p.userID, h.gameMap.ID
 	go func() {
 		balance, err := h.store.AwardCubes(userID, mapID, amount)

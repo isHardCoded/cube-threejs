@@ -1,6 +1,12 @@
 import * as THREE from 'three'
 import { MAX_HP } from './dice.js'
 
+let nameplateMaxHp = MAX_HP
+export function setNameplateMaxHp(hp) {
+  const n = Number(hp)
+  nameplateMaxHp = Number.isFinite(n) && n > 0 ? n : MAX_HP
+}
+
 const PLATE_W = 160
 const PLATE_H = 56
 
@@ -45,7 +51,7 @@ export function drawNameplate(bar, hp, dashFrac = null) {
 
   ctx.fillStyle = 'rgba(5,5,12,.8)'
   ctx.fillRect(16, 26, w - 32, 14)
-  const frac = Math.max(0, hp / MAX_HP)
+  const frac = Math.max(0, hp / nameplateMaxHp)
   ctx.fillStyle = frac > 0.5 ? '#39ff14' : frac > 0.25 ? '#fcee0a' : '#ff2a6d'
   ctx.fillRect(18, 28, (w - 36) * frac, 10)
   ctx.strokeStyle = 'rgba(0,240,255,.7)'

@@ -18,6 +18,7 @@ var Hats = []Hat{
 	{ID: "wizard", Name: "Волшебник", Swatch: "#5b3fd4", Emoji: "🧙"},
 	{ID: "crown", Name: "Корона", Swatch: "#f0c14a", Emoji: "👑"},
 	{ID: "hardhat", Name: "Каска", Swatch: "#f5c518", Emoji: "⛑️"},
+	{ID: "halo", Name: "Нимб", Swatch: "#f0c14a", Emoji: "😇"},
 }
 
 func hatExists(id string) bool {

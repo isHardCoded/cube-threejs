@@ -31,6 +31,7 @@ function TimerIcon({ kind }) {
 export default function Hud({
   status, timer, timerKind, timerDanger, alive, banner, isDay, onToggleDay,
   mine, mineReady, onMine, onOpenAssets, lives, maxLives = 5, fps = 0, ping = null,
+  canStart = false, onStartMatch,
 }) {
   const { t } = useLocale()
   const controls = [
@@ -171,17 +172,30 @@ export default function Hud({
         </div>
       </div>
 
-      {mine && (
+      {canStart && onStartMatch && (
         <button
-          className={`arcade-btn arcade-btn--coral arcade-btn--icon ability${mineReady ? '' : ' is-cooling'}`}
+          className="arcade-btn arcade-btn--start"
           type="button"
-          onClick={onMine}
-          aria-label={t('hud.mine')}
-          title={t('hud.mine')}
+          onClick={onStartMatch}
         >
-          <BombIcon />
-          <span className="ability__meta">{mine}</span>
+          {t('game.hostStart')}
         </button>
+      )}
+
+      {/* Skill bar — bomb first; more abilities will share this row. */}
+      {mine && (
+        <div className="hud-skills" role="toolbar" aria-label={t('hud.mine')}>
+          <button
+            className={`arcade-btn arcade-btn--coral arcade-btn--icon ability${mineReady ? '' : ' is-cooling'}`}
+            type="button"
+            onClick={onMine}
+            aria-label={t('hud.mine')}
+            title={t('hud.mine')}
+          >
+            <BombIcon />
+            <span className="ability__meta">{mine}</span>
+          </button>
+        </div>
       )}
     </div>
   )

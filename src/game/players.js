@@ -3,7 +3,7 @@ import { NEON_YELLOW } from './palette.js'
 import { DEFAULT_SKIN, createDie, dieGeo, quatForOrient, rollOrient, yAxis } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
 import { inArena, floorY, LEVELS } from './layouts.js'
-import { createNameplate, drawNameplate } from './sprites.js'
+import { createNameplate, drawNameplate, SPRITE_LAYER } from './sprites.js'
 import { sfx } from './sfx.js'
 import { haptic, hapticHeavy } from './telegram.js'
 
@@ -55,7 +55,81 @@ export function createPlayers(env, arena) {
     jumpCooldownMs: 1200, jumpReadyAt: 0,
     mineCooldownMs: 8000, mineReadyAt: 0, maxMines: 2,
     maxLives: 5,
+    // last WASD/swipe dir — Space jump uses this; the floating arrow reads it
+    moveDir: [0, -1],
   }
+
+  // Cartoon aim chevron on SPRITE_LAYER — billboarded so screen-up = world forward.
+  const facingArrowFillMat = new THREE.MeshBasicMaterial({
+    color: '#ffe566', depthTest: false, depthWrite: false, toneMapped: false,
+  })
+  const facingArrowOutlineMat = new THREE.MeshBasicMaterial({
+    color: '#0a0a0c', depthTest: false, depthWrite: false, toneMapped: false,
+  })
+  const facingArrow = new THREE.Group()
+  {
+    // Separate fat silhouette for the rim — uniform scale leaves gaps at the neck/tip.
+    const chevron = (p) => {
+      const s = new THREE.Shape()
+      s.moveTo(0, p.tip)
+      s.quadraticCurveTo(p.wing * 0.25, p.tip - 0.02, p.wing, p.wingY)
+      s.quadraticCurveTo(p.wing + 0.015, p.wingY - 0.016, p.neck, p.wingY - 0.016)
+      s.lineTo(p.shaft + 0.004, p.wingY - 0.016)
+      s.quadraticCurveTo(p.shaft, p.wingY - 0.028, p.shaft, p.wingY - 0.04)
+      s.lineTo(p.shaft, p.butt + 0.02)
+      s.quadraticCurveTo(p.shaft, p.butt, p.shaft * 0.25, p.butt)
+      s.lineTo(-p.shaft * 0.25, p.butt)
+      s.quadraticCurveTo(-p.shaft, p.butt, -p.shaft, p.butt + 0.02)
+      s.lineTo(-p.shaft, p.wingY - 0.04)
+      s.quadraticCurveTo(-p.shaft, p.wingY - 0.028, -(p.shaft + 0.004), p.wingY - 0.016)
+      s.lineTo(-p.neck, p.wingY - 0.016)
+      s.quadraticCurveTo(-(p.wing + 0.015), p.wingY - 0.016, -p.wing, p.wingY)
+      s.quadraticCurveTo(-p.wing * 0.25, p.tip - 0.02, 0, p.tip)
+      return s
+    }
+    const extrude = (shape, depth, bevel) => {
+      const geo = new THREE.ExtrudeGeometry(shape, {
+        depth,
+        bevelEnabled: true,
+        bevelThickness: bevel,
+        bevelSize: bevel,
+        bevelSegments: 2,
+        curveSegments: 8,
+      })
+      geo.translate(0, 0, -depth * 0.5)
+      return geo
+    }
+    const fillGeo = extrude(chevron({
+      tip: 0.13, wing: 0.08, wingY: 0.022, neck: 0.052, shaft: 0.032, butt: -0.108,
+    }), 0.04, 0.012)
+    // ~constant rim width around the whole chevron (including head/shaft join)
+    const outlineGeo = extrude(chevron({
+      tip: 0.155, wing: 0.105, wingY: 0.028, neck: 0.07, shaft: 0.052, butt: -0.132,
+    }), 0.05, 0.014)
+
+    const tagUi = (mesh, order) => {
+      mesh.layers.set(SPRITE_LAYER)
+      mesh.renderOrder = order
+      mesh.frustumCulled = false
+      mesh.castShadow = false
+      mesh.receiveShadow = false
+      return mesh
+    }
+    const outline = tagUi(new THREE.Mesh(outlineGeo, facingArrowOutlineMat), 10)
+    outline.position.z = -0.01
+    const fill = tagUi(new THREE.Mesh(fillGeo, facingArrowFillMat), 11)
+    fill.position.z = 0.008
+    facingArrow.add(outline, fill)
+  }
+  facingArrow.visible = false
+  scene.add(facingArrow)
+  // screen-space aim angle (0 = up on screen); smoothed for cartoon turns
+  let faceAng = 0
+  let faceBobT = 0
+  let faceDirX = 0
+  let faceDirZ = -1
+  const _aimA = new THREE.Vector3()
+  const _aimB = new THREE.Vector3()
 
   // Afterimage pool — translucent die bodies that fade behind a moving cube.
   const trails = []
@@ -308,6 +382,8 @@ export function createPlayers(env, arena) {
     state.myId = null
     predictions.length = 0
     clearTrails()
+    marker.visible = false
+    facingArrow.visible = false
   }
 
   /** Pop the hat off on arena fall — flies away on its own. */
@@ -855,6 +931,36 @@ export function createPlayers(env, arena) {
     marker.visible = !!mine && !mine.dead && !mine.gone && mine.level <= visibleUpTo
     if (marker.visible) {
       marker.position.set(mine.group.position.x, (floorY(mine.level, lift()) + 0.04), mine.group.position.z)
+    }
+
+    // aim arrow: billboard UI — tip follows screen dir of move (forward = up)
+    facingArrow.visible = marker.visible
+    if (facingArrow.visible) {
+      const [mdx, mdz] = local.moveDir
+      const px = mine.group.position.x
+      const py = mine.group.position.y
+      const pz = mine.group.position.z
+      _aimA.set(px, py, pz).project(env.camera)
+      _aimB.set(px + mdx, py, pz + mdz).project(env.camera)
+      // atan2(screenX, screenY): 0 = up, π = down toward the player
+      const targetAng = Math.atan2(_aimB.x - _aimA.x, _aimB.y - _aimA.y)
+      let dang = targetAng - faceAng
+      while (dang > Math.PI) dang -= Math.PI * 2
+      while (dang < -Math.PI) dang += Math.PI * 2
+      faceAng += dang * Math.min(1, dt * 14)
+      faceBobT += dt
+
+      // only the face-offset eases; position sticks to the cube so rolls don't leave it behind
+      const dirK = Math.min(1, dt * 16)
+      faceDirX += (mdx - faceDirX) * dirK
+      faceDirZ += (mdz - faceDirZ) * dirK
+      const bob = Math.sin(faceBobT * 3.2) * 0.03
+      const pulse = 1 + Math.sin(faceBobT * 3.8) * 0.04
+      const wobble = Math.sin(faceBobT * 2.4) * 0.05
+      facingArrow.position.set(px + faceDirX * 0.78, py + 0.18 + bob, pz + faceDirZ * 0.78)
+      facingArrow.quaternion.copy(env.camera.quaternion)
+      facingArrow.rotateZ(-faceAng + wobble)
+      facingArrow.scale.setScalar(pulse)
     }
 
     // my bar also shows dash readiness, redrawn every frame while recharging

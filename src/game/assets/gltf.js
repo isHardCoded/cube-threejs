@@ -1,13 +1,14 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { gradientMap } from '../themes/kit.js'
 
 // Shared GLB pipeline for map themes. Templates are loaded once, materials are
 // forced into the game's cel-shaded look, and callers clone for each instance.
 
 const loader = new GLTFLoader()
-const templates = new Map() // url -> Object3D
-const inflight = new Map() // url -> Promise<Object3D>
+const templates = new Map() // url -> { root, animations }
+const inflight = new Map() // url -> Promise<{ root, animations }>
 
 function colorFromMaterial(mat) {
   if (!mat) return new THREE.Color('#888888')
@@ -169,6 +170,20 @@ export function preserveGltfMaterials(root) {
   return root
 }
 
+function entryFor(url) {
+  return templates.get(url)
+    || templates.get(String(url).replace(/\?.*$/, ''))
+    || null
+}
+
+function hasSkinned(root) {
+  let found = false
+  root.traverse((obj) => {
+    if (obj.isSkinnedMesh) found = true
+  })
+  return found
+}
+
 async function loadTemplate(url, opts = {}) {
   if (templates.has(url)) return templates.get(url)
   if (inflight.has(url)) return inflight.get(url)
@@ -183,9 +198,13 @@ async function loadTemplate(url, opts = {}) {
         applyToonMaterials(root, opts)
       }
       // Freeze as a clean template: clones share geometry, own transforms.
-      templates.set(url, root)
+      const entry = {
+        root,
+        animations: gltf.animations ? gltf.animations.slice() : [],
+      }
+      templates.set(url, entry)
       inflight.delete(url)
-      return root
+      return entry
     })
     .catch((err) => {
       inflight.delete(url)
@@ -206,21 +225,26 @@ export async function preloadGltf(urls, opts = {}) {
 // Sync clone after preload. Returns null if the asset is missing (caller falls
 // back to a procedural mesh so maps never hard-fail).
 export function cloneGltf(url) {
-  const template = templates.get(url)
-  if (!template) return null
-  const root = template.clone(true)
+  const entry = entryFor(url)
+  if (!entry) return null
+  // Skinned props need SkeletonUtils so each instance owns its skeleton.
+  const root = hasSkinned(entry.root)
+    ? cloneSkeleton(entry.root)
+    : entry.root.clone(true)
   // Cloned materials stay shared on purpose — same toon look, fewer uploads.
   return root
 }
 
 export function getGltfTemplate(url) {
-  return templates.get(url)
-    || templates.get(String(url).replace(/\?.*$/, ''))
-    || null
+  return entryFor(url)?.root || null
+}
+
+export function getGltfAnimations(url) {
+  return entryFor(url)?.animations || []
 }
 
 export function hasGltf(url) {
-  return templates.has(url) || templates.has(String(url).replace(/\?.*$/, ''))
+  return !!entryFor(url)
 }
 
 export function assetUrl(mapId, kind, name) {

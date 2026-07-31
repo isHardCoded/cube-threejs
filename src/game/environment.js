@@ -502,6 +502,12 @@ export function createEnvironment(canvas, mapId) {
   let adaptCooldown = 2.5
   let adaptHold = 0
 
+  // Pause Auto tier changes during death/spawn bursts — resizing AO/DPR mid-hitches.
+  function holdAdaptive(seconds = 1.25) {
+    adaptHold = Math.max(adaptHold, seconds)
+    adaptCooldown = Math.max(adaptCooldown, seconds)
+  }
+
   function applyAdaptiveTier(nextTier) {
     if (nextTier === adaptiveTier) return
     adaptiveTier = nextTier
@@ -685,6 +691,7 @@ export function createEnvironment(canvas, mapId) {
     setCameraElev, getCameraElev,
     getLightTweaks, setLightTweaks,
     getQuality,
+    holdAdaptive,
     splash(x, z, strength = 1) {
       return backdrop.splash?.(x, z, strength) || false
     },

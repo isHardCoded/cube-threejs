@@ -1,19 +1,31 @@
-import { Link } from 'react-router-dom'
-import { ArrowLeft, Construction } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { ArrowLeft, Crosshair } from 'lucide-react'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
+/** PvE hub: pick a wave mode and jump into a private room. */
 export default function PvePage() {
   const { t } = useLocale()
+  const navigate = useNavigate()
 
   return (
     <div className="screen">
       <div className="screen__title">{t('modes.pve.name')}</div>
 
       <div className="screen__box">
-        <div className="screen__card pve-soon">
-          <Construction className="pve-soon__icon" size={40} strokeWidth={2.2} aria-hidden="true" />
-          <div className="pve-soon__title">{t('pve.soonTitle')}</div>
-          <div className="pve-soon__text">{t('pve.soonText')}</div>
+        <div className="modes">
+          <button
+            type="button"
+            className="mode mode--pve"
+            onClick={() => navigate('/game?map=arena&mode=arena')}
+          >
+            <span className="mode__icon" aria-hidden="true">
+              <Crosshair size={28} strokeWidth={2.4} />
+            </span>
+            <span className="mode__text">
+              <span className="mode__name">{t('pve.arena.name')}</span>
+              <span className="mode__desc">{t('pve.arena.desc')}</span>
+            </span>
+          </button>
         </div>
 
         <Link className="btn btn--ghost btn--with-icon" to="/play">

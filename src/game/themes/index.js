@@ -8,6 +8,7 @@ import desert from './desert.js'
 import kawaii from './kawaii.js'
 import jungle from './jungle.js'
 import ocean from './ocean.js'
+import arena from './arena.js'
 
 // A theme owns everything that makes one map look like itself. The arena
 // geometry, the rules and the animations are shared by all maps; only colours,
@@ -42,17 +43,25 @@ import ocean from './ocean.js'
 //     underGlow, underGlowIntensity,
 //     spot, spotIntensity,              overhead light above each platform
 //     bloom, exposure,
+//     post?: { vignette, contrast, saturation, sharpen },
 //   }
 //
-//   createBackdrop(scene, fx)           everything outside the arena
-//     -> { update(dt, t), setDay(day) }
+//   post?: {...}                        default canvas grade (day look)
+//   shadows?: {...}                     soft directional shadow volume
+//   gfx?: { ao, godray, fill... }       post extras + quality overrides
+//   materialSteps?: number              toon ramp bands for arena tiles
+//
+//   createBackdrop(scene, fx, opts?)    everything outside the arena
+//     -> { update(dt, t), setDay(day), cullToCamera?(cam) }
 //
 //   createProps(fx)                     obstacle meshes by server kind
 //     -> { byKind: { [kind]: (x, z) => Object3D }, fallback, trampoline() }
 //
 // fx is the shared animation registry: { blinkers, holos, platformSpots }.
 // Anything a theme animates itself belongs in its own update().
-const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean }
+// Polished maps share post/shadows/AO/godrays via themes/gfxPolish.js until
+// authored Blender backdrops replace procedural scenery.
+const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean, arena }
 
 export function themeFor(id) {
   return THEMES[id] || cyberpunk
@@ -63,7 +72,10 @@ export function themeFor(id) {
 export async function preloadThemeAssets(id) {
   const theme = themeFor(id)
   if (id !== 'jungle') {
-    return preloadGltf(theme.assets || [], {})
+    return preloadGltf(theme.assets || [], {
+      steps: theme.materialSteps || 4,
+      palette: theme.materialPalette || null,
+    })
   }
 
   await preloadToonTextures(jungleTextureUrls())

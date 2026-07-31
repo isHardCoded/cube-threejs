@@ -52,6 +52,11 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/match/queue", a.matchQueue)
 	mux.HandleFunc("DELETE /api/match/queue", a.matchCancel)
 	mux.HandleFunc("GET /api/match/status", a.matchStatus)
+	mux.HandleFunc("POST /api/match/quick", a.matchQuick)
+	mux.HandleFunc("GET /api/match/lobbies", a.matchLobbies)
+	mux.HandleFunc("POST /api/match/lobbies", a.matchCreateLobby)
+	mux.HandleFunc("GET /api/match/lobbies/{id}", a.matchLobbyInfo)
+	mux.HandleFunc("POST /api/match/lobbies/{id}/join", a.matchJoinLobby)
 	mux.HandleFunc("POST /api/online/heartbeat", a.onlineHeartbeat)
 	mux.HandleFunc("GET /api/online", a.onlineList)
 	a.registerFriendRoutes(mux)
@@ -433,6 +438,85 @@ func (a *API) matchQueue(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	a.writeMatchResult(w, match, body.Size)
+}
+
+func (a *API) matchQuick(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	match, err := a.arena.QuickEnqueue(u.ID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.writeMatchResult(w, match, 0)
+}
+
+func (a *API) matchLobbies(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	list := a.arena.ListLobbies()
+	if list == nil {
+		list = []LobbyPublic{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"lobbies": list})
+}
+
+func (a *API) matchCreateLobby(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	var body struct {
+		MapID string `json:"mapId"`
+		Size  int    `json:"size"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	match, err := a.arena.CreateLobby(u.ID, body.MapID, body.Size)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.writeMatchResult(w, match, body.Size)
+}
+
+func (a *API) matchLobbyInfo(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	detail, err := a.arena.LobbyInfo(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (a *API) matchJoinLobby(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	match, err := a.arena.JoinLobby(u.ID, r.PathValue("id"))
+	if err != nil {
+		status := http.StatusBadRequest
+		if err == errLobbyGone {
+			status = http.StatusNotFound
+		}
+		writeErr(w, status, err.Error())
+		return
+	}
+	a.writeMatchResult(w, match, match.Size)
+}
+
+func (a *API) writeMatchResult(w http.ResponseWriter, match *PendingMatch, size int) {
 	if match != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"state": "matched", "matchId": match.ID, "mapId": match.MapID,
@@ -440,7 +524,11 @@ func (a *API) matchQueue(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"state": "searching", "size": body.Size})
+	out := map[string]any{"state": "searching"}
+	if size > 0 {
+		out["size"] = size
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *API) matchCancel(w http.ResponseWriter, r *http.Request) {
@@ -469,6 +557,7 @@ func (a *API) matchStatus(w http.ResponseWriter, r *http.Request) {
 		out["matchId"] = s.Match.ID
 		out["mapId"] = s.Match.MapID
 		out["mode"] = s.Match.Mode
+		out["size"] = s.Match.Size
 	}
 	writeJSON(w, http.StatusOK, out)
 }

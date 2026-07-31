@@ -1,5 +1,8 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import {
+  markCast, markReceive, POLISHED_POST, POLISHED_POST_NIGHT, POLISHED_SHADOWS, polishedGfx,
+} from './gfxPolish.js'
 import { blob, canvasTexture, cellRng, createDrift, geo, glow, pick, solid, toon } from './kit.js'
 
 // Night city, cel shaded. The neon is still the point of the map, but it lights
@@ -58,7 +61,8 @@ function windowTexture() {
   }, 64, 128)
 }
 
-function createBackdrop(scene, fx) {
+function createBackdrop(scene, fx, opts = {}) {
+  const castMode = opts.shadowCast || 'heavy'
   const group = new THREE.Group()
   scene.add(group)
 
@@ -86,6 +90,10 @@ function createBackdrop(scene, fx) {
     tower.scale.set(w, h, d)
     tower.position.set(Math.cos(angle) * radius, -22 + h / 2, Math.sin(angle) * radius)
     tower.rotation.y = Math.random() * Math.PI
+    // Tall skyline casters only — keep the shadow budget readable until Blender city lands.
+    if (i % 4 === 0) markCast(tower, 'core', castMode)
+    else if (i % 2 === 0) markCast(tower, 'heavy', castMode)
+    else markReceive(tower)
     group.add(tower)
 
     if (h > 26) {
@@ -366,19 +374,34 @@ export default {
     accentIntensity: 9,
     underGlow: MAGENTA, underGlowIntensity: 9,
     spot: '#dfeaff', spotIntensity: 14,
-    bloom: 0.16, exposure: 1.0,
+    bloom: 0.16, exposure: 1.02,
+    post: POLISHED_POST_NIGHT,
   },
 
   day: {
-    sky: '#9ec6ef', fogNear: 34, fogFar: 120,
-    hemiSky: '#eaf3ff', hemiGround: '#93a2b8', hemiIntensity: 2.0,
-    sunColor: '#fff4dc', sunIntensity: 2.6,
-    accentIntensity: 2.5,
-    underGlow: MAGENTA, underGlowIntensity: 2,
-    spot: '#ffffff', spotIntensity: 6,
-    bloom: 0.06, exposure: 1.0,
+    // Player-tuned Light panel (Jul 2026)
+    sky: '#9ec6ef', fogNear: 10, fogFar: 135,
+    hemiSky: '#eaf3ff', hemiGround: '#93a2b8', hemiIntensity: 0.98,
+    sunColor: '#fff4dc', sunIntensity: 1.5,
+    accentIntensity: 1.4,
+    underGlow: MAGENTA, underGlowIntensity: 0.8,
+    spot: '#ffffff', spotIntensity: 2.4,
+    bloom: 0.24, exposure: 1.09,
+    post: { vignette: 0.99, contrast: 1.08, saturation: 1.2, sharpen: 0.04 },
   },
 
   createBackdrop,
   createProps,
+
+  post: { vignette: 0.99, contrast: 1.08, saturation: 1.2, sharpen: 0.04 },
+  shadows: POLISHED_SHADOWS,
+  gfx: polishedGfx({
+    aoIntensity: 0.31,
+    godrayIntensity: 0.21,
+    godraySpread: 0.55,
+    fillIntensity: 1.24,
+    fillColor: '#d8e4ff',
+    fillColorNight: '#6a78a0',
+  }),
+  materialSteps: 7,
 }

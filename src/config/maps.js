@@ -10,9 +10,12 @@ export const MAPS = [
   { id: 'ocean', name: 'Океан', desc: 'Под водой', ready: true, banner: '/maps/ocean.png?v=1' },
 ]
 
+export const ARENA_MAP_ID = 'arena'
+
 export const DEFAULT_MAP = 'cyberpunk'
 
 // Guards the ?map= query: an unknown or not-yet-playable id falls back.
 export function resolveMapId(id) {
+  if (id === ARENA_MAP_ID) return ARENA_MAP_ID
   return MAPS.some((m) => m.id === id && m.ready) ? id : DEFAULT_MAP
 }

@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import { NEON_MAGENTA, POOP_BROWN } from './palette.js'
 import { quatForOrient } from './dice.js'
 import { getStoredHatId } from './hatStore.js'
-import { floorY } from './layouts.js'
+import { floorY, setPlayHalf } from './layouts.js'
+import { setNameplateMaxHp } from './sprites.js'
 import { sfx } from './sfx.js'
 import { hapticError, hapticHeavy } from './telegram.js'
 import { t } from '../i18n/t.js'
@@ -24,7 +25,8 @@ const KICK_MESSAGES = {
 // Server messages -> scene state. The server is authoritative for everything;
 // the client only predicts my own rolls and dashes.
 export function createProtocol({
-  env, arena, players: pm, mines, popups, setStatus, onKicked, onCubes,
+  env, arena, players: pm, mines, enemies, popups, setStatus, onKicked, onCubes,
+  initialMode = '',
 }) {
   // destruction phase, driven by server messages; endsAt is in performance.now() time
   const phase = { mode: 'calm', level: 0, endsAt: 0 }
@@ -32,8 +34,17 @@ export function createProtocol({
   // match state: waiting (practice, too few players), live (elimination), over
   const round = {
     state: 'waiting', alive: 0, players: 0, minPlayers: 2, room: 0,
+    hostId: 0, canStart: false,
     endsAt: 0,   // intermission deadline
-    result: null, // { draw, name, reward, tooShort, mine } while state === 'over'
+    result: null, // { draw, name, reward, tooShort, mine, lose } while state === 'over'
+  }
+
+  const arenaState = {
+    active: initialMode === 'arena',
+    kills: 0,
+    killGoal: 100,
+    endsAt: 0,
+    surviveMs: 60000,
   }
 
   function applyPhase(ph) {
@@ -50,8 +61,19 @@ export function createProtocol({
     round.players = r.players
     round.minPlayers = r.minPlayers || 2
     round.room = r.room || 0
+    round.hostId = r.hostId || 0
+    round.canStart = !!r.canStart
     round.endsAt = r.nextInMs != null ? performance.now() + r.nextInMs : 0
     if (r.state !== 'over') round.result = null
+  }
+
+  function applyArena(a) {
+    if (!a) return
+    arenaState.active = true
+    arenaState.kills = a.kills ?? arenaState.kills
+    arenaState.killGoal = a.killGoal ?? arenaState.killGoal
+    if (a.surviveMs != null) arenaState.surviveMs = a.surviveMs
+    if (a.remainMs != null) arenaState.endsAt = performance.now() + a.remainMs
   }
 
   // shared by respawn and reset: put a die back on the board, alive
@@ -92,6 +114,9 @@ export function createProtocol({
         pm.local.mineCooldownMs = msg.mineCooldownMs || 8000
         pm.local.maxMines = msg.maxMines || 2
         pm.local.maxLives = msg.maxLives || 5
+        arenaState.active = msg.mode === 'arena' || arenaState.active
+        if (msg.half != null) setPlayHalf(msg.half)
+        if (msg.maxHp != null) setNameplateMaxHp(msg.maxHp)
         // obstacles come from the server, so the arena is built on first welcome
         arena.build(msg.layout)
         // mines survive a reconnect: the server hands every armed mine back
@@ -109,6 +134,9 @@ export function createProtocol({
         }
         applyPhase(msg.phase)
         applyRound(msg.round)
+        applyArena(msg.arena)
+        enemies?.clear()
+        for (const mob of msg.mobs || []) enemies?.spawn(mob)
         for (const pd of msg.players) pm.addPlayer(pd)
         // Older servers omit hatId — apply the locally equipped hat to me.
         const mine = pm.me()
@@ -123,6 +151,10 @@ export function createProtocol({
 
       case 'leave':
         pm.removePlayer(msg.id)
+        break
+
+      case 'round':
+        applyRound(msg.round)
         break
 
       case 'move': {
@@ -301,14 +333,22 @@ export function createProtocol({
         pm.predictions.length = 0
         arena.restorePlatforms()
         mines.clear() // the server disarms everything between rounds
+        enemies?.clear()
+        for (const mob of msg.mobs || []) enemies?.spawn(mob)
         applyPhase(msg.phase)
         applyRound(msg.round)
+        applyArena(msg.arena)
         for (const pd of msg.players || []) {
           const p = pm.players.get(pd.id) || pm.addPlayer(pd)
           reviveInto(p, pd)
         }
         sfx.crumble()
-        setStatus(round.state === 'live' ? t('game.roundStart') : t('game.practice'), 2500)
+        setStatus(
+          arenaState.active
+            ? t('game.arenaStart')
+            : (round.state === 'live' ? t('game.roundStart') : t('game.practice')),
+          2500,
+        )
         break
       }
 
@@ -319,11 +359,13 @@ export function createProtocol({
         const mine = !!msg.winnerId && msg.winnerId === myId()
         round.result = {
           draw: !!msg.draw,
+          lose: !!msg.lose,
           name: msg.winnerName || '',
           kills: msg.kills || 0,
           reward: msg.reward || 0,
           tooShort: !!msg.tooShort,
           mine,
+          arena: msg.mode === 'arena',
         }
         setStatus('')
         if (mine) {
@@ -332,6 +374,65 @@ export function createProtocol({
         }
         break
       }
+
+      case 'arena':
+        applyArena(msg.arena)
+        break
+
+      case 'mobSpawn':
+        enemies?.spawn(msg.mob)
+        break
+
+      case 'mobMove':
+        enemies?.move(
+          msg.id, msg.x, msg.z,
+          (msg.top != null) ? { top: msg.top, east: msg.east, south: msg.south } : null,
+          msg.dx || 0, msg.dz || 0,
+        )
+        break
+
+      case 'mobHit': {
+        if (msg.hp != null) enemies?.setHp(msg.id, msg.hp)
+        const orient = (msg.top != null)
+          ? { top: msg.top, east: msg.east, south: msg.south }
+          : null
+        if (msg.knock && msg.x != null && msg.z != null) {
+          enemies?.move(msg.id, msg.x, msg.z, orient, msg.dx || 0, msg.dz || 0, { knock: true })
+        } else if (orient) {
+          enemies?.setOrient(msg.id, orient)
+        }
+        const me = pm.me()
+        if (me && msg.playerId === myId() && msg.playerHp != null) {
+          me.hp = msg.playerHp
+          pm.paintPlate(me)
+          if (msg.dmgToPlayer > 0) {
+            me.flash = 1
+            popups.spawn(`-${msg.dmgToPlayer}`, NEON_MAGENTA, me.group.position.clone().add(POPUP_OFFSET))
+            pm.playBump(me, msg.dx || 0, msg.dz || 0, { sfx: false, hop: true })
+            env.addShake(0.22)
+            hapticHeavy()
+          }
+        }
+        if (msg.dmgToMob > 0) {
+          const e = enemies?.enemies.get(msg.id)
+          if (e) {
+            popups.spawn(`-${msg.dmgToMob}`, NEON_MAGENTA, e.group.position.clone().add(POPUP_OFFSET))
+          }
+          sfx.hit()
+        }
+        if (msg.playerId === myId() && pm.predictions.length > 0) pm.rollbackPrediction(pm.me())
+        break
+      }
+
+      case 'mobDie':
+        enemies?.kill(msg.id)
+        if (msg.kills != null) arenaState.kills = msg.kills
+        sfx.crumble()
+        break
+
+      case 'mobsClear':
+        enemies?.clear()
+        break
 
       // Cubes landed in the database; the menu balance can be trusted again
       case 'cubes':
@@ -354,8 +455,11 @@ export function createProtocol({
           pm.rollbackPrediction(pm.me())
         }
         break
+
+      default:
+        break
     }
   }
 
-  return { handleMessage, phase, round }
+  return { handleMessage, phase, round, arena: arenaState }
 }

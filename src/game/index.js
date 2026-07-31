@@ -3,12 +3,15 @@ import { createEnvironment } from './environment.js'
 import { createArena } from './platforms.js'
 import { createMines } from './mines.js'
 import { createPlayers } from './players.js'
-import { createPopups } from './sprites.js'
+import { createEnemies } from './enemies.js'
+import { createPopups, setNameplateMaxHp } from './sprites.js'
 import { createProtocol } from './protocol.js'
 import { createNet } from './net.js'
 import { createInput } from './input.js'
 import { ensureAudio } from './sfx.js'
 import { initTelegram, tg } from './telegram.js'
+import { ARENA_HALF, HALF, setPlayHalf } from './layouts.js'
+import { MAX_HP } from './dice.js'
 import { WS_BASE } from '../config/env.js'
 import { t } from '../i18n/t.js'
 
@@ -19,13 +22,23 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   initTelegram()
 
   const env = createEnvironment(canvas, mapId)
+  const isArena = mode === 'arena' || mapId === 'arena' || !!env.theme?.singleLevel
+  // Movement bounds + HP bar scale must match the map before first input.
+  setPlayHalf(isArena ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
+  setNameplateMaxHp(isArena ? 100 : MAX_HP)
   const arena = createArena(env)
+  // Flat PvE floor: show sectors immediately so a slow welcome does not leave
+  // only the grass backdrop. Server layout still wins on welcome.
+  if (isArena) {
+    arena.build([{}, {}, {}])
+  }
   // the arena itself waits for the server layout; apply the saved day/night to
   // the sky and city right away so the scene looks right while connecting
   env.setDayMode(env.isDay())
 
   const players = createPlayers(env, arena)
   const mines = createMines(env.scene, env.theme)
+  const enemies = createEnemies(env)
   const popups = createPopups(env.scene)
 
   let statusTimer = null
@@ -36,7 +49,8 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   }
 
   const protocol = createProtocol({
-    env, arena, players, mines, popups, setStatus,
+    env, arena, players, mines, enemies, popups, setStatus,
+    initialMode: mode,
     onKicked: (reason) => {
       net.dispose()
       onAuthLost?.('kicked', reason)
@@ -61,6 +75,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     onClose: () => {
       players.clear()
       mines.clear()
+      enemies.clear()
       pingShown = -1
       onHud({ ping: null })
     },
@@ -97,13 +112,21 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   let fpsFrames = 0
   let fpsWindow = 0
   let fpsShown = 0
+  // Delay dropping upper floors so death/respawn does not flip group.visible
+  // (that recompile hitch felt like the platform reloading).
+  let stickyViewLevel = 0
+  let stickyHideWait = 0
+  const VIEW_HIDE_DELAY = 0.45
+  let busyHoldSent = false
 
   const lastHud = {
     fps: 0,
     timer: '', timerKind: '', alive: '', banner: '', mine: '', mineReady: null, lives: null,
+    canStart: false, hideMine: false,
   }
 
   function resultText(r) {
+    if (r.lose || (r.arena && r.draw && !r.mine)) return t('game.arenaLose', { kills: r.kills || 0 })
     if (r.draw) return t('game.draw')
     if (r.mine) {
       if (r.tooShort) return t('game.winShort')
@@ -117,12 +140,23 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   }
 
   function updateHud() {
-    const { phase, round } = protocol
+    const { phase, round, arena: arenaHud } = protocol
     let timer = ''
     let timerKind = ''
     let danger = false
 
-    if (round.state === 'waiting') {
+    if (arenaHud.active && (round.state === 'live' || round.state === 'waiting')) {
+      timerKind = 'calm'
+      const s = arenaHud.endsAt
+        ? secondsLeft(arenaHud.endsAt)
+        : Math.ceil((arenaHud.surviveMs || 60000) / 1000)
+      const time = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+      timer = t('game.arenaTimer', { time, kills: arenaHud.kills, goal: arenaHud.killGoal })
+      danger = round.state === 'live' && s <= 10
+    } else if (arenaHud.active && round.state === 'over') {
+      timerKind = 'next'
+      timer = t('game.nextRound', { sec: secondsLeft(round.endsAt) })
+    } else if (round.state === 'waiting') {
       timerKind = 'wait'
       // PvP lobby shows fill progress; solo training is just a label — no 1/2.
       timer = round.room >= round.minPlayers
@@ -144,24 +178,33 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
         : t('game.finalCrumble')
     }
 
-    const alive = round.state === 'live' ? `${round.alive}` : ''
+    const alive = (!arenaHud.active && round.state === 'live') ? `${round.alive}` : ''
     const banner = round.result ? resultText(round.result) : ''
 
     // ability button: countdown, or armed/out of max
     const cooling = Math.max(0, players.local.mineReadyAt - performance.now())
     const out = mines.countOwned(players.state.myId)
-    const mineReady = cooling === 0 && out < players.local.maxMines && players.canPlay()
-    const mine = cooling > 0
-      ? `${Math.ceil(cooling / 1000)}`
-      : `${out}/${players.local.maxMines}`
+    const hideMine = !!arenaHud.active
+    const mineReady = !hideMine && cooling === 0 && out < players.local.maxMines && players.canPlay()
+    const mine = hideMine
+      ? ''
+      : cooling > 0
+        ? `${Math.ceil(cooling / 1000)}`
+        : `${out}/${players.local.maxMines}`
 
     // lives are a match thing: practice would just show a permanent 5/5
     const lives = round.state === 'live' ? (players.me()?.lives ?? null) : null
+    const canStart = !!(
+      round.canStart
+      && round.hostId
+      && String(round.hostId) === String(players.state.myId)
+    )
 
     if (timer !== lastHud.timer || timerKind !== lastHud.timerKind
       || alive !== lastHud.alive || banner !== lastHud.banner
       || mine !== lastHud.mine || mineReady !== lastHud.mineReady
-      || lives !== lastHud.lives) {
+      || lives !== lastHud.lives || canStart !== lastHud.canStart
+      || hideMine !== lastHud.hideMine) {
       lastHud.timer = timer
       lastHud.timerKind = timerKind
       lastHud.alive = alive
@@ -169,9 +212,11 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
       lastHud.mine = mine
       lastHud.mineReady = mineReady
       lastHud.lives = lives
+      lastHud.canStart = canStart
+      lastHud.hideMine = hideMine
       onHud({
         timer, timerKind, timerDanger: danger, alive, banner, mine, mineReady,
-        lives, maxLives: players.local.maxLives,
+        lives, maxLives: players.local.maxLives, canStart, hideMine,
       })
     }
   }
@@ -194,27 +239,56 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     }
 
     // platforms above mine are hidden so they don't block the view of the arena;
-    // while watching, the camera sits over the platform where the fight is.
+    // while spectating, the camera sits over the platform where the fight is.
+    // Temporary death (gone, waiting to respawn) must NOT enter spectate mode —
+    // flipping floors + jungle cull with the camera jump caused a respawn hitch.
     // While a trampoline is live on my floor, keep the next floor already shown —
     // flipping that whole group visible on the first launch frame was a hitch.
     const me = players.me()
-    const watching = !me || me.spectating || me.gone
-    let viewLevel = watching ? protocol.phase.level : me.level
-    if (!watching) {
+    const spectating = !me || me.spectating
+    let viewLevel = spectating ? protocol.phase.level : me.level
+    if (env.theme?.singleLevel) {
+      viewLevel = 0
+    } else if (!spectating) {
       if (me.anim?.type === 'launch' && me.anim.toLevel != null) {
         viewLevel = Math.max(viewLevel, me.anim.toLevel)
-      } else if (me.level < 2 && arena.platforms[me.level]?.trampKey) {
+      } else if (!me.gone && me.level < 2 && arena.platforms[me.level]?.trampKey) {
         viewLevel = Math.max(viewLevel, me.level + 1)
       }
+    }
+
+    if (viewLevel > stickyViewLevel) {
+      stickyViewLevel = viewLevel
+      stickyHideWait = 0
+    } else if (viewLevel < stickyViewLevel) {
+      stickyHideWait += dt
+      if (stickyHideWait >= VIEW_HIDE_DELAY) {
+        stickyViewLevel = viewLevel
+        stickyHideWait = 0
+      }
+    } else {
+      stickyHideWait = 0
+    }
+    viewLevel = stickyViewLevel
+
+    const busy = !!(me && (me.deathAnim || me.spawnAnim || me.pendingDeath))
+    if (busy) {
+      if (!busyHoldSent) {
+        env.holdAdaptive?.(1.5)
+        busyHoldSent = true
+      }
+    } else {
+      busyHoldSent = false
     }
 
     arena.update(dt, t, viewLevel)
     mines.update(dt, t, viewLevel)
     players.update(dt, viewLevel)
+    enemies.update(dt, env.camera)
     updateHud()
     popups.update(dt)
     env.update(dt, t)
-    env.updateCamera(dt, t, watching
+    env.updateCamera(dt, t, spectating
       ? { x: 0, z: 0, level: viewLevel }
       : {
         x: me.group.position.x,
@@ -232,6 +306,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     setDayMode: (day) => env.setDayMode(day),
     isDay: () => env.isDay(),
     placeMine: () => input.placeMine(),
+    startMatch: () => net.send({ t: 'start' }),
     setCameraYaw: (deg) => env.setCameraYaw?.(deg),
     getCameraYaw: () => env.getCameraYaw?.() ?? 0,
     setCameraElev: (deg) => env.setCameraElev?.(deg),
@@ -243,6 +318,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
       clearTimeout(statusTimer)
       input.dispose()
       net.dispose()
+      enemies.clear()
       window.removeEventListener('resize', onResize)
       tg?.offEvent?.('viewportChanged', onResize)
       window.removeEventListener('pointerdown', ensureAudio)

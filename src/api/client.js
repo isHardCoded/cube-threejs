@@ -100,8 +100,13 @@ export const friends = {
 
 export const matchmaking = {
   queue: (maps, size) => api('/api/match/queue', { method: 'POST', body: { maps, size } }),
+  quick: () => api('/api/match/quick', { method: 'POST', body: {} }),
   cancel: () => api('/api/match/queue', { method: 'DELETE' }),
   status: () => api('/api/match/status'),
+  lobbies: () => api('/api/match/lobbies'),
+  lobby: (id) => api(`/api/match/lobbies/${encodeURIComponent(id)}`),
+  createLobby: (mapId, size) => api('/api/match/lobbies', { method: 'POST', body: { mapId, size } }),
+  joinLobby: (id) => api(`/api/match/lobbies/${encodeURIComponent(id)}/join`, { method: 'POST', body: {} }),
 }
 
 export const online = {

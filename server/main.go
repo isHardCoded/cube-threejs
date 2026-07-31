@@ -43,7 +43,7 @@ func main() {
 	presence := NewPresence()
 	online := NewOnline()
 	arena := NewArena(store, presence)
-	log.Println("arena ready (training + pvp matchmaking)")
+	log.Println("arena ready (training + pvp matchmaking + pve arena)")
 
 	api := NewAPI(store, arena, online)
 	http.Handle("/api/", api.Handler())

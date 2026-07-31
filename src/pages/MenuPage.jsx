@@ -4,6 +4,7 @@ import { Gamepad2, ScrollText, Settings, Shirt, Trophy, Users, Shield } from 'lu
 import LogoutIcon from '../components/LogoutIcon.jsx'
 import SettingsModal from '../components/SettingsModal.jsx'
 import Avatar from '../components/Avatar.jsx'
+import CubesMark from '../components/CubesMark.jsx'
 import { badges as badgesApi } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
@@ -67,7 +68,7 @@ export default function MenuPage() {
 
             <div className="cubes">
               <span className="cubes__value">{user.cubes}</span>
-              <span className="cubes__label">{t('menu.cubes')}</span>
+              <CubesMark size={36} className="cubes__mark" />
             </div>
           </div>
 

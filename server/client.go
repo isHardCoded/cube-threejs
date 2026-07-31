@@ -97,6 +97,8 @@ func serveWS(arena *Arena, store *Store, w http.ResponseWriter, r *http.Request)
 		}
 	} else if q.Get("mode") == ModeTraining {
 		hub = arena.TrainingHub(q.Get("map"), u.ID)
+	} else if q.Get("mode") == ModeArena {
+		hub = arena.ArenaHub(u.ID)
 	} else {
 		http.Error(w, "mode required", http.StatusBadRequest)
 		return

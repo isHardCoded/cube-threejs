@@ -202,7 +202,8 @@ func TestQueueRefusesUnknownMaps(t *testing.T) {
 
 func TestQueueRefusesOddRoomSizes(t *testing.T) {
 	a := testArena()
-	for _, size := range []int{0, 1, 3, 7, 11, 100, -2} {
+	// size 0 is quick-search ("any"); other odd values stay refused
+	for _, size := range []int{1, 3, 7, 11, 100, -2} {
 		if _, err := a.Enqueue(1, []string{"lava"}, size); err == nil {
 			t.Errorf("room size %d should be refused", size)
 		}
@@ -211,6 +212,58 @@ func TestQueueRefusesOddRoomSizes(t *testing.T) {
 		if _, err := a.Enqueue(int64(size), []string{"lava"}, size); err != nil {
 			t.Errorf("room size %d should be allowed: %v", size, err)
 		}
+	}
+	if _, err := a.Enqueue(99, []string{"lava"}, 0); err != nil {
+		t.Errorf("size 0 (quick search) should be allowed: %v", err)
+	}
+}
+
+func TestCreateLobbyAlone(t *testing.T) {
+	a := testArena()
+	m, err := a.CreateLobby(1, "lava", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m == nil || m.MapID != "lava" || m.Size != 8 {
+		t.Fatalf("bad ticket: %+v", m)
+	}
+	list := a.ListLobbies()
+	if len(list) != 1 || list[0].Players != 1 || list[0].HostID != 1 {
+		t.Fatalf("list: %+v", list)
+	}
+	m2, err := a.JoinLobby(2, m.ID)
+	if err != nil || m2 == nil || m2.ID != m.ID {
+		t.Fatalf("join: %+v %v", m2, err)
+	}
+}
+
+func TestQuickSearchJoinsAnyLobby(t *testing.T) {
+	a := testArena()
+	m, err := a.CreateLobby(1, "desert", 4)
+	if err != nil || m == nil {
+		t.Fatalf("create: %v %v", m, err)
+	}
+	got, err := a.QuickEnqueue(2)
+	if err != nil || got == nil || got.ID != m.ID {
+		t.Fatalf("quick should join open lobby: %+v %v", got, err)
+	}
+	if got.MapID != "desert" || got.Size != 4 {
+		t.Fatalf("should inherit lobby map/size: %+v", got)
+	}
+}
+
+func TestQuickSearchPairsTwoSearchers(t *testing.T) {
+	a := testArena()
+	m1, err := a.QuickEnqueue(1)
+	if err != nil || m1 != nil {
+		t.Fatalf("first quick should wait: %v %v", m1, err)
+	}
+	m2, err := a.QuickEnqueue(2)
+	if err != nil || m2 == nil {
+		t.Fatalf("second quick should open a room: %v %v", m2, err)
+	}
+	if m2.Size != DefaultQuickRoom {
+		t.Errorf("want default room %d, got %d", DefaultQuickRoom, m2.Size)
 	}
 }
 

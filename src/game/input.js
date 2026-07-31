@@ -21,6 +21,12 @@ export function createInput({ canvas, players: pm, send }) {
   let lastDir = null
   let lastDirAt = 0
   let lastMoveDir = [0, -1] // direction the jump will use
+  pm.local.moveDir = lastMoveDir
+
+  function setMoveDir(dx, dz) {
+    lastMoveDir = [dx, dz]
+    pm.local.moveDir = lastMoveDir
+  }
 
   function inputDir(dx, dz) {
     if (!pm.canPlay()) return
@@ -29,7 +35,7 @@ export function createInput({ canvas, players: pm, send }) {
 
     if (isDouble && now >= pm.local.dashReadyAt) {
       lastDir = null // don't chain triple-tap into two dashes
-      lastMoveDir = [dx, dz]
+      setMoveDir(dx, dz)
       moveGateAt = now + MOVE_GATE_MS
       const dash = pm.predictDash(dx, dz)
       if (dash === 'wall') {
@@ -58,7 +64,7 @@ export function createInput({ canvas, players: pm, send }) {
     // made, each one dashing two cells the server then took back.
     lastDir = [dx, dz]
     lastDirAt = now
-    lastMoveDir = [dx, dz]
+    setMoveDir(dx, dz)
     moveGateAt = now + MOVE_GATE_MS
     send({ t: 'move', dx, dz })
   }

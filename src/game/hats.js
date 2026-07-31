@@ -12,6 +12,7 @@ export const HATS = [
   { id: 'wizard', name: 'Волшебник', swatch: '#5b3fd4', emoji: '🧙' },
   { id: 'crown', name: 'Корона', swatch: '#f0c14a', emoji: '👑' },
   { id: 'hardhat', name: 'Каска', swatch: '#f5c518', emoji: '⛑️' },
+  { id: 'halo', name: 'Нимб', swatch: '#f0c14a', emoji: '😇' },
 ]
 
 /** Authored Blender GLBs. Cache-bust after re-export. */
@@ -20,7 +21,8 @@ export const HAT_ASSETS = {
   cowboy: '/assets/hats/cowboy.glb?v=1',
   wizard: '/assets/hats/wizard.glb?v=4',
   crown: '/assets/hats/crown.glb?v=1',
-  hardhat: '/assets/hats/hardhat.glb?v=1',
+  hardhat: '/assets/hats/hardhat.glb?v=6',
+  halo: '/assets/hats/halo.glb?v=4',
 }
 
 const BUILDERS = {
@@ -29,6 +31,7 @@ const BUILDERS = {
   wizard: buildWizard,
   crown: buildCrown,
   hardhat: buildHardhat,
+  halo: buildHalo,
 }
 
 export function hatExists(id) {
@@ -62,6 +65,9 @@ export async function preloadHats() {
       Hat_HardhatBand: '#1a1a1c',
       Hat_HardhatSticker: '#f4f4f6',
       Hat_HardhatRivet: '#8a8a90',
+      Hat_HaloGold: '#f0c14a',
+      Hat_HaloGoldBright: '#ffe566',
+      Hat_HaloGoldDark: '#c48a1e',
     },
   })
 }
@@ -311,6 +317,59 @@ function buildHardhatProcedural() {
   badge.position.set(0, 0.14, 0.24)
   badge.rotation.x = -0.35
   g.add(badge)
+
+  return g
+}
+
+function buildHalo() {
+  const authored = wrapGltfHat(HAT_ASSETS.halo)
+  if (authored) {
+    authored.traverse((o) => {
+      if (!o.isMesh) return
+      const mats = Array.isArray(o.material) ? o.material : [o.material]
+      for (const m of mats) {
+        if (!m?.name) continue
+        if (m.name === 'Hat_HaloGoldBright') {
+          m.emissive = m.emissive || new THREE.Color('#ffe566')
+          m.emissive.set('#ffe566')
+          m.emissiveIntensity = 0.7
+          m.needsUpdate = true
+        }
+      }
+    })
+    return authored
+  }
+  return buildHaloProcedural()
+}
+
+function buildHaloProcedural() {
+  const g = new THREE.Group()
+  const gold = toon('#f0c14a')
+  const bright = glow('#ffe566', 0.7)
+  const dark = toon('#c48a1e')
+
+  const holder = new THREE.Group()
+  holder.position.y = 0.16
+  holder.rotation.x = -0.32
+  g.add(holder)
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.026, 12, 36), gold)
+  ring.rotation.x = Math.PI / 2
+  holder.add(ring)
+
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(0.255, 0.008, 8, 28), bright)
+  inner.rotation.x = Math.PI / 2
+  holder.add(inner)
+
+  const outer = 0.28 + 0.026 * 0.85
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.034, 4), i % 2 ? dark : bright)
+    spike.position.set(Math.cos(a) * (outer + 0.015), Math.sin(a) * (outer + 0.015), 0)
+    spike.rotation.z = a - Math.PI / 2
+    spike.rotation.x = Math.PI / 2
+    holder.add(spike)
+  }
 
   return g
 }

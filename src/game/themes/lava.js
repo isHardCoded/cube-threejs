@@ -1,4 +1,7 @@
 import * as THREE from 'three'
+import {
+  markCast, markReceive, POLISHED_POST, POLISHED_POST_NIGHT, POLISHED_SHADOWS, polishedGfx,
+} from './gfxPolish.js'
 import { blob, canvasTexture, cellRng, createDrift, geo, glow, solid, toon } from './kit.js'
 
 // Volcanic arena, cel shaded like the city map. The heat is carried by the
@@ -52,7 +55,8 @@ const padTex = canvasTexture((ctx) => {
   }
 })
 
-function createBackdrop(scene, fx) {
+function createBackdrop(scene, fx, opts = {}) {
+  const castMode = opts.shadowCast || 'heavy'
   const group = new THREE.Group()
   scene.add(group)
 
@@ -79,6 +83,7 @@ function createBackdrop(scene, fx) {
   const sea = new THREE.Mesh(geo('lava:sea', () => new THREE.PlaneGeometry(150, 150)), seaMat)
   sea.rotation.x = -Math.PI / 2
   sea.position.y = -24
+  markReceive(sea)
   group.add(sea)
 
   // cooled crust drifting on the sea, so the magma is not one flat orange field
@@ -90,6 +95,7 @@ function createBackdrop(scene, fx) {
     raft.scale.set(4 + Math.random() * 7, 0.6, 3 + Math.random() * 6)
     raft.position.set(Math.cos(angle) * dist, -23.6, Math.sin(angle) * dist)
     raft.rotation.y = Math.random() * Math.PI
+    markReceive(raft)
     group.add(raft)
   }
 
@@ -106,6 +112,7 @@ function createBackdrop(scene, fx) {
     cone.scale.set(r, h, r)
     cone.position.set(cx, -22 + h / 2, cz)
     cone.rotation.y = Math.random() * Math.PI
+    markCast(cone, i % 3 === 0 ? 'core' : 'heavy', castMode)
     group.add(cone)
 
     if (i % 2 === 0) {
@@ -135,6 +142,7 @@ function createBackdrop(scene, fx) {
     shard.scale.set(1.4 + Math.random() * 1.6, h, 1.4 + Math.random() * 1.6)
     shard.position.set(Math.cos(angle) * dist, -6 + h / 2, Math.sin(angle) * dist)
     shard.rotation.set((Math.random() - 0.5) * 0.2, Math.random() * Math.PI, (Math.random() - 0.5) * 0.2)
+    markCast(shard, 'heavy', castMode)
     group.add(shard)
   }
 
@@ -361,21 +369,30 @@ export default {
     accentIntensity: 9,
     underGlow: LAVA, underGlowIntensity: 13,
     spot: '#fff0e2', spotIntensity: 14,
-    bloom: 0.16, exposure: 1.0,
+    bloom: 0.16, exposure: 1.02,
+    post: POLISHED_POST_NIGHT,
   },
 
   day: {
-    // ash-grey with warmth in it: a neutral grey met the fogged magma in a hard
-    // band across the horizon instead of blending into it
-    sky: '#d2b6a6', fogNear: 30, fogFar: 100,
-    hemiSky: '#f2e9e2', hemiGround: '#8c7568', hemiIntensity: 1.9,
-    sunColor: '#fffaf2', sunIntensity: 2.8,
-    accentIntensity: 2.5,
-    underGlow: LAVA, underGlowIntensity: 3,
-    spot: '#ffffff', spotIntensity: 6,
-    bloom: 0.06, exposure: 1.0,
+    // ash-grey with warmth; lighting stack matches desert/jungle polish.
+    sky: '#d2b6a6', fogNear: 42, fogFar: 130,
+    hemiSky: '#f2e9e2', hemiGround: '#8c7568', hemiIntensity: 0.55,
+    sunColor: '#fff0c4', sunIntensity: 3.8,
+    accentIntensity: 1.4,
+    underGlow: LAVA, underGlowIntensity: 1.2,
+    spot: '#ffffff', spotIntensity: 2.4,
+    bloom: 0.07, exposure: 0.84,
+    post: POLISHED_POST,
   },
 
   createBackdrop,
   createProps,
+
+  post: POLISHED_POST,
+  shadows: POLISHED_SHADOWS,
+  gfx: polishedGfx({
+    fillColor: '#ffe0c0',
+    fillColorNight: '#806050',
+  }),
+  materialSteps: 7,
 }

@@ -1,6 +1,12 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import { assetUrl, cloneGltf, getGltfAnimations } from '../assets/gltf.js'
 import { blob, canvasTexture, cellRng, createDrift, geo, glow, pick, solid, toon } from './kit.js'
+
+const BIRD_URL = `${assetUrl('desert', 'props', 'bird')}?v=1`
+const BIRD_SCALE = 0.38
+const BIRD_DAY = '#5a4636'
+const BIRD_NIGHT = '#2b2842'
 
 // A sun-baked cartoon oasis. This is the one map built for day mode first, so
 // the palette is warm sandstone with turquoise water accents; night keeps the
@@ -69,7 +75,7 @@ function createBackdrop(scene, _fx, opts = {}) {
   const seaMat = toon('#dcb27a', TOON)
   const trunkMat = toon(WOOD, TOON)
   const frondMat = toon('#57946a', TOON)
-  const birdMat = toon('#5a4636', TOON)
+  const birdMat = toon(BIRD_DAY, TOON)
   const discMat = new THREE.MeshBasicMaterial({ color: '#fff3c4', fog: false })
   const hazeMat = new THREE.MeshBasicMaterial({
     color: '#ffd89a', fog: false, transparent: true, opacity: 0.18, depthWrite: false,
@@ -83,8 +89,73 @@ function createBackdrop(scene, _fx, opts = {}) {
     [seaMat, '#dcb27a', '#474c73'],
     [trunkMat, WOOD, '#3d3552'],
     [frondMat, '#57946a', '#2f5060'],
-    [birdMat, '#5a4636', '#2b2842'],
+    [birdMat, BIRD_DAY, BIRD_NIGHT],
   ]
+
+  function makeBird(i) {
+    const flight = {
+      angle: (i / 3) * Math.PI * 2,
+      radius: 15 + Math.random() * 4,
+      speed: 0.16 + Math.random() * 0.1,
+      y: -9 + Math.random() * 5,
+      phase: Math.random() * Math.PI * 2,
+    }
+    const authored = cloneGltf(BIRD_URL)
+    if (authored) {
+      const root = new THREE.Group()
+      authored.scale.setScalar(BIRD_SCALE)
+      authored.traverse((obj) => {
+        if (!obj.isMesh) return
+        obj.castShadow = false
+        obj.receiveShadow = false
+        obj.userData.shadowCastTier = 'never'
+        if (Array.isArray(obj.material)) {
+          obj.material = obj.material.map((m) => {
+            const mat = m.clone()
+            mat.color.set(BIRD_DAY)
+            skins.push([mat, BIRD_DAY, BIRD_NIGHT])
+            return mat
+          })
+        } else if (obj.material) {
+          const mat = obj.material.clone()
+          mat.color.set(BIRD_DAY)
+          obj.material = mat
+          skins.push([mat, BIRD_DAY, BIRD_NIGHT])
+        }
+      })
+      root.add(authored)
+      const clips = getGltfAnimations(BIRD_URL)
+      const clipSrc = clips.find((c) => c.name === 'Bird_Fly_Loop') || clips[0]
+      let mixer = null
+      if (clipSrc) {
+        const clip = clipSrc.clone()
+        // Authored loop keys 1..25 with 25==1; trim to 24 frames for seamless LoopRepeat.
+        clip.duration = 24 / 24
+        mixer = new THREE.AnimationMixer(authored)
+        const action = mixer.clipAction(clip)
+        action.setLoop(THREE.LoopRepeat, Infinity)
+        action.clampWhenFinished = false
+        action.play()
+        // Stagger so the three birds do not flap in lockstep.
+        action.time = (i / 3) * clip.duration
+      }
+      root.userData = { ...flight, mixer }
+      return root
+    }
+
+    // Procedural fallback if the GLB failed to preload.
+    const bird = new THREE.Mesh(
+      geo('desert:bird', () => {
+        const g = new THREE.ConeGeometry(0.55, 1.2, 3)
+        g.rotateX(-Math.PI / 2)
+        g.scale(1, 0.12, 1)
+        return g
+      }),
+      birdMat,
+    )
+    bird.userData = { ...flight, mixer: null }
+    return bird
+  }
 
   function receiveOnly(mesh, name) {
     mesh.name = name
@@ -187,23 +258,10 @@ function createBackdrop(scene, _fx, opts = {}) {
   haze.lookAt(0, -6, 0)
   group.add(haze)
 
-  // birds: modelled pointing down -z so lookAt alone aims them
+  // Authored checkmark birds (GLB + Bird_Fly_Loop); cone fallback if missing.
   const birds = []
-  const birdGeo = geo('desert:bird', () => {
-    const g = new THREE.ConeGeometry(0.55, 1.2, 3)
-    g.rotateX(-Math.PI / 2)
-    g.scale(1, 0.12, 1)
-    return g
-  })
   for (let i = 0; i < 3; i++) {
-    const bird = new THREE.Mesh(birdGeo, birdMat)
-    bird.userData = {
-      angle: (i / 3) * Math.PI * 2,
-      radius: 15 + Math.random() * 4,
-      speed: 0.16 + Math.random() * 0.1,
-      y: -9 + Math.random() * 5,
-      phase: Math.random() * Math.PI * 2,
-    }
+    const bird = makeBird(i)
     group.add(bird)
     birds.push(bird)
   }
@@ -229,7 +287,9 @@ function createBackdrop(scene, _fx, opts = {}) {
         b.position.set(Math.cos(u.angle) * u.radius, y, Math.sin(u.angle) * u.radius)
         const ahead = u.angle + 0.05
         b.lookAt(Math.cos(ahead) * u.radius, y, Math.sin(ahead) * u.radius)
-        b.rotateZ(Math.sin(t * 6 + u.phase) * 0.3)
+        // Light bank only — wing flap lives on the armature action.
+        b.rotateZ(Math.sin(t * 2.2 + u.phase) * 0.12)
+        if (u.mixer) u.mixer.update(dt)
       }
       motes.update(dt, t)
       veil.update(dt, t)
@@ -443,6 +503,8 @@ function createProps(fx) {
 
 export default {
   id: 'desert',
+
+  assets: [BIRD_URL],
 
   surface: {
     tileA: SAND, tileB: SAND_DEEP,

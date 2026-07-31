@@ -255,6 +255,16 @@ var GameMaps = map[string]*GameMap{
 		},
 	},
 
+	// Flat PvE Arena: single open sector floor, no props / no upper pads.
+	"arena": {
+		ID: "arena",
+		Levels: [Levels]LevelLayout{
+			{Obstacles: nil, Decals: [][2]int{{0, 0}, {2, -2}, {-2, 2}}},
+			{},
+			{},
+		},
+	},
+
 	"ocean": {
 		ID: "ocean",
 		Levels: [Levels]LevelLayout{

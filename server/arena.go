@@ -57,18 +57,49 @@ type lobby struct {
 	hub      *Hub
 	mapID    string
 	capacity int
+	hostID   int64
 	members  map[int64]bool
 }
 
 func (l *lobby) hasRoom() bool { return len(l.members) < l.capacity }
 
+// LobbyPublic is one row in the lobby browser.
+type LobbyPublic struct {
+	ID       string `json:"id"`
+	MapID    string `json:"mapId"`
+	Capacity int    `json:"capacity"`
+	Players  int    `json:"players"`
+	HostID   int64  `json:"hostId"`
+	HostName string `json:"hostName"`
+	State    string `json:"state"` // waiting | live | over
+	Joinable bool   `json:"joinable"`
+}
+
+// LobbyMember is one seat on the lobby detail card.
+type LobbyMember struct {
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	AvatarURL string `json:"avatarUrl,omitempty"`
+	IsHost    bool   `json:"isHost"`
+	InRoom    bool   `json:"inRoom"`
+}
+
+// LobbyDetail is the lobby browser drill-down.
+type LobbyDetail struct {
+	LobbyPublic
+	Members []LobbyMember `json:"members"`
+}
+
 type queueEntry struct {
 	UserID int64
 	Maps   []string
-	Size   int
+	Size   int // 0 = any size (quick search)
 	Since  time.Time
 	Seen   time.Time // last status poll: proof the searcher is still there
 }
+
+// DefaultQuickRoom is the lobby size opened when two quick-searchers pair up.
+const DefaultQuickRoom = 8
 
 // PendingMatch is the seat a player was given and still has to take.
 type PendingMatch struct {
@@ -140,7 +171,35 @@ func (a *Arena) releaseSlot(roomID string, userID int64) {
 		return
 	}
 	delete(l.members, userID)
+	hostChanged := false
+	if l.hostID == userID {
+		a.reassignHostLocked(l)
+		hostChanged = true
+	}
 	log.Printf("arena: seat freed in %s (%d/%d)", roomID, len(l.members), l.capacity)
+	if hostChanged && l.hub != nil {
+		l.hub.broadcast(map[string]any{"t": "round", "round": l.hub.roundInfo()})
+	}
+}
+
+func (a *Arena) reassignHostLocked(l *lobby) {
+	l.hostID = 0
+	if l.hub != nil {
+		l.hub.hostID = 0
+	}
+	ids := make([]int64, 0, len(l.members))
+	for uid := range l.members {
+		ids = append(ids, uid)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	l.hostID = ids[0]
+	if l.hub != nil {
+		l.hub.hostID = l.hostID
+	}
+	log.Printf("arena: host of %s is now %d", l.hub.id, l.hostID)
 }
 
 func (a *Arena) startHub(h *Hub) {
@@ -175,15 +234,158 @@ func (a *Arena) MatchHub(matchID string) *Hub {
 	return a.rooms[matchID]
 }
 
+// QuickEnqueue finds any open lobby (any map, any size) or waits for one.
+func (a *Arena) QuickEnqueue(userID int64) (*PendingMatch, error) {
+	return a.Enqueue(userID, allMapIDs(), 0)
+}
+
+// CreateLobby opens a hosted room the founder can start when enough players join.
+func (a *Arena) CreateLobby(userID int64, mapID string, size int) (*PendingMatch, error) {
+	if !MapExists(mapID) || mapID == ArenaMapID {
+		return nil, errNoMaps
+	}
+	if !validRoomSize(size) {
+		return nil, errBadRoomSize
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	a.sweepLocked(now)
+
+	if m := a.liveTicketLocked(userID, now); m != nil {
+		return m, nil
+	}
+	a.dequeueLocked(userID)
+	m := a.openLobbyLocked(mapID, size, now, userID)
+	if l := a.lobbies[m.ID]; l != nil && l.hub != nil {
+		l.hub.hosted = true
+	}
+	return m, nil
+}
+
+// JoinLobby seats the player in a specific open lobby from the browser.
+func (a *Arena) JoinLobby(userID int64, lobbyID string) (*PendingMatch, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	a.sweepLocked(now)
+
+	if m := a.liveTicketLocked(userID, now); m != nil {
+		if m.ID == lobbyID {
+			return m, nil
+		}
+		return nil, errAlreadySeated
+	}
+
+	l := a.lobbies[lobbyID]
+	if l == nil {
+		return nil, errLobbyGone
+	}
+	if l.members[userID] {
+		return a.admitLocked(l, userID, now), nil
+	}
+	if !l.hasRoom() {
+		return nil, errLobbyFull
+	}
+	a.dequeueLocked(userID)
+	return a.admitLocked(l, userID, now), nil
+}
+
+// ListLobbies returns every PvP room that is still accepting (or showing) seats.
+func (a *Arena) ListLobbies() []LobbyPublic {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	a.sweepLocked(now)
+
+	out := make([]LobbyPublic, 0, len(a.lobbies))
+	for _, l := range a.lobbies {
+		out = append(out, a.lobbyPublicLocked(l))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Players != out[j].Players {
+			return out[i].Players > out[j].Players
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// LobbyInfo is the detail view for one room.
+func (a *Arena) LobbyInfo(lobbyID string) (*LobbyDetail, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	a.sweepLocked(now)
+
+	l := a.lobbies[lobbyID]
+	if l == nil {
+		return nil, errLobbyGone
+	}
+	detail := &LobbyDetail{LobbyPublic: a.lobbyPublicLocked(l)}
+	ids := make([]int64, 0, len(l.members))
+	for uid := range l.members {
+		ids = append(ids, uid)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	byID := map[int64]OnlineUser{}
+	if a.store != nil && a.store.pool != nil && len(ids) > 0 {
+		if users, err := a.store.UsersPublicByIDs(ids); err == nil {
+			for _, u := range users {
+				byID[u.ID] = u
+			}
+		}
+	}
+	inRoom := map[int64]bool{}
+	if l.hub != nil {
+		for _, p := range l.hub.players {
+			inRoom[p.userID] = true
+		}
+	}
+	detail.Members = make([]LobbyMember, 0, len(ids))
+	for _, uid := range ids {
+		u := byID[uid]
+		name := u.Username
+		if name == "" {
+			name = "PLAYER"
+		}
+		detail.Members = append(detail.Members, LobbyMember{
+			ID: uid, Username: name, AvatarURL: u.AvatarURL,
+			IsHost: uid == l.hostID, InRoom: inRoom[uid],
+		})
+	}
+	return detail, nil
+}
+
+func (a *Arena) lobbyPublicLocked(l *lobby) LobbyPublic {
+	hostName := ""
+	if a.store != nil && a.store.pool != nil && l.hostID != 0 {
+		if u, err := a.store.UserByID(l.hostID); err == nil && u != nil {
+			hostName = u.Username
+		}
+	}
+	state := "waiting"
+	if l.hub != nil {
+		state = roundStateNames[l.hub.roundState]
+	}
+	return LobbyPublic{
+		ID: l.hub.id, MapID: l.mapID, Capacity: l.capacity,
+		Players: len(l.members), HostID: l.hostID, HostName: hostName,
+		State: state, Joinable: l.hasRoom(),
+	}
+}
+
 // Enqueue puts the player into PvP search over the given maps and room size.
-// Calling it again while searching is how the client heals a slot the server has
-// forgotten, so it keeps the queue position instead of going to the back.
+// Size 0 means "any" (quick search). Calling it again while searching is how
+// the client heals a slot the server has forgotten.
 func (a *Arena) Enqueue(userID int64, maps []string, size int) (*PendingMatch, error) {
 	clean, err := validMaps(maps)
 	if err != nil {
 		return nil, err
 	}
-	if !validRoomSize(size) {
+	if size != 0 && !validRoomSize(size) {
 		return nil, errBadRoomSize
 	}
 
@@ -214,7 +416,11 @@ func (a *Arena) Enqueue(userID int64, maps []string, size int) (*PendingMatch, e
 
 	// otherwise open a room with the longest-waiting searcher who fits
 	for i, other := range a.queue {
-		if other.UserID == userID || other.Size != size {
+		if other.UserID == userID {
+			continue
+		}
+		roomSize := pairedRoomSize(size, other.Size)
+		if roomSize == 0 {
 			continue
 		}
 		pick := firstIntersection(other.Maps, clean)
@@ -223,17 +429,38 @@ func (a *Arena) Enqueue(userID int64, maps []string, size int) (*PendingMatch, e
 		}
 		a.queue = append(a.queue[:i], a.queue[i+1:]...)
 		a.dequeueLocked(userID)
-		return a.openLobbyLocked(pick, size, now, other.UserID, userID), nil
+		return a.openLobbyLocked(pick, roomSize, now, other.UserID, userID), nil
 	}
 	return nil, nil
 }
 
+// pairedRoomSize is the lobby capacity two searchers would open together.
+// Zero means they are incompatible (different fixed sizes).
+func pairedRoomSize(a, b int) int {
+	switch {
+	case a == 0 && b == 0:
+		return DefaultQuickRoom
+	case a == 0:
+		return b
+	case b == 0:
+		return a
+	case a == b:
+		return a
+	default:
+		return 0
+	}
+}
+
 // joinOpenLobbyLocked seats the player in the fullest matching lobby that still
 // has room, so lobbies complete instead of all sitting half empty.
+// size 0 accepts any capacity (quick search).
 func (a *Arena) joinOpenLobbyLocked(userID int64, maps []string, size int, now time.Time) *PendingMatch {
 	ids := make([]string, 0, len(a.lobbies))
 	for id, l := range a.lobbies {
-		if l.capacity != size || !l.hasRoom() || l.members[userID] {
+		if !l.hasRoom() || l.members[userID] {
+			continue
+		}
+		if size != 0 && l.capacity != size {
 			continue
 		}
 		if !containsMap(maps, l.mapID) {
@@ -266,11 +493,17 @@ func (a *Arena) openLobbyLocked(mapID string, size int, now time.Time, first ...
 	h.onJoined = func(uid int64) { a.ClaimMatch(uid, id) }
 	h.onLeft = func(uid int64) { a.releaseSlot(id, uid) }
 
-	l := &lobby{hub: h, mapID: gm.ID, capacity: size, members: map[int64]bool{}}
+	var hostID int64
+	if len(first) > 0 {
+		hostID = first[0]
+	}
+	h.hostID = hostID
+
+	l := &lobby{hub: h, mapID: gm.ID, capacity: size, hostID: hostID, members: map[int64]bool{}}
 	a.rooms[id] = h
 	a.lobbies[id] = l
 	a.startHub(h)
-	log.Printf("arena: lobby %s on %s for %d players", id, gm.ID, size)
+	log.Printf("arena: lobby %s on %s for %d players (host %d)", id, gm.ID, size, hostID)
 
 	var m *PendingMatch
 	for _, uid := range first {
@@ -433,7 +666,7 @@ func validMaps(maps []string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
 	for _, id := range maps {
-		if !MapExists(id) || seen[id] {
+		if !MapExists(id) || id == ArenaMapID || seen[id] {
 			continue
 		}
 		seen[id] = true
@@ -467,9 +700,24 @@ func firstIntersection(a, b []string) string {
 	return ""
 }
 
+func allMapIDs() []string {
+	out := make([]string, 0, len(GameMaps))
+	for id := range GameMaps {
+		if id == ArenaMapID {
+			continue // PvE-only floor, not in PvP matchmaking
+		}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 var (
-	errNoMaps      = errString("выберите хотя бы одну карту")
-	errBadRoomSize = errString("выберите размер комнаты")
+	errNoMaps       = errString("выберите хотя бы одну карту")
+	errBadRoomSize  = errString("выберите размер комнаты")
+	errLobbyGone    = errString("лобби больше не доступно")
+	errLobbyFull    = errString("лобби уже заполнено")
+	errAlreadySeated = errString("вы уже в другом лобби")
 )
 
 type errString string

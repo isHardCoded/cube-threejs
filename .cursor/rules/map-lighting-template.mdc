@@ -31,7 +31,7 @@ Night keeps its own `night.*` / `gfx.*Night` values; retune separately when port
 
 1. **Theme owns numbers** — `theme.day` / `theme.night` (sky, fog, hemi, sun, bloom, exposure, post), `theme.shadows`, `theme.gfx`.
 2. **`environment.js` wires once** — renderer, PCF soft sun shadows, fill, composer passes, day/night apply. Maps only supply config.
-3. **Live tweaks** — `getLightTweaks` / `setLightTweaks` in `environment.js` (HUD Light panel removed for now; re-enable when retuning). When a look is approved, bake into the theme.
+3. **Live tweaks** — HUD **Light** panel on every map (`getLightTweaks` / `setLightTweaks`). Values persist in `localStorage` per map + day/night (`cube-game-light:{map}:{day|night}`). When a look is approved, bake into the theme and clear the saved override (Reset).
 
 ## Shadows (sun)
 
