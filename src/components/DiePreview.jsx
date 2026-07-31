@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { DEFAULT_SKIN, createDie } from '../game/dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED, preloadHats } from '../game/hats.js'
+import { createHands, disposeHands, updateHands, preloadHands } from '../game/hands.js'
 import { createOrbit } from './orbitPreview.js'
 
 // Small standalone viewport that reuses the in-game die factory. Drag to orbit,
@@ -40,6 +41,9 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
     let hat = createHat(hatRef.current)
     scene.add(hat)
 
+    let hands = createHands()
+    scene.add(hands)
+
     const orbit = createOrbit(camera, {
       targetY: 0.15,
       dist: 3.4,
@@ -75,10 +79,14 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
     apply(skinRef.current)
     fit()
 
-    // Swap to authored GLB once the hat cache is warm (procedural until then).
-    preloadHats().then(() => {
+    // Swap to authored GLB once caches are warm (procedural / empty until then).
+    Promise.all([preloadHats(), preloadHands()]).then(() => {
       if (cancelled) return
       swapHat(hatRef.current)
+      scene.remove(hands)
+      disposeHands(hands)
+      hands = createHands()
+      scene.add(hands)
     })
 
     let raf = 0
@@ -93,6 +101,11 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
         hat.position.set(0, HAT_BASE_Y + bob, 0)
         hat.quaternion.identity()
       }
+      updateHands(hands, { x: 0, y: 0, z: 0 }, {
+        t: clock.elapsedTime,
+        phase: 0.4,
+        visible: true,
+      })
       renderer.render(scene, camera)
       raf = requestAnimationFrame(tick)
     }
@@ -110,6 +123,7 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
       ro.disconnect()
       api.current = null
       disposeHat(hat)
+      disposeHands(hands)
       renderer.domElement.remove()
       renderer.dispose()
     }

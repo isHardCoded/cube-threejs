@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { NEON_YELLOW } from './palette.js'
 import { DEFAULT_SKIN, createDie, dieGeo, quatForOrient, rollOrient, yAxis } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
+import { createHands, disposeHands, updateHands } from './hands.js'
 import { inArena, floorY, LEVELS } from './layouts.js'
 import { createNameplate, drawNameplate } from './sprites.js'
 import { sfx } from './sfx.js'
@@ -325,11 +326,15 @@ export function createPlayers(env, arena) {
     const hat = createHat(data.hatId)
     scene.add(hat)
 
+    // Same for fists — levitate beside the die, never inherit roll quat.
+    const hands = createHands()
+    scene.add(hands)
+
     const bar = createNameplate(data.name, isMe)
     scene.add(bar.sprite)
 
     const p = {
-      id: data.id, group, bodyMat, bar, hat, hatId: data.hatId || 'none',
+      id: data.id, group, bodyMat, bar, hat, hatId: data.hatId || 'none', hands,
       cell: { x: data.x, z: data.z },
       confirmedCell: { x: data.x, z: data.z },
       level: data.level || 0,
@@ -343,6 +348,7 @@ export function createPlayers(env, arena) {
       pendingDeath: null,           // death animation deferred until move anims finish
       gone: data.dead || data.spectating || false, // fully hidden
       hatPhase: Math.random() * Math.PI * 2,
+      handPhase: Math.random() * Math.PI * 2,
       hatFlight: null,              // detached hat ballistic after arena fall
     }
     paintPlate(p)
@@ -357,6 +363,10 @@ export function createPlayers(env, arena) {
     if (p.hat) {
       scene.remove(p.hat)
       disposeHat(p.hat)
+    }
+    if (p.hands) {
+      scene.remove(p.hands)
+      disposeHands(p.hands)
     }
     scene.remove(p.bar.sprite)
     players.delete(id)
@@ -908,6 +918,23 @@ export function createPlayers(env, arena) {
         } else {
           p.hat.visible = false
         }
+      }
+
+      // fists float beside the die (idle bob + move punch/lag)
+      if (p.hands) {
+        const showHands = !p.gone && (p.group.visible || p.deathAnim)
+        const anchored = !!p.jelly
+        const hx = anchored ? p.cell.x : p.group.position.x
+        const hz = anchored ? p.cell.z : p.group.position.z
+        const hy = anchored ? dieY(p.level) : p.group.position.y
+        updateHands(p.hands, { x: hx, y: hy, z: hz }, {
+          t: performance.now() * 0.001,
+          phase: p.handPhase,
+          scale: p.group.scale,
+          anim: p.anim,
+          hopLift: hopFx ? hopFx.hatExtra * 0.6 : 0,
+          visible: showHands,
+        })
       }
 
       // nameplate floats above the die (and hat); hidden while dead

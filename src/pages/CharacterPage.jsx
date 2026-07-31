@@ -7,6 +7,7 @@ import { profile } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
 import { DEFAULT_SKIN } from '../game/dice.js'
 import { DEFAULT_HAT, HATS, preloadHats } from '../game/hats.js'
+import { preloadHands } from '../game/hands.js'
 import { getStoredHatId, setStoredHatId } from '../game/hatStore.js'
 import { DEFAULT_MINE_SKIN } from '../game/mineModels.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
@@ -56,6 +57,7 @@ export default function CharacterPage() {
           profile.skins(),
           profile.mineSkins(),
           preloadHats().catch(() => null),
+          preloadHands().catch(() => null),
         ])
         if (cancelled) return
         setCatalog(dice.skins || [])
