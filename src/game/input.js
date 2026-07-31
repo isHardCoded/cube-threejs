@@ -30,12 +30,13 @@ export function createInput({ canvas, players: pm, send }) {
 
   function inputDir(dx, dz) {
     if (!pm.canPlay()) return
+    // Aim updates even on wall bumps / gated presses so the arrow (and jump) match intent
+    setMoveDir(dx, dz)
     const now = performance.now()
     const isDouble = lastDir && lastDir[0] === dx && lastDir[1] === dz && (now - lastDirAt) < DOUBLE_TAP_MS
 
     if (isDouble && now >= pm.local.dashReadyAt) {
       lastDir = null // don't chain triple-tap into two dashes
-      setMoveDir(dx, dz)
       moveGateAt = now + MOVE_GATE_MS
       const dash = pm.predictDash(dx, dz)
       if (dash === 'wall') {
@@ -64,7 +65,6 @@ export function createInput({ canvas, players: pm, send }) {
     // made, each one dashing two cells the server then took back.
     lastDir = [dx, dz]
     lastDirAt = now
-    setMoveDir(dx, dz)
     moveGateAt = now + MOVE_GATE_MS
     send({ t: 'move', dx, dz })
   }

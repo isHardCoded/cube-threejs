@@ -3,7 +3,7 @@ import { NEON_YELLOW } from './palette.js'
 import { DEFAULT_SKIN, createDie, dieGeo, quatForOrient, rollOrient, yAxis } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
 import { inArena, floorY, LEVELS } from './layouts.js'
-import { createNameplate, drawNameplate, SPRITE_LAYER } from './sprites.js'
+import { createNameplate, drawNameplate } from './sprites.js'
 import { sfx } from './sfx.js'
 import { haptic, hapticHeavy } from './telegram.js'
 
@@ -59,12 +59,12 @@ export function createPlayers(env, arena) {
     moveDir: [0, -1],
   }
 
-  // Cartoon aim chevron on SPRITE_LAYER — billboarded so screen-up = world forward.
+  // Cartoon aim chevron — depth-tested so the die can occlude it; still billboarded.
   const facingArrowFillMat = new THREE.MeshBasicMaterial({
-    color: '#ffe566', depthTest: false, depthWrite: false, toneMapped: false,
+    color: '#ffe566', depthTest: true, depthWrite: false, toneMapped: false,
   })
   const facingArrowOutlineMat = new THREE.MeshBasicMaterial({
-    color: '#0a0a0c', depthTest: false, depthWrite: false, toneMapped: false,
+    color: '#0a0a0c', depthTest: true, depthWrite: false, toneMapped: false,
   })
   const facingArrow = new THREE.Group()
   {
@@ -100,24 +100,23 @@ export function createPlayers(env, arena) {
       return geo
     }
     const fillGeo = extrude(chevron({
-      tip: 0.13, wing: 0.08, wingY: 0.022, neck: 0.052, shaft: 0.032, butt: -0.108,
-    }), 0.04, 0.012)
+      tip: 0.09, wing: 0.055, wingY: 0.015, neck: 0.036, shaft: 0.022, butt: -0.075,
+    }), 0.03, 0.009)
     // ~constant rim width around the whole chevron (including head/shaft join)
     const outlineGeo = extrude(chevron({
-      tip: 0.155, wing: 0.105, wingY: 0.028, neck: 0.07, shaft: 0.052, butt: -0.132,
-    }), 0.05, 0.014)
+      tip: 0.108, wing: 0.072, wingY: 0.02, neck: 0.048, shaft: 0.036, butt: -0.092,
+    }), 0.036, 0.01)
 
-    const tagUi = (mesh, order) => {
-      mesh.layers.set(SPRITE_LAYER)
+    const tagArrow = (mesh, order) => {
       mesh.renderOrder = order
       mesh.frustumCulled = false
       mesh.castShadow = false
       mesh.receiveShadow = false
       return mesh
     }
-    const outline = tagUi(new THREE.Mesh(outlineGeo, facingArrowOutlineMat), 10)
+    const outline = tagArrow(new THREE.Mesh(outlineGeo, facingArrowOutlineMat), 2)
     outline.position.z = -0.01
-    const fill = tagUi(new THREE.Mesh(fillGeo, facingArrowFillMat), 11)
+    const fill = tagArrow(new THREE.Mesh(fillGeo, facingArrowFillMat), 3)
     fill.position.z = 0.008
     facingArrow.add(outline, fill)
   }
