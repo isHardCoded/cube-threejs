@@ -10,6 +10,8 @@ export const HATS = [
   { id: 'santa', name: 'Санта', swatch: '#e22b2b', emoji: '🎅' },
   { id: 'cowboy', name: 'Ковбой', swatch: '#8b5a2b', emoji: '🤠' },
   { id: 'wizard', name: 'Волшебник', swatch: '#5b3fd4', emoji: '🧙' },
+  { id: 'crown', name: 'Корона', swatch: '#f0c14a', emoji: '👑' },
+  { id: 'hardhat', name: 'Каска', swatch: '#f5c518', emoji: '⛑️' },
 ]
 
 /** Authored Blender GLBs. Cache-bust after re-export. */
@@ -17,12 +19,16 @@ export const HAT_ASSETS = {
   santa: '/assets/hats/santa.glb?v=3',
   cowboy: '/assets/hats/cowboy.glb?v=1',
   wizard: '/assets/hats/wizard.glb?v=4',
+  crown: '/assets/hats/crown.glb?v=1',
+  hardhat: '/assets/hats/hardhat.glb?v=1',
 }
 
 const BUILDERS = {
   santa: buildSanta,
   cowboy: buildCowboy,
   wizard: buildWizard,
+  crown: buildCrown,
+  hardhat: buildHardhat,
 }
 
 export function hatExists(id) {
@@ -46,6 +52,16 @@ export async function preloadHats() {
       Hat_WizardPurple: '#5b3fd4',
       Hat_WizardDeep: '#3a248a',
       Hat_WizardStar: '#ffe566',
+      Hat_CrownGold: '#f0c14a',
+      Hat_CrownGoldDark: '#c48a1e',
+      Hat_CrownRuby: '#d91e38',
+      Hat_CrownSapphire: '#3872f0',
+      Hat_CrownEmerald: '#26bf59',
+      Hat_HardhatYellow: '#f5c518',
+      Hat_HardhatYellowDark: '#d49a0e',
+      Hat_HardhatBand: '#1a1a1c',
+      Hat_HardhatSticker: '#f4f4f6',
+      Hat_HardhatRivet: '#8a8a90',
     },
   })
 }
@@ -210,6 +226,91 @@ function buildWizardProcedural() {
   const tip = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), star)
   tip.position.set(0.04, 0.58, 0)
   g.add(tip)
+
+  return g
+}
+
+function buildCrown() {
+  const authored = wrapGltfHat(HAT_ASSETS.crown)
+  if (authored) {
+    authored.traverse((o) => {
+      if (!o.isMesh) return
+      const mats = Array.isArray(o.material) ? o.material : [o.material]
+      for (const m of mats) {
+        if (!m?.name) continue
+        if (m.name === 'Hat_CrownRuby' || m.name === 'Hat_CrownSapphire' || m.name === 'Hat_CrownEmerald') {
+          m.emissive = m.emissive || new THREE.Color(m.color)
+          m.emissive.copy(m.color)
+          m.emissiveIntensity = 0.45
+          m.needsUpdate = true
+        }
+      }
+    })
+    return authored
+  }
+  return buildCrownProcedural()
+}
+
+function buildCrownProcedural() {
+  const g = new THREE.Group()
+  const gold = toon('#f0c14a')
+  const dark = toon('#c48a1e')
+  const ruby = glow('#d91e38', 0.45)
+
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.1, 24), gold)
+  band.position.y = 0.07
+  g.add(band)
+
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2
+    const h = 0.14 + (i % 2 === 0 ? 0.08 : 0)
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.05, h, 4), i % 2 === 0 ? gold : dark)
+    spike.position.set(Math.cos(a) * 0.26, 0.12 + h * 0.45, Math.sin(a) * 0.26)
+    g.add(spike)
+  }
+
+  const gem = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8), ruby)
+  gem.position.set(0, 0.08, 0.30)
+  g.add(gem)
+
+  return g
+}
+
+function buildHardhat() {
+  const authored = wrapGltfHat(HAT_ASSETS.hardhat)
+  if (authored) return authored
+  return buildHardhatProcedural()
+}
+
+function buildHardhatProcedural() {
+  const g = new THREE.Group()
+  const yellow = toon('#f5c518')
+  const dark = toon('#d49a0e')
+  const band = toon('#1a1a1c')
+  const sticker = toon('#f4f4f6')
+
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.40, 0.025, 28), yellow)
+  brim.position.y = 0.012
+  brim.scale.set(1.05, 1, 1.15)
+  g.add(brim)
+
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.28, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), yellow)
+  shell.position.y = 0.02
+  shell.scale.set(1.05, 0.95, 0.95)
+  g.add(shell)
+
+  const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.36), dark)
+  ridge.position.y = 0.28
+  g.add(ridge)
+
+  const sweat = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.03, 22), band)
+  sweat.position.y = 0.05
+  g.add(sweat)
+
+  const badge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.02), sticker)
+  badge.position.set(0, 0.14, 0.24)
+  badge.rotation.x = -0.35
+  g.add(badge)
 
   return g
 }

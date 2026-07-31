@@ -145,6 +145,11 @@ func (c *Client) readLoop() {
 		if json.Unmarshal(data, &msg) != nil {
 			continue
 		}
+		// Latency probe: answer immediately so RTT is not queued behind gameplay.
+		if msg.T == "ping" {
+			c.hub.sendRaw(c, map[string]any{"t": "pong", "ts": msg.Ts})
+			continue
+		}
 		select {
 		case c.hub.commands <- command{client: c, msg: msg}:
 		default: // command queue full: drop input rather than block

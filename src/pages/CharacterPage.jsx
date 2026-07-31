@@ -65,9 +65,18 @@ export default function CharacterPage() {
       }
 
       // Hats may 404 on an older server build — keep the page usable.
+      // Merge client catalog so newly added hats (e.g. crown) show even if the
+      // running API binary is a revision behind the frontend.
       try {
         const hats = await profile.hats()
-        if (!cancelled) setHatCatalog(hats.hats || HATS)
+        if (!cancelled) {
+          const fromApi = hats.hats || []
+          const byId = new Map(fromApi.map((h) => [h.id, h]))
+          for (const h of HATS) {
+            if (!byId.has(h.id)) byId.set(h.id, h)
+          }
+          setHatCatalog([...byId.values()])
+        }
       } catch {
         if (!cancelled) setHatCatalog(HATS)
       } finally {

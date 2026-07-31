@@ -12,7 +12,7 @@ import { sfx } from '../game/sfx.js'
 
 const EMPTY_HUD = {
   status: '', timer: '', timerKind: '', timerDanger: false, alive: '', banner: '',
-  mine: '', mineReady: false, fps: 0,
+  mine: '', mineReady: false, fps: 0, ping: null,
 }
 
 export default function GamePage() {

@@ -211,6 +211,8 @@ export const ru = {
   'hats.santa': 'Санта',
   'hats.cowboy': 'Ковбой',
   'hats.wizard': 'Волшебник',
+  'hats.crown': 'Корона',
+  'hats.hardhat': 'Каска',
 
   'profile.title': 'Профиль',
   'profile.registered': 'Регистрация',
@@ -603,6 +605,8 @@ export const en = {
   'hats.santa': 'Santa',
   'hats.cowboy': 'Cowboy',
   'hats.wizard': 'Wizard',
+  'hats.crown': 'Crown',
+  'hats.hardhat': 'Hard Hat',
 
   'profile.title': 'Profile',
   'profile.registered': 'Joined',

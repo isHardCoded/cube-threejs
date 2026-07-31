@@ -44,6 +44,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     onCubes,
   })
 
+  let pingShown = -1
   const net = createNet({
     url: () => {
       const params = new URLSearchParams({ token })
@@ -60,9 +61,17 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     onClose: () => {
       players.clear()
       mines.clear()
+      pingShown = -1
+      onHud({ ping: null })
     },
     onStatus: setStatus,
     onAuthFailure: () => onAuthLost?.('rejected'),
+    onPing: (ping) => {
+      if (ping !== pingShown) {
+        pingShown = ping
+        onHud({ ping })
+      }
+    },
   })
 
   const input = createInput({

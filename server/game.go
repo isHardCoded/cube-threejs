@@ -112,9 +112,10 @@ type command struct {
 }
 
 type clientMsg struct {
-	T  string `json:"t"` // "move" | "dash" | "jump" | "mine" | "bump"
-	DX int    `json:"dx"`
-	DZ int    `json:"dz"`
+	T  string  `json:"t"` // "move" | "dash" | "jump" | "mine" | "bump" | "ping"
+	DX int     `json:"dx"`
+	DZ int     `json:"dz"`
+	Ts float64 `json:"ts"` // client timestamp echoed by "pong"
 }
 
 type Hub struct {

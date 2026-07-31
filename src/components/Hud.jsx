@@ -30,7 +30,7 @@ function TimerIcon({ kind }) {
 // coming out of the game loop, so React only re-renders when text changes.
 export default function Hud({
   status, timer, timerKind, timerDanger, alive, banner, isDay, onToggleDay,
-  mine, mineReady, onMine, onOpenAssets, lives, maxLives = 5, fps = 0,
+  mine, mineReady, onMine, onOpenAssets, lives, maxLives = 5, fps = 0, ping = null,
 }) {
   const { t } = useLocale()
   const controls = [
@@ -61,7 +61,11 @@ export default function Hud({
 
   return (
     <div className="hud-root">
-      <div className="hud-fps" aria-hidden="true">{fps > 0 ? `${fps} FPS` : '— FPS'}</div>
+      <div className="hud-fps" aria-hidden="true">
+        {fps > 0 ? `${fps} FPS` : '— FPS'}
+        {' · '}
+        {ping != null ? `${ping} ms` : '— ms'}
+      </div>
       <div className="hud-top">
         {timer && (
           <div className={`toast${timerDanger ? ' toast--danger' : ''}`}>
