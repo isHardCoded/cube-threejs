@@ -6,7 +6,7 @@ import Spinner from '../components/Spinner.jsx'
 import { profile } from '../api/client.js'
 import { useAuth } from '../auth/context.js'
 import { DEFAULT_SKIN } from '../game/dice.js'
-import { DEFAULT_HAT, HATS } from '../game/hats.js'
+import { DEFAULT_HAT, HATS, preloadHats } from '../game/hats.js'
 import { getStoredHatId, setStoredHatId } from '../game/hatStore.js'
 import { DEFAULT_MINE_SKIN } from '../game/mineModels.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
@@ -52,7 +52,11 @@ export default function CharacterPage() {
     let cancelled = false
     ;(async () => {
       try {
-        const [dice, mines] = await Promise.all([profile.skins(), profile.mineSkins()])
+        const [dice, mines] = await Promise.all([
+          profile.skins(),
+          profile.mineSkins(),
+          preloadHats().catch(() => null),
+        ])
         if (cancelled) return
         setCatalog(dice.skins || [])
         setMineCatalog(mines.skins || [])

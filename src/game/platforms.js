@@ -364,6 +364,7 @@ export function createArena(env) {
   }
 
   function restorePlatforms() {
+    clearLaunchHatches()
     fallingPieces.length = 0
     for (const set of holeSets) set.clear()
     for (const plat of platforms) {
@@ -388,6 +389,60 @@ export function createArena(env) {
     plat.trampKey = cellKey(x, z)
   }
 
+  // --- Launch hatch: landing tile dips so the cube flies through, then reseats ---
+  const launchHatches = [] // { id, entries, t, time }
+  const smooth01 = (u) => {
+    const x = Math.min(1, Math.max(0, u))
+    return x * x * (3 - 2 * x)
+  }
+
+  /** How far the tile is lowered (0 seated … 1 fully open), by launch progress. */
+  function hatchOpenAmount(t) {
+    // Open early, hold while the cube passes the underside, reseat before land.
+    if (t < 0.10) return smooth01(t / 0.10)
+    if (t < 0.58) return 1
+    if (t < 0.78) return 1 - smooth01((t - 0.58) / 0.20)
+    return 0
+  }
+
+  function restoreHatchEntries(entries) {
+    for (const e of entries) {
+      if (!e.obj) continue
+      e.obj.position.copy(e.pos0)
+      e.obj.quaternion.copy(e.quat0)
+    }
+  }
+
+  /**
+   * Drop the destination cell's floor for a trampoline launch so the die
+   * passes through a temporary hole, then seat the tile again under the landing.
+   */
+  function beginLaunchHatch(level, x, z, duration = 1.65) {
+    const plat = platforms[level]
+    if (!plat || holeSets[level].has(cellKey(x, z))) return
+    const key = cellKey(x, z)
+    const id = `${level}:${key}`
+    // Replace any in-flight hatch on the same cell
+    for (let i = launchHatches.length - 1; i >= 0; i--) {
+      if (launchHatches[i].id !== id) continue
+      restoreHatchEntries(launchHatches[i].entries)
+      launchHatches.splice(i, 1)
+    }
+    const arr = plat.pieces.get(key) || []
+    const entries = []
+    for (const e of arr) {
+      if (e.soft || !e.obj?.visible) continue
+      entries.push({ obj: e.obj, pos0: e.pos0.clone(), quat0: e.quat0.clone() })
+    }
+    if (!entries.length) return
+    launchHatches.push({ id, entries, t: 0, time: Math.max(0.4, duration) })
+  }
+
+  function clearLaunchHatches() {
+    for (const h of launchHatches) restoreHatchEntries(h.entries)
+    launchHatches.length = 0
+  }
+
   // cell checks mirroring the server, so predictions never phase through walls
   const isBlocked = (l, x, z) => blockedSets[l].has(cellKey(x, z)) && !holeSets[l].has(cellKey(x, z))
   const isHole = (l, x, z) => holeSets[l].has(cellKey(x, z))
@@ -405,6 +460,23 @@ export function createArena(env) {
       // reads as glued to the ground.
       const hover = (theme.authoredArena && l === 0) ? 0.28 : 0.05
       platforms[l].group.position.y = yOf(l) + Math.sin(t * 0.85 + l * 1.3) * hover
+    }
+
+    // Launch hatches (local Y offset on floor pieces)
+    for (let i = launchHatches.length - 1; i >= 0; i--) {
+      const h = launchHatches[i]
+      h.t = Math.min(1, h.t + dt / h.time)
+      const open = hatchOpenAmount(h.t)
+      // Deep enough that a stretched die clears the underside, but still readable.
+      const dy = -1.65 * open
+      for (const e of h.entries) {
+        e.obj.position.copy(e.pos0)
+        e.obj.position.y += dy
+      }
+      if (h.t >= 1) {
+        restoreHatchEntries(h.entries)
+        launchHatches.splice(i, 1)
+      }
     }
 
     // crumbled pieces tumble down into the void / lake
@@ -447,6 +519,7 @@ export function createArena(env) {
   return {
     platforms, holeSets,
     build, destroyCellVisual, restorePlatforms, showTramp,
+    beginLaunchHatch, clearLaunchHatches,
     isBlocked, isHole, isTramp,
     update,
   }

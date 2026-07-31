@@ -259,6 +259,15 @@ export function createEnvironment(canvas, mapId) {
   let godrayDayIntensity = gfx.godrayIntensity ?? 0.2
   const shadowFocus = new THREE.Vector3()
   const sunWorld = new THREE.Vector3()
+  const casterWorld = new THREE.Vector3()
+  /** @type {{ obj: THREE.Object3D, score: number }[]} */
+  const casterRank = []
+  let viewCullAccum = 0
+  let viewCullBoot = true
+  const VIEW_CULL_HZ = 8
+  // Lock heavy shadow GPU state for the session — adaptive must not dispose maps mid-match.
+  const sessionShadows = profile.shadows !== false
+  const sessionShadowMapSize = profile.shadowMapSize
 
   const lightTweaks = {
     sunIntensity: 1,
@@ -344,17 +353,52 @@ export function createEnvironment(canvas, mapId) {
   }
 
   function updateShadowCasterCull() {
-    const enabled = profile.shadows !== false
+    const enabled = sessionShadows && profile.shadows !== false
     const allowHeavy = profile.shadowCast === 'heavy'
+    const maxN = Math.max(0, profile.maxShadowCasters ?? 16)
+    const fx = shadowFocus.x
+    const fz = shadowFocus.z
+    let n = 0
+
     for (let i = 0; i < shadowCasters.length; i++) {
       const obj = shadowCasters[i]
-      if (!enabled || !obj.visible) {
-        obj.castShadow = false
-        continue
-      }
+      obj.castShadow = false
+      if (!enabled || maxN === 0 || !obj.visible) continue
       const tier = obj.userData.shadowCastTier
-      obj.castShadow = tier === 'core' || (tier === 'heavy' && allowHeavy)
+      if (!(tier === 'core' || (allowHeavy && tier === 'heavy'))) continue
+      obj.getWorldPosition(casterWorld)
+      const dx = casterWorld.x - fx
+      const dz = casterWorld.z - fz
+      // Prefer palms/cliffs (core) when the budget is tight.
+      const score = (dx * dx + dz * dz) * (tier === 'core' ? 0.4 : 1)
+      if (n < casterRank.length) {
+        casterRank[n].obj = obj
+        casterRank[n].score = score
+      } else {
+        casterRank.push({ obj, score })
+      }
+      n++
     }
+
+    // Partial selection: keep the N best without full sort when large.
+    const take = Math.min(maxN, n)
+    for (let i = 0; i < take; i++) {
+      let best = i
+      for (let j = i + 1; j < n; j++) {
+        if (casterRank[j].score < casterRank[best].score) best = j
+      }
+      if (best !== i) {
+        const tmp = casterRank[i]
+        casterRank[i] = casterRank[best]
+        casterRank[best] = tmp
+      }
+      casterRank[i].obj.castShadow = true
+    }
+  }
+
+  function refreshViewAndShadows() {
+    backdrop.cullToCamera?.(camera)
+    updateShadowCasterCull()
   }
 
   function setDayMode(day) {
@@ -437,7 +481,8 @@ export function createEnvironment(canvas, mapId) {
     resizePostTargets()
   }
 
-  // Adaptive quality (Auto only): ease DPR/AO/bloom down if FPS tanks.
+  // Adaptive quality (Auto only): soften DPR / AO / bloom / caster caps.
+  // Never dispose/recreate the shadow map mid-match (that hitch felt like a freeze).
   let fpsEma = 60
   let adaptCooldown = 2.5
   let adaptHold = 0
@@ -445,8 +490,13 @@ export function createEnvironment(canvas, mapId) {
   function applyAdaptiveTier(nextTier) {
     if (nextTier === adaptiveTier) return
     adaptiveTier = nextTier
-    profile = resolveProfile(nextTier)
-    applyShadowVolume()
+    const next = resolveProfile(nextTier)
+    profile = {
+      ...next,
+      // Keep session shadow GPU allocation stable
+      shadows: sessionShadows,
+      shadowMapSize: sessionShadowMapSize,
+    }
     if (gtao) gtao.enabled = !!profile.ao
     const dpr = Math.min(window.devicePixelRatio, profile.maxDpr)
     renderer.setPixelRatio(dpr)
@@ -455,15 +505,19 @@ export function createEnvironment(canvas, mapId) {
     if (gtao && typeof gtao.updateGtaoMaterial === 'function') {
       gtao.updateGtaoMaterial({ samples: profile.aoSamples })
     }
+    // Re-rank casters under the new budget without rebuilding the map
+    updateShadowCasterCull()
   }
 
   function update(dt, t) {
     backdrop.update(dt, t)
 
     for (const b of fx.blinkers) {
+      if (b.mesh.visible === false) continue
       b.mesh.material.emissiveIntensity = 0.55 + Math.sin(t * b.speed + b.phase) * 0.35
     }
     for (const h of fx.holos) {
+      if (h.visible === false) continue
       h.rotation.y = t * 1.2
       h.position.y = 2.0 + Math.sin(t * 2) * 0.08
     }
@@ -557,9 +611,13 @@ export function createEnvironment(canvas, mapId) {
     lookTarget.lerp(lookGoal, 1 - Math.pow(0.0006, dt))
     camera.lookAt(lookTarget)
 
-    // Frustum cull backdrop (hide + skip anim) then shadows only for visible meshes.
-    backdrop.cullToCamera?.(camera)
-    updateShadowCasterCull()
+    // View cull + shadow budget at ~8 Hz (hysteresis avoids edge flicker).
+    viewCullAccum += dt
+    if (viewCullBoot || viewCullAccum >= 1 / VIEW_CULL_HZ) {
+      viewCullAccum = 0
+      viewCullBoot = false
+      refreshViewAndShadows()
+    }
 
     if (godray && isDay && godrayDayIntensity > 0) {
       sun.getWorldPosition(sunWorld)

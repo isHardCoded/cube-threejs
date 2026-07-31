@@ -70,6 +70,7 @@ export function createProtocol({
     p.deathAnim = null
     p.pendingDeath = null
     p.gone = false
+    pm.clearHatFlight(p)
     p.group.position.set(data.x, floorY(p.level, env.theme?.arenaLift || 0) + 0.5, data.z)
     p.group.scale.set(1, 1, 1)
     const q = quatForOrient(data)
@@ -283,7 +284,12 @@ export function createProtocol({
       case 'launch': {
         const p = pm.players.get(msg.p.id)
         if (!p) { pm.addPlayer(msg.p); break }
-        if (msg.p.id === myId()) pm.predictions.length = 0
+        if (msg.p.id === myId()) {
+          pm.predictions.length = 0
+          // Drop client-predicted rolls that raced the trampoline — otherwise they
+          // play after (or instead of) the arc and leave the die on the old floor Y.
+          p.queue = p.queue.filter((m) => !m.predicted)
+        }
         pm.syncConfirmed(p, msg.p)
         // queued after the move that stepped onto the trampoline,
         // so the roll finishes first and the launch starts from the pad

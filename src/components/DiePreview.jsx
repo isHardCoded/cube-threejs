@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { DEFAULT_SKIN, createDie } from '../game/dice.js'
-import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from '../game/hats.js'
+import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED, preloadHats } from '../game/hats.js'
 import { createOrbit } from './orbitPreview.js'
 
 // Small standalone viewport that reuses the in-game die factory. Drag to orbit,
@@ -17,6 +17,7 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
   useEffect(() => {
     const el = holder.current
     if (!el) return
+    let cancelled = false
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -74,6 +75,12 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
     apply(skinRef.current)
     fit()
 
+    // Swap to authored GLB once the hat cache is warm (procedural until then).
+    preloadHats().then(() => {
+      if (cancelled) return
+      swapHat(hatRef.current)
+    })
+
     let raf = 0
     const clock = new THREE.Clock()
     const tick = () => {
@@ -97,6 +104,7 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
     api.current = { apply, swapHat }
 
     return () => {
+      cancelled = true
       cancelAnimationFrame(raf)
       detachOrbit()
       ro.disconnect()

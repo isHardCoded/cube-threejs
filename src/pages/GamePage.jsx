@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import Hud from '../components/Hud.jsx'
 import MapAssetModal from '../components/MapAssetModal.jsx'
 import { startGame } from '../game/index.js'
+import { preloadHats } from '../game/hats.js'
 import { preloadThemeAssets } from '../game/themes/index.js'
 import { getToken } from '../auth/tokenStore.js'
 import { useAuth } from '../auth/context.js'
@@ -32,7 +33,7 @@ export default function GamePage() {
     let game = null
 
     ;(async () => {
-      await preloadThemeAssets(mapId)
+      await Promise.all([preloadThemeAssets(mapId), preloadHats()])
       if (stopped || !canvasRef.current) return
 
       game = startGame({

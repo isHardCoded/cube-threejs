@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { NEON_YELLOW } from './palette.js'
 import { DEFAULT_SKIN, createDie, dieGeo, quatForOrient, rollOrient, yAxis } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
-import { inArena, floorY } from './layouts.js'
+import { inArena, floorY, LEVELS } from './layouts.js'
 import { createNameplate, drawNameplate } from './sprites.js'
 import { sfx } from './sfx.js'
 import { haptic, hapticHeavy } from './telegram.js'
@@ -142,7 +142,7 @@ export function createPlayers(env, arena) {
     const dirX = Math.sign(dx) || 0
     const dirZ = Math.sign(dz) || 0
     if (dirX === 0 && dirZ === 0) return
-    p.jelly = { t: 0, dx: dirX, dz: dirZ, time: JELLY_TIME, hatLift: 0 }
+    p.jelly = { t: 0, dx: dirX, dz: dirZ, time: JELLY_TIME }
     if (opts.sfx !== false) sfx.bump()
     if (opts.shake) env.addShake?.(opts.shake)
     if (opts.haptic && p.id === state.myId) haptic()
@@ -213,9 +213,23 @@ export function createPlayers(env, arena) {
   const me = () => players.get(state.myId)
 
   // spectators and corpses take no input: the server would drop it anyway
+  function isLaunchLocked(p = me()) {
+    if (!p) return false
+    if (p.anim?.type === 'launch') return true
+    return p.queue.some((m) => m.t === 'launch')
+  }
+
   function canPlay() {
     const p = me()
-    return !!p && !p.dead && !p.spectating
+    if (!p || p.dead || p.spectating) return false
+    // Trampoline flight owns the cube — WASD mid-arc desyncs level vs. mesh Y
+    // (prediction queues a roll on the pad floor while the server is already up).
+    if (isLaunchLocked(p)) return false
+    // After the step onto the pad (predicted or confirmed), wait for launch —
+    // further rolls race the server teleport to the next floor.
+    const o = predictOrigin(p)
+    if (arena.isTramp?.(p.level, o.x, o.z)) return false
+    return true
   }
 
   function addPlayer(data) {
@@ -256,6 +270,7 @@ export function createPlayers(env, arena) {
       pendingDeath: null,           // death animation deferred until move anims finish
       gone: data.dead || data.spectating || false, // fully hidden
       hatPhase: Math.random() * Math.PI * 2,
+      hatFlight: null,              // detached hat ballistic after arena fall
     }
     paintPlate(p)
     players.set(data.id, p)
@@ -277,11 +292,12 @@ export function createPlayers(env, arena) {
   function setHat(p, hatId) {
     if (!p) return
     const next = hatId || 'none'
-    if (p.hatId === next && p.hat) return
+    if (p.hatId === next && p.hat && !p.hatFlight) return
     if (p.hat) {
       scene.remove(p.hat)
       disposeHat(p.hat)
     }
+    p.hatFlight = null
     p.hatId = next
     p.hat = createHat(next)
     scene.add(p.hat)
@@ -294,9 +310,146 @@ export function createPlayers(env, arena) {
     clearTrails()
   }
 
+  /** Pop the hat off on arena fall — flies away on its own. */
+  function detachHat(p) {
+    if (!p?.hat || p.hatId === 'none' || p.hatFlight) return
+    const a = Math.random() * Math.PI * 2
+    const speed = 2.8 + Math.random() * 3.2
+    p.hatFlight = {
+      t: 0,
+      mode: 'fly', // fly | rest (arena) | float (water)
+      vx: Math.cos(a) * speed,
+      vz: Math.sin(a) * speed,
+      vy: 4 + Math.random() * 3,
+      wx: (Math.random() - 0.5) * 10,
+      wy: (Math.random() - 0.5) * 8,
+      wz: (Math.random() - 0.5) * 10,
+    }
+  }
+
+  /** Snap hat back to follow mode (respawn). */
+  function clearHatFlight(p) {
+    if (!p) return
+    p.hatFlight = null
+    if (p.hat) {
+      p.hat.rotation.set(0, 0, 0)
+      p.hat.quaternion.identity()
+      p.hat.scale.set(1, 1, 1)
+    }
+  }
+
+  /** Intact arena tile top crossed this frame under (x,z), or null. */
+  function arenaHatRestY(x, z, fromY, toY) {
+    const cx = Math.round(x)
+    const cz = Math.round(z)
+    if (!inArena(cx, cz)) return null
+    if (Math.abs(x - cx) > 0.55 || Math.abs(z - cz) > 0.55) return null
+    for (let l = LEVELS - 1; l >= 0; l--) {
+      if (arena.isHole?.(l, cx, cz)) continue
+      const surf = floorY(l, lift()) + 0.02
+      if (fromY >= surf && toY <= surf) return surf
+    }
+    return null
+  }
+
+  function updateHatFlight(p, dt) {
+    const hf = p.hatFlight
+    const hat = p.hat
+    if (!hf || !hat) return
+    const hasHat = p.hatId && p.hatId !== 'none'
+    if (!hasHat) {
+      hat.visible = false
+      return
+    }
+
+    hf.t += dt
+    hat.scale.set(1, 1, 1)
+    hat.visible = true
+
+    if (hf.mode === 'float') {
+      // Bob on the lake — hats don't sink.
+      const lakeY = env.theme?.lakeY ?? hat.position.y
+      hf.vx *= Math.exp(-1.2 * dt)
+      hf.vz *= Math.exp(-1.2 * dt)
+      hf.wx *= Math.exp(-2 * dt)
+      hf.wy *= Math.exp(-1.5 * dt)
+      hf.wz *= Math.exp(-2 * dt)
+      hat.position.x += hf.vx * dt
+      hat.position.z += hf.vz * dt
+      hat.position.y = lakeY + 0.04 + Math.sin(hf.t * 2.4 + p.hatPhase) * 0.03
+      hat.rotation.x += hf.wx * dt
+      hat.rotation.y += hf.wy * dt
+      hat.rotation.z += hf.wz * dt
+      // Ease toward a slight float tilt, not a wild tumble.
+      hat.rotation.x *= Math.exp(-1.5 * dt)
+      hat.rotation.z *= Math.exp(-1.5 * dt)
+      return
+    }
+
+    if (hf.mode === 'rest') {
+      // Settled on arena tile — damp spin, stay put.
+      hf.wx *= Math.exp(-4 * dt)
+      hf.wy *= Math.exp(-3 * dt)
+      hf.wz *= Math.exp(-4 * dt)
+      hat.rotation.x += hf.wx * dt
+      hat.rotation.y += hf.wy * dt
+      hat.rotation.z += hf.wz * dt
+      hat.rotation.x *= Math.exp(-2 * dt)
+      hat.rotation.z *= Math.exp(-2 * dt)
+      return
+    }
+
+    // Ballistic flight
+    const prevY = hat.position.y
+    hf.vy -= 16 * dt
+    hat.position.x += hf.vx * dt
+    hat.position.y += hf.vy * dt
+    hat.position.z += hf.vz * dt
+    hat.rotation.x += hf.wx * dt
+    hat.rotation.y += hf.wy * dt
+    hat.rotation.z += hf.wz * dt
+
+    if (hf.vy > 0) return // still climbing — don't land yet
+
+    // Land on arena tiles (don't fall through).
+    const restY = arenaHatRestY(hat.position.x, hat.position.z, prevY, hat.position.y)
+    if (restY != null) {
+      hat.position.y = restY
+      hf.mode = 'rest'
+      hf.vx = 0
+      hf.vz = 0
+      hf.vy = 0
+      return
+    }
+
+    // Land on water and float.
+    const lakeY = env.theme?.lakeY
+    if (lakeY != null) {
+      const floatY = lakeY + 0.04
+      const lakeR = env.theme?.lakeRadius ?? 14
+      const dist = Math.hypot(hat.position.x, hat.position.z)
+      if (dist <= lakeR && prevY >= floatY && hat.position.y <= floatY) {
+        hat.position.y = floatY
+        hf.mode = 'float'
+        hf.vy = 0
+        hf.vx *= 0.45
+        hf.vz *= 0.45
+        return
+      }
+    }
+
+    // Missed everything — cull far below.
+    if (hat.position.y < -18 || hf.t > 6) {
+      hat.visible = false
+      p.hatFlight = null
+    }
+  }
+
   function startDeathAnim(p, mode) {
     clearJelly(p)
+    p.combatHop = null
     p.deathAnim = { t: 0, mode, vy: 2, splashed: false }
+    if (mode === 'fall') detachHat(p)
     sfx.death()
   }
 
@@ -341,7 +494,7 @@ export function createPlayers(env, arena) {
   // returns false when the move must not even be sent (wall/obstacle)
   function predictRoll(dx, dz) {
     const p = me()
-    if (!p || p.dead || p.gone) return true
+    if (!p || p.dead || p.gone || isLaunchLocked(p)) return true
     const l = p.level
     const o = predictOrigin(p)
     const nx = o.x + dx
@@ -369,7 +522,7 @@ export function createPlayers(env, arena) {
   // Returns 'ok' | 'wall' | 'attack' so input can sync bump VFX / skip a wasted dash.
   function predictDash(dx, dz) {
     const p = me()
-    if (!p || p.dead || p.gone) return 'ok'
+    if (!p || p.dead || p.gone || isLaunchLocked(p)) return 'ok'
     const l = p.level
     let { x, z } = predictOrigin(p)
     let steps = 0
@@ -430,6 +583,9 @@ export function createPlayers(env, arena) {
     if (m.t === 'launch') {
       const fromLevel = p.level
       const toLevel = m.p.level
+      // Speculative WASD rolls that raced the pad must not play after / during flight.
+      p.queue = p.queue.filter((q) => !q.predicted)
+      if (p.id === state.myId) predictions.length = 0
       // Keep p.level on the pad until landing — flipping it here snaps the camera
       // and reveals the whole upper arena in one frame (felt like a hitch).
       p.anim = {
@@ -443,6 +599,8 @@ export function createPlayers(env, arena) {
         target: m.p,
         time: 1.65,
       }
+      // Landing tile dips open so the die flies through, then reseats under it.
+      arena.beginLaunchHatch?.(toLevel, m.p.x, m.p.z, 1.65)
       // the pad visibly kicks the cube off
       const plat = arena.platforms[fromLevel]
       if (plat) plat.tramp.bounce = 1
@@ -658,18 +816,22 @@ export function createPlayers(env, arena) {
       // hat levitates above the die in world space (never tumbles with rolls)
       if (p.hat) {
         const hasHat = p.hatId && p.hatId !== 'none'
-        p.hat.visible = hasHat && p.group.visible
-        if (p.hat.visible) {
+        if (p.hatFlight) {
+          updateHatFlight(p, dt)
+        } else if (hasHat && (p.group.visible || p.deathAnim)) {
+          // Stay put during jelly squash — only the die deforms / shoves.
+          const anchored = !!p.jelly
+          const hx = anchored ? p.cell.x : p.group.position.x
+          const hz = anchored ? p.cell.z : p.group.position.z
+          const hy = anchored ? dieY(p.level) : p.group.position.y
           const bob = Math.sin(performance.now() * 0.001 * HAT_BOB_SPEED + p.hatPhase) * HAT_BOB_AMP
-          const jellyLift = p.jelly?.hatLift || 0
           const hopLift = hopFx ? hopFx.hatExtra : 0
-          p.hat.position.set(
-            p.group.position.x,
-            p.group.position.y + HAT_BASE_Y + bob + jellyLift + hopLift,
-            p.group.position.z,
-          )
+          p.hat.visible = true
+          p.hat.position.set(hx, hy + HAT_BASE_Y + bob + hopLift, hz)
           p.hat.quaternion.identity()
           p.hat.scale.copy(p.group.scale)
+        } else {
+          p.hat.visible = false
         }
       }
 
@@ -706,6 +868,6 @@ export function createPlayers(env, arena) {
     players, state, local, predictions,
     me, canPlay, setSkins, setHat, addPlayer, removePlayer, clear, paintPlate,
     syncConfirmed, rollbackPrediction, predictRoll, predictDash, playBump,
-    enqueueMove, startDeathAnim, update,
+    enqueueMove, startDeathAnim, clearHatFlight, update,
   }
 }

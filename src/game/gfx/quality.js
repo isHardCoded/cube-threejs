@@ -14,6 +14,7 @@ export const QUALITY_IDS = ['auto', 'high', 'balanced', 'perf']
  * @property {number} shadowMapSize
  * @property {number} shadowExtentScale  fraction of theme shadow extent
  * @property {'heavy' | 'core'} shadowCast
+ * @property {number} maxShadowCasters
  * @property {boolean} ao
  * @property {number} aoScale           1 = full res, 0.5 = half
  * @property {number} aoSamples
@@ -32,6 +33,7 @@ export const PROFILES = {
     shadowMapSize: 2048,
     shadowExtentScale: 0.62,
     shadowCast: 'heavy',
+    maxShadowCasters: 22,
     ao: true,
     aoScale: 1,
     aoSamples: 8,
@@ -47,6 +49,7 @@ export const PROFILES = {
     shadowMapSize: 2048,
     shadowExtentScale: 0.52,
     shadowCast: 'heavy',
+    maxShadowCasters: 14,
     ao: true,
     aoScale: 0.5,
     aoSamples: 5,
@@ -63,6 +66,7 @@ export const PROFILES = {
     shadowMapSize: 512,
     shadowExtentScale: 0.38,
     shadowCast: 'core',
+    maxShadowCasters: 0,
     ao: false,
     aoScale: 0.5,
     aoSamples: 4,
@@ -73,9 +77,7 @@ export const PROFILES = {
   },
 }
 
-/** Phone overrides when user manually picks Balanced / High on mobile.
- *  DEFERRED: later try cheap shadows on Balanced toward ~55–60 FPS
- *  (see .cursor/rules/gfx-deferred.mdc). Do not start unless asked. */
+/** Phone overrides when user manually picks Balanced / High on mobile. */
 const MOBILE_OVERRIDES = {
   balanced: {
     maxDpr: 1.35,
@@ -83,6 +85,7 @@ const MOBILE_OVERRIDES = {
     shadowMapSize: 1024,
     shadowExtentScale: 0.45,
     shadowCast: 'core',
+    maxShadowCasters: 10,
     ao: true,
     aoScale: 0.5,
     aoSamples: 4,
@@ -96,6 +99,7 @@ const MOBILE_OVERRIDES = {
     shadowMapSize: 1024,
     shadowExtentScale: 0.5,
     shadowCast: 'heavy',
+    maxShadowCasters: 12,
     ao: true,
     aoScale: 0.5,
     aoSamples: 5,
