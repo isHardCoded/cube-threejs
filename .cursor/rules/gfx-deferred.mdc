@@ -10,12 +10,8 @@ alwaysApply: false
 
 - Quality tiers + Settings + FPS HUD + jungle frustum cull
 - Package A: caster budget, 8 Hz cull, soft adaptive (no shadow recreate)
-- **Jungle High push (2026-07-31, M1 Pro bench desert 75 / jungle 40–45):**
-  - High: half-res AO/bloom, MSAA 2, DPR cap 1.75 (1.5 on retina), fewer casters
-  - Retina-aware `resolveProfile`
-  - Jungle `gfx.quality` overrides (tighter casters/extent, fewer motes)
-  - Composer path: `antialias: false` (AA only via RT samples)
-  - Lighter GTAO poisson denoise
+- **Jungle High push 2:** retina DPR 1.25, no MSAA, shadow 1024 + core casters (8), AO ~0.35 scale / 3 samples — aim locked 60 on M1
+
 
 ## Still open
 

@@ -1217,16 +1217,24 @@ export default {
     fillColorNight: '#7a8aa0',
     // Jungle High is denser than desert — extra trim without killing the look.
     quality: {
+      // Push M1 jungle High toward locked 60 (bench was 50–60 after prior pass).
       high: {
-        maxShadowCasters: 12,
-        shadowExtentScale: 0.5,
-        aoSamples: 4,
-        moteScale: 0.5,
+        maxDpr: 1.25,
+        msaaSamples: 0,
+        shadowMapSize: 1024,
+        shadowExtentScale: 0.42,
+        shadowCast: 'core',
+        maxShadowCasters: 8,
+        aoScale: 0.35,
+        aoSamples: 3,
+        bloomScale: 0.4,
+        moteScale: 0.35,
       },
       balanced: {
-        maxShadowCasters: 10,
-        shadowExtentScale: 0.45,
-        moteScale: 0.35,
+        maxShadowCasters: 8,
+        shadowExtentScale: 0.42,
+        shadowCast: 'core',
+        moteScale: 0.3,
       },
     },
   },

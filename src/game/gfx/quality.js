@@ -168,17 +168,18 @@ export function resolveProfile(preference = getQualityPreference()) {
     const over = MOBILE_OVERRIDES[tier]
     if (over) profile = { ...profile, ...over, id: base.id }
   }
-  // Retina (MacBook etc.): post+MSAA at DPR 2 is the usual High killer.
+  // Retina (MacBook etc.): post+MSAA at high DPR is the usual High killer.
   if (isRetinaDisplay() && profile.id === 'high') {
     profile = {
       ...profile,
-      maxDpr: Math.min(profile.maxDpr, 1.5),
-      msaaSamples: Math.min(profile.msaaSamples, 2),
-      aoScale: Math.min(profile.aoScale, 0.5),
-      aoSamples: Math.min(profile.aoSamples, 5),
-      bloomScale: Math.min(profile.bloomScale, 0.5),
-      maxShadowCasters: Math.min(profile.maxShadowCasters, 12),
-      moteScale: Math.min(profile.moteScale ?? 1, 0.55),
+      maxDpr: Math.min(profile.maxDpr, 1.25),
+      msaaSamples: 0,
+      shadowMapSize: Math.min(profile.shadowMapSize, 1024),
+      aoScale: Math.min(profile.aoScale, 0.35),
+      aoSamples: Math.min(profile.aoSamples, 3),
+      bloomScale: Math.min(profile.bloomScale, 0.4),
+      maxShadowCasters: Math.min(profile.maxShadowCasters, 8),
+      moteScale: Math.min(profile.moteScale ?? 1, 0.4),
     }
   }
   return profile

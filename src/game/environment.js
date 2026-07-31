@@ -151,7 +151,7 @@ export function createEnvironment(canvas, mapId) {
         radius: 4,
         radiusExponent: 1,
         rings: 2,
-        samples: profile.id === 'high' ? 8 : 6,
+        samples: 4,
       })
     }
     composer.addPass(gtao)
