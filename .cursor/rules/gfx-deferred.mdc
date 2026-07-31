@@ -8,17 +8,17 @@ alwaysApply: false
 
 ## Done
 
-- Quality tiers + Settings menu + FPS HUD
-- View frustum culling (jungle `cullToCamera`)
-- Godray no per-frame alloc
-- **Package A (2026-07-31):**
-  - Shadow caster budget (`maxShadowCasters`) — nearest/core preferred
-  - View cull + shadow rank throttled to ~8 Hz
-  - Adaptive Auto: DPR/AO/bloom/caster caps only — **no mid-match shadow map dispose**
-  - Skip blinker updates when mesh hidden
+- Quality tiers + Settings + FPS HUD + jungle frustum cull
+- Package A: caster budget, 8 Hz cull, soft adaptive (no shadow recreate)
+- **Jungle High push (2026-07-31, M1 Pro bench desert 75 / jungle 40–45):**
+  - High: half-res AO/bloom, MSAA 2, DPR cap 1.75 (1.5 on retina), fewer casters
+  - Retina-aware `resolveProfile`
+  - Jungle `gfx.quality` overrides (tighter casters/extent, fewer motes)
+  - Composer path: `antialias: false` (AA only via RT samples)
+  - Lighter GTAO poisson denoise
 
 ## Still open
 
-- Cheap phone Balanced shadows toward ~55–60 (optional)
-- `cullToCamera` on other maps (cyberpunk/lava/…)
-- Further microstutter profiling if still reported after Package A
+- Re-bench M1 jungle High (target ~60+)
+- `cullToCamera` on other maps
+- Optional cheap phone Balanced shadows

@@ -754,8 +754,11 @@ function createBackdrop(scene, _fx, opts = {}) {
     }
   }
 
+  const moteScale = Number.isFinite(opts.moteScale) ? opts.moteScale : 1
+  const moteBase = authored ? 140 : 220
+  const moteCount = Math.max(24, Math.round(moteBase * Math.max(0.15, Math.min(1, moteScale))))
   const motes = createDrift({
-    count: authored ? 140 : 220, color: FIREFLY, size: 0.07, opacity: 0.45,
+    count: moteCount, color: FIREFLY, size: 0.07, opacity: 0.45,
     spread: authored ? 28 : 34, top: 14, bottom: -2, speed: [-0.4, -0.12], sway: 0.7,
   })
   group.add(motes.points)
@@ -1212,6 +1215,20 @@ export default {
     fillIntensityNight: 0.12,
     fillColor: '#ffe8c8',
     fillColorNight: '#7a8aa0',
+    // Jungle High is denser than desert — extra trim without killing the look.
+    quality: {
+      high: {
+        maxShadowCasters: 12,
+        shadowExtentScale: 0.5,
+        aoSamples: 4,
+        moteScale: 0.5,
+      },
+      balanced: {
+        maxShadowCasters: 10,
+        shadowExtentScale: 0.45,
+        moteScale: 0.35,
+      },
+    },
   },
 
   // Softer multi-band toon + candy palette applied at GLB preload (Fall Guys).

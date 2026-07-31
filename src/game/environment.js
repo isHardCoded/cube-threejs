@@ -11,6 +11,7 @@ import { createGodrayPass, updateGodraySun } from './gfx/godrayPass.js'
 import {
   getQualityPreference,
   resolveProfile,
+  applyThemeQualityOverrides,
   stepTier,
 } from './gfx/quality.js'
 import { SPRITE_LAYER } from './sprites.js'
@@ -86,14 +87,15 @@ export function createEnvironment(canvas, mapId) {
   const gfx = theme.gfx || {}
 
   let qualityPref = getQualityPreference()
-  let profile = resolveProfile(qualityPref)
+  let profile = applyThemeQualityOverrides(resolveProfile(qualityPref), theme.gfx || {})
   let adaptiveTier = profile.id
 
   const wantAo = !!gfx.ao && profile.ao
   const wantGodray = !!gfx.godray && profile.godray
   const wantShadows = profile.shadows !== false
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+  // EffectComposer owns AA via the MSAA render target — canvas AA would double the cost.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, profile.maxDpr))
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.shadowMap.enabled = wantShadows
@@ -138,6 +140,18 @@ export function createEnvironment(canvas, mapId) {
         scale: 1.0,
         samples: profile.aoSamples,
         distanceFallOff: 0.85,
+      })
+    }
+    // Denoise is a second full-screen pass — keep it light.
+    if (typeof gtao.updatePdMaterial === 'function') {
+      gtao.updatePdMaterial({
+        lumaPhi: 10,
+        depthPhi: 2,
+        normalPhi: 3,
+        radius: 4,
+        radiusExponent: 1,
+        rings: 2,
+        samples: profile.id === 'high' ? 8 : 6,
       })
     }
     composer.addPass(gtao)
@@ -245,6 +259,7 @@ export function createEnvironment(canvas, mapId) {
   const backdrop = theme.createBackdrop(scene, fx, {
     mobile: profile.id === 'perf',
     shadowCast: profile.shadowCast,
+    moteScale: profile.moteScale ?? 1,
   })
 
   const shadowCasters = []
@@ -490,7 +505,7 @@ export function createEnvironment(canvas, mapId) {
   function applyAdaptiveTier(nextTier) {
     if (nextTier === adaptiveTier) return
     adaptiveTier = nextTier
-    const next = resolveProfile(nextTier)
+    const next = applyThemeQualityOverrides(resolveProfile(nextTier), gfx)
     profile = {
       ...next,
       // Keep session shadow GPU allocation stable
