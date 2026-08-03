@@ -297,6 +297,7 @@ export function createPlayers(env, arena) {
   function canPlay() {
     const p = me()
     if (!p || p.dead || p.spectating) return false
+    if (p.freeCombat) return true
     // Trampoline flight owns the cube — WASD mid-arc desyncs level vs. mesh Y
     // (prediction queues a roll on the pad floor while the server is already up).
     if (isLaunchLocked(p)) return false
@@ -317,7 +318,7 @@ export function createPlayers(env, arena) {
     const glow = new THREE.PointLight(skin.body, isMe ? 1.8 : 1.4, 3.5)
     glow.position.y = 0.2
     group.add(glow)
-    group.position.set(data.x, dieY(data.level || 0), data.z)
+    group.position.set(data.fx ?? data.x, dieY(data.level || 0), data.fz ?? data.z)
     const q = quatForOrient(data)
     if (q) group.quaternion.copy(q)
     scene.add(group)
@@ -338,6 +339,8 @@ export function createPlayers(env, arena) {
       id: data.id, group, bodyMat, bar, hat, hatId: data.hatId || 'none', hands,
       cell: { x: data.x, z: data.z },
       confirmedCell: { x: data.x, z: data.z },
+      fx: data.fx ?? data.x,
+      fz: data.fz ?? data.z,
       level: data.level || 0,
       hp: data.hp, lives: data.lives ?? null, dead: data.dead || false,
       spectating: data.spectating || false, // out of the round, waiting for the next
@@ -351,11 +354,14 @@ export function createPlayers(env, arena) {
       hatPhase: Math.random() * Math.PI * 2,
       handPhase: Math.random() * Math.PI * 2,
       // look dir for floating fists (WASD / last move); default toward −Z
-      faceDir: [0, -1],
-      faceX: 0,
-      faceZ: -1,
+      faceDir: [data.faceX || 0, data.faceZ ?? -1],
+      faceX: data.faceX || 0,
+      faceZ: data.faceZ ?? -1,
       punch: null,                 // { side, t } cosmetic Enter jab
       hatFlight: null,              // detached hat ballistic after arena fall
+      voiceOn: !!data.voice,
+      freeCombat: false,
+      legs: null,
     }
     paintPlate(p)
     players.set(data.id, p)
@@ -373,6 +379,18 @@ export function createPlayers(env, arena) {
     if (p.hands) {
       scene.remove(p.hands)
       disposeHands(p.hands)
+    }
+    if (p.legs) {
+      scene.remove(p.legs)
+      // dispose via dynamic import avoidance — geometry dispose in clear path
+      p.legs.traverse?.((o) => { if (o.geometry) o.geometry.dispose() })
+      for (const m of p.legs.userData?.mats || []) m.dispose?.()
+      p.legs = null
+    }
+    if (p.micBadge) {
+      scene.remove(p.micBadge.sprite)
+      p.micBadge.tex.dispose?.()
+      p.micBadge = null
     }
     scene.remove(p.bar.sprite)
     players.delete(id)
@@ -844,10 +862,19 @@ export function createPlayers(env, arena) {
 
   function update(dt, visibleUpTo) {
     for (const p of players.values()) {
-      updatePlayerAnim(p, dt)
-      if (!p.anim) updateJelly(p, dt)
-      const hopFx = updateCombatHop(p, dt)
-      applyCombatHop(p, hopFx)
+      let hopFx = null
+      if (!p.freeCombat) {
+        updatePlayerAnim(p, dt)
+        if (!p.anim) updateJelly(p, dt)
+        hopFx = updateCombatHop(p, dt)
+        applyCombatHop(p, hopFx)
+      } else {
+        // Continuous pose owns transform; clear stale grid anims.
+        p.anim = null
+        p.queue.length = 0
+        p.jelly = null
+        p.combatHop = null
+      }
 
       // cubes on hidden (upper) platforms are hidden along with them;
       // a launch in progress stays visible from the pad it left
@@ -985,7 +1012,7 @@ export function createPlayers(env, arena) {
     }
 
     // aim arrow: billboard UI — tip follows screen dir of move (forward = up)
-    facingArrow.visible = marker.visible
+    facingArrow.visible = marker.visible && !mine?.freeCombat
     if (facingArrow.visible) {
       const [mdx, mdz] = local.moveDir
       const px = mine.group.position.x

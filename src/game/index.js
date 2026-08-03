@@ -15,6 +15,8 @@ import { MAX_HP } from './dice.js'
 import { WS_BASE } from '../config/env.js'
 import { t } from '../i18n/t.js'
 import { startFreeRoam } from './freeRoam.js'
+import { createFreeCombat } from './freeCombat.js'
+import { createVoiceChat, attachMicBadge, setMicBadge } from './voiceChat.js'
 
 // Boots the whole 3D game onto a canvas. onHud receives partial HUD updates
 // so React can render the overlay without touching Three.js.
@@ -65,9 +67,35 @@ export function startGame({
     if (text && autoClearMs) statusTimer = setTimeout(() => setStatus(''), autoClearMs)
   }
 
+  // Forward refs filled after net exists.
+  const netRef = { current: null }
+  const freeCombat = createFreeCombat({
+    canvas,
+    env,
+    arena,
+    players,
+    send: (msg) => netRef.current?.send(msg),
+  })
+
+  const voice = createVoiceChat({
+    send: (msg) => netRef.current?.send(msg),
+    getMyId: () => players.state.myId,
+    getPeerIds: () => [...players.players.keys()],
+  })
+
+  voice.setPeerMic = (id, on) => {
+    const p = players.players.get(id)
+    if (!p) return
+    attachMicBadge(THREE, env.scene, p)
+    setMicBadge(p, on)
+    p.voiceOn = !!on
+  }
+
   const protocol = createProtocol({
     env, arena, players, mines, enemies, popups, setStatus,
     initialMode: mode,
+    freeCombat,
+    voice,
     onKicked: (reason) => {
       net.dispose()
       onAuthLost?.('kicked', reason)
@@ -93,6 +121,7 @@ export function startGame({
       players.clear()
       mines.clear()
       enemies.clear()
+      freeCombat.disable()
       pingShown = -1
       onHud({ ping: null })
     },
@@ -105,12 +134,45 @@ export function startGame({
       }
     },
   })
+  netRef.current = net
 
   const input = createInput({
     canvas,
     players,
     send: net.send,
   })
+
+  // When free combat enables, block grid input.
+  const _enable = freeCombat.enable.bind(freeCombat)
+  freeCombat.enable = (opts) => {
+    _enable(opts)
+    input.setBlocked(true)
+    onHud({ hideMine: true, freeCombat: true })
+  }
+  const _disable = freeCombat.disable.bind(freeCombat)
+  freeCombat.disable = () => {
+    _disable()
+    input.setBlocked(false)
+    onHud({ freeCombat: false })
+  }
+
+  function onVoiceKey(e) {
+    if (e.repeat || e.code !== 'KeyK') return
+    if (!protocol.free) return
+    const tag = document.activeElement?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return
+    e.preventDefault()
+    ensureAudio()
+    voice.toggle().then((on) => {
+      const me = players.me()
+      if (me) {
+        attachMicBadge(THREE, env.scene, me)
+        setMicBadge(me, on)
+      }
+      setStatus(on ? t('game.voiceOn') : t('game.voiceOff'), 1600)
+    })
+  }
+  window.addEventListener('keydown', onVoiceKey)
 
   const onResize = () => env.resize()
   window.addEventListener('resize', onResize)
@@ -201,7 +263,7 @@ export function startGame({
     // ability button: countdown, or armed/out of max
     const cooling = Math.max(0, players.local.mineReadyAt - performance.now())
     const out = mines.countOwned(players.state.myId)
-    const hideMine = !!arenaHud.active
+    const hideMine = !!arenaHud.active || !!protocol.free
     const mineReady = !hideMine && cooling === 0 && out < players.local.maxMines && players.canPlay()
     const mine = hideMine
       ? ''
@@ -301,7 +363,21 @@ export function startGame({
     arena.update(dt, t, viewLevel)
     mines.update(dt, t, viewLevel)
     players.update(dt, viewLevel)
+    freeCombat.update(dt)
     enemies.update(dt, env.camera)
+    // Mic badges ride above nameplates
+    for (const p of players.players.values()) {
+      if (!p.micBadge) continue
+      const show = !!p.voiceOn && !p.dead && p.group.visible
+      p.micBadge.sprite.visible = show
+      if (!show) continue
+      const plateLift = p.hatId && p.hatId !== 'none' ? 1.45 : 1.15
+      p.micBadge.sprite.position.set(
+        p.group.position.x,
+        p.group.position.y + plateLift + 0.42,
+        p.group.position.z,
+      )
+    }
     updateHud()
     popups.update(dt)
     env.update(dt, t)
@@ -312,6 +388,7 @@ export function startGame({
         z: me.group.position.z,
         level: me.level,
         y: me.group.position.y - 0.5,
+        tight: !!protocol.free,
       })
     env.render()
 
@@ -333,6 +410,9 @@ export function startGame({
     stop() {
       cancelAnimationFrame(raf)
       clearTimeout(statusTimer)
+      window.removeEventListener('keydown', onVoiceKey)
+      freeCombat.dispose()
+      voice.dispose()
       input.dispose()
       net.dispose()
       enemies.clear()

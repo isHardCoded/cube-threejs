@@ -114,6 +114,9 @@ export const ru = {
   'training.freeroam.name': 'Свободное перемещение',
   'training.freeroam.desc': 'Тест: WASD без сетки, камера мышью',
   'game.freeroam': 'Freeroam · тест · WASD · мышь крутит камеру',
+  'game.freeCombat': 'PvP · WASD · Enter удар-волна · K голос',
+  'game.voiceOn': 'МИКРОФОН ВКЛ',
+  'game.voiceOff': 'МИКРОФОН ВЫКЛ',
 
   'pve.arena.name': 'Arena',
   'pve.arena.desc': 'Продержись минуту или уничтожь 100 кубов',
@@ -551,6 +554,9 @@ export const en = {
   'training.freeroam.name': 'Free roam',
   'training.freeroam.desc': 'Test: WASD off-grid, mouse orbit camera',
   'game.freeroam': 'Freeroam · test · WASD · drag to look',
+  'game.freeCombat': 'PvP · WASD · Enter splash punch · K voice',
+  'game.voiceOn': 'MIC ON',
+  'game.voiceOff': 'MIC OFF',
 
   'pve.arena.name': 'Arena',
   'pve.arena.desc': 'Survive a minute or destroy 100 cubes',

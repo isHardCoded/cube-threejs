@@ -132,7 +132,8 @@ func (c *Client) readLoop() {
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
-	c.conn.SetReadLimit(512)
+	// SDP / ICE for voice chat can exceed a few KB.
+	c.conn.SetReadLimit(32 << 10)
 	c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))

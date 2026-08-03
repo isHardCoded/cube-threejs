@@ -49,6 +49,12 @@ type Player struct {
 	Level   int    `json:"level"`
 	X       int    `json:"x"`
 	Z       int    `json:"z"`
+	// Continuous PvP pose (ModePvP free combat). Grid X/Z stay rounded mirrors.
+	FX     float64 `json:"fx"`
+	FZ     float64 `json:"fz"`
+	FaceX  float64 `json:"faceX"`
+	FaceZ  float64 `json:"faceZ"`
+	VoiceOn bool   `json:"voice,omitempty"`
 	Orient         // embedded: top/east/south
 	HP      int    `json:"hp"`
 	Lives   int    `json:"lives"`
@@ -63,6 +69,8 @@ type Player struct {
 	dashReadyAt time.Time
 	jumpReadyAt time.Time
 	mineReadyAt time.Time
+	punchReadyAt time.Time
+	nextPoseAt   time.Time
 	respawnAt   time.Time
 	bumpReadyAt time.Time // rate-limit for wall-bonk VFX relay
 
@@ -112,10 +120,20 @@ type command struct {
 }
 
 type clientMsg struct {
-	T  string  `json:"t"` // "move" | "dash" | "jump" | "mine" | "bump" | "ping"
+	T  string  `json:"t"` // "move" | "dash" | "jump" | "mine" | "bump" | "ping" | "pose" | "punch" | "voice" | "voice-offer"…
 	DX int     `json:"dx"`
 	DZ int     `json:"dz"`
 	Ts float64 `json:"ts"` // client timestamp echoed by "pong"
+	// Free-combat pose / facing
+	X     float64 `json:"x"`
+	Z     float64 `json:"z"`
+	FaceX float64 `json:"faceX"`
+	FaceZ float64 `json:"faceZ"`
+	On    bool    `json:"on"` // voice mic toggle
+	// WebRTC voice signaling
+	To        string          `json:"to"`
+	Sdp       string          `json:"sdp"`
+	Candidate json.RawMessage `json:"candidate"`
 }
 
 type Hub struct {
@@ -551,6 +569,7 @@ func (h *Hub) onJoin(c *Client) {
 	p := &Player{
 		ID: id, Name: sanitizeName(c.name), SkinID: c.skinID, HatID: c.hatID, ClassID: c.classID,
 		Level: l, X: x, Z: z,
+		FX: float64(x), FZ: float64(z), FaceX: 0, FaceZ: -1,
 		Orient:     StartOrient(),
 		HP:         MaxHP,
 		Lives:      MaxLives,
@@ -607,6 +626,12 @@ func (h *Hub) onJoin(c *Client) {
 		welcome["half"] = h.gridSpan()
 		welcome["mobs"] = h.mobList()
 		welcome["arena"] = h.arenaInfo(time.Now())
+	}
+	if h.isFreeCombat() {
+		welcome["free"] = true
+		welcome["punchCooldownMs"] = PunchCooldownFree.Milliseconds()
+		welcome["punchRadius"] = PunchRadius
+		welcome["hideMine"] = true
 	}
 	h.sendTo(p, welcome)
 	for _, pl := range h.players {
@@ -806,6 +831,9 @@ func (h *Hub) resetRound() {
 		if x, z, ok := h.freeSpawnCellOn(0); ok {
 			p.X, p.Z = x, z
 		}
+		p.FX, p.FZ = float64(p.X), float64(p.Z)
+		p.FaceX, p.FaceZ = 0, -1
+		p.VoiceOn = false
 	}
 	list := make([]*Player, 0, len(h.players))
 	for _, p := range h.players {
@@ -830,6 +858,8 @@ func (h *Hub) onTick() {
 				p.Dead = false
 				p.HP = MaxHP
 				p.Level, p.X, p.Z = l, x, z
+				p.FX, p.FZ = float64(x), float64(z)
+				p.FaceX, p.FaceZ = 0, -1
 				p.Orient = StartOrient()
 				p.nextMoveAt = now
 				h.broadcast(map[string]any{"t": "respawn", "p": p})
@@ -885,10 +915,33 @@ func (h *Hub) onCommand(cmd command) {
 		h.hostStart(p)
 		return
 	}
+	// Voice signaling works while dead/spectating so lobby chat still connects.
+	switch cmd.msg.T {
+	case "voice":
+		h.onVoiceToggle(p, cmd.msg.On)
+		return
+	case "voice-offer", "voice-answer", "voice-ice":
+		h.onVoiceSignal(p, cmd.msg)
+		return
+	}
 	if p.Dead {
 		return
 	}
 	now := time.Now()
+
+	// Free-combat PvP: continuous pose + splash punch (no grid rolls).
+	if h.isFreeCombat() {
+		switch cmd.msg.T {
+		case "pose":
+			h.onFreePose(p, cmd.msg, now)
+		case "punch":
+			h.onFreePunch(p, now)
+		case "mine", "move", "dash", "jump", "bump":
+			// Grid abilities disabled in free PvP.
+		}
+		return
+	}
+
 	// abilities carry no direction, so they skip the movement validation below
 	if cmd.msg.T == "mine" {
 		if h.isArena() {
