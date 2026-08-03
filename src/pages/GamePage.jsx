@@ -8,7 +8,8 @@ import { preloadHands } from '../game/hands.js'
 import { preloadThemeAssets } from '../game/themes/index.js'
 import { getToken } from '../auth/tokenStore.js'
 import { useAuth } from '../auth/context.js'
-import { resolveMapId } from '../config/maps.js'
+import { DEFAULT_SKIN } from '../game/dice.js'
+import { FREEROAM_MAP_ID, resolveMapId } from '../config/maps.js'
 import { sfx } from '../game/sfx.js'
 
 const EMPTY_HUD = {
@@ -22,11 +23,11 @@ export default function GamePage() {
   const [hud, setHud] = useState(EMPTY_HUD)
   const [isDay, setIsDay] = useState(false)
   const [assetsOpen, setAssetsOpen] = useState(false)
-  const { logout, patchUser } = useAuth()
+  const { logout, patchUser, user } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const mapId = resolveMapId(params.get('map'))
   const mode = params.get('mode') || ''
+  const mapId = mode === 'freeroam' ? FREEROAM_MAP_ID : resolveMapId(params.get('map'))
   const matchId = params.get('match') || ''
 
   useEffect(() => {
@@ -43,6 +44,8 @@ export default function GamePage() {
         mapId,
         mode,
         matchId,
+        skin: DEFAULT_SKIN,
+        hatId: user?.hatId || 'none',
         onHud: (patch) => setHud((prev) => ({ ...prev, ...patch })),
         // a win is paid out server-side; keep the menu balance in sync
         onCubes: (cubes) => patchUser({ cubes }),
@@ -69,7 +72,7 @@ export default function GamePage() {
             navigate('/play/pve', { replace: true, state: { reason: 'connect_failed' } })
             return
           }
-          if (mode === 'training') {
+          if (mode === 'training' || mode === 'freeroam') {
             navigate('/play/training', { replace: true, state: { reason: 'connect_failed' } })
             return
           }

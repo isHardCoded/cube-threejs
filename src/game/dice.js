@@ -35,7 +35,9 @@ export const DEFAULT_SKIN = {
 }
 
 // die with glowing pips (opposite faces sum to 7)
-export function createDie(skin) {
+// opts.pips — dice dots (default true). opts.face — toy eyes on −Z for freeroam.
+export function createDie(skin, opts = {}) {
+  const { pips = true, face = false } = opts
   const s = { ...DEFAULT_SKIN, ...skin }
   const group = new THREE.Group()
   const bodyMat = new THREE.MeshStandardMaterial({
@@ -46,21 +48,80 @@ export function createDie(skin) {
   body.receiveShadow = true
   group.add(body)
 
-  // pips read by contrast against a bright body now, so the emissive is only a
-  // hint of self-illumination instead of the glowing dots of the neon era
-  const pipMat = new THREE.MeshStandardMaterial({
-    color: s.pip, emissive: s.pip, emissiveIntensity: 0.35, roughness: 0.5,
-  })
-  for (const { value, normal } of faceDefs) {
-    const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, normal)
-    for (const [u, v] of pipLayouts[value]) {
-      const pip = new THREE.Mesh(pipGeo, pipMat)
-      pip.position.set(u, 0.495, v).applyQuaternion(quat)
-      pip.quaternion.copy(quat)
-      group.add(pip)
+  let pipMat = null
+  if (pips) {
+    // pips read by contrast against a bright body now, so the emissive is only a
+    // hint of self-illumination instead of the glowing dots of the neon era
+    pipMat = new THREE.MeshStandardMaterial({
+      color: s.pip, emissive: s.pip, emissiveIntensity: 0.35, roughness: 0.5,
+    })
+    for (const { value, normal } of faceDefs) {
+      const quat = new THREE.Quaternion().setFromUnitVectors(yAxis, normal)
+      for (const [u, v] of pipLayouts[value]) {
+        const pip = new THREE.Mesh(pipGeo, pipMat)
+        pip.position.set(u, 0.495, v).applyQuaternion(quat)
+        pip.quaternion.copy(quat)
+        group.add(pip)
+      }
     }
   }
+
+  if (face) addToyFace(group, s)
+
   return { group, bodyMat, pipMat, skin: s }
+}
+
+/** Simple eyes + smile on the −Z face (front when yaw follows move dir). */
+function addToyFace(group, skin) {
+  const ink = new THREE.MeshStandardMaterial({
+    color: skin.pip || '#2a2010',
+    roughness: 0.55,
+    metalness: 0.05,
+  })
+  const white = new THREE.MeshStandardMaterial({
+    color: '#fff8ee',
+    roughness: 0.4,
+  })
+
+  const eyeWhiteGeo = new THREE.SphereGeometry(0.11, 14, 12)
+  const pupilGeo = new THREE.SphereGeometry(0.055, 12, 10)
+
+  for (const side of [-1, 1]) {
+    const sclera = new THREE.Mesh(eyeWhiteGeo, white)
+    sclera.position.set(side * 0.17, 0.12, -0.5)
+    sclera.scale.set(1, 1.05, 0.55)
+    sclera.castShadow = true
+    group.add(sclera)
+
+    const pupil = new THREE.Mesh(pupilGeo, ink)
+    pupil.position.set(side * 0.17, 0.11, -0.545)
+    group.add(pupil)
+  }
+
+  // Soft smile arc on the front face
+  const smile = new THREE.Mesh(
+    new THREE.TorusGeometry(0.15, 0.028, 8, 20, Math.PI * 0.9),
+    ink,
+  )
+  smile.position.set(0, -0.1, -0.51)
+  smile.rotation.set(Math.PI, 0, Math.PI)
+  smile.scale.set(1, 0.85, 1)
+  group.add(smile)
+
+  // Tiny blush
+  const blushMat = new THREE.MeshStandardMaterial({
+    color: '#ff8fab',
+    roughness: 0.7,
+    transparent: true,
+    opacity: 0.45,
+  })
+  const blushGeo = new THREE.SphereGeometry(0.07, 10, 8)
+  for (const side of [-1, 1]) {
+    const blush = new THREE.Mesh(blushGeo, blushMat)
+    blush.position.set(side * 0.32, -0.02, -0.48)
+    blush.scale.set(1, 0.7, 0.35)
+    group.add(blush)
+  }
 }
 
 // orientation lookup: (top, east, south) -> quaternion, all 24 rotations

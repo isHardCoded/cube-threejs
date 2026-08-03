@@ -14,11 +14,15 @@ import { ARENA_HALF, HALF, setPlayHalf } from './layouts.js'
 import { MAX_HP } from './dice.js'
 import { WS_BASE } from '../config/env.js'
 import { t } from '../i18n/t.js'
+import { startFreeRoam } from './freeRoam.js'
 
 // Boots the whole 3D game onto a canvas. onHud receives partial HUD updates
 // so React can render the overlay without touching Three.js.
 // onAuthLost fires when the server refuses the token or another session wins.
-export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {}, onAuthLost, onCubes }) {
+export function startGame({
+  canvas, token, mapId, mode, matchId, onHud = () => {}, onAuthLost, onCubes,
+  skin, hatId,
+}) {
   initTelegram()
 
   const env = createEnvironment(canvas, mapId)
@@ -27,6 +31,19 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   setPlayHalf(isArena ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
   setNameplateMaxHp(isArena ? 100 : MAX_HP)
   const arena = createArena(env)
+
+  // Local free-roam test — no WebSocket / grid authority.
+  if (mode === 'freeroam' || mapId === 'freeroam') {
+    return startFreeRoam({
+      canvas,
+      env,
+      arena,
+      onHud,
+      skin,
+      hatId,
+    })
+  }
+
   // Flat PvE floor: show sectors immediately so a slow welcome does not leave
   // only the grass backdrop. Server layout still wins on welcome.
   if (isArena) {

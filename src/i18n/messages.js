@@ -111,6 +111,9 @@ export const ru = {
   'modes.pve.desc': 'Против ботов',
   'modes.training.name': 'Тренировка',
   'modes.training.desc': 'Один на карте',
+  'training.freeroam.name': 'Свободное перемещение',
+  'training.freeroam.desc': 'Тест: WASD без сетки, камера мышью',
+  'game.freeroam': 'Freeroam · тест · WASD · мышь крутит камеру',
 
   'pve.arena.name': 'Arena',
   'pve.arena.desc': 'Продержись минуту или уничтожь 100 кубов',
@@ -545,6 +548,9 @@ export const en = {
   'modes.pve.desc': 'Vs bots',
   'modes.training.name': 'Training',
   'modes.training.desc': 'Solo on a map',
+  'training.freeroam.name': 'Free roam',
+  'training.freeroam.desc': 'Test: WASD off-grid, mouse orbit camera',
+  'game.freeroam': 'Freeroam · test · WASD · drag to look',
 
   'pve.arena.name': 'Arena',
   'pve.arena.desc': 'Survive a minute or destroy 100 cubes',

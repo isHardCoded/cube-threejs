@@ -573,6 +573,7 @@ export function createEnvironment(canvas, mapId) {
 
   const camDist0 = 9.5
   const camHeight0 = 8.5
+  let camRadius = Math.hypot(camDist0, camHeight0)
   let camYawDeg = 0
   let camElevDeg = 30
   const camOffset = new THREE.Vector3(0, camHeight0, camDist0)
@@ -600,6 +601,15 @@ export function createEnvironment(canvas, mapId) {
     return camElevDeg
   }
 
+  function setCameraRadius(r) {
+    if (!Number.isFinite(r)) return
+    camRadius = Math.max(4, Math.min(28, r))
+  }
+
+  function getCameraRadius() {
+    return camRadius
+  }
+
   function updateCamera(dt, t, focus) {
     const fx2 = focus ? focus.x : 0
     const fz = focus ? focus.z : 0
@@ -608,19 +618,25 @@ export function createEnvironment(canvas, mapId) {
     const lvlY = focus?.y != null
       ? focus.y
       : (focus ? floorY(focus.level, theme.arenaLift || 0) : 0)
+    // Freeroam: stick to the cube. Normal modes keep the soft 0.55 lag.
+    const tight = !!focus?.tight
+    const follow = tight ? 1 : 0.55
+    const lookFollow = tight ? 1 : 0.6
+    const idleSway = tight ? 0 : Math.sin(t * 0.25) * 0.6
 
-    applyShadowFollow(fx2 * 0.55, fz * 0.55)
+    applyShadowFollow(fx2 * follow, fz * follow)
 
     const yaw = (camYawDeg * Math.PI) / 180
     const elev = (camElevDeg * Math.PI) / 180
-    const radius = Math.hypot(camDist0, camHeight0)
+    const radius = camRadius
     camOffset.set(
       Math.sin(yaw) * Math.cos(elev) * radius,
       Math.sin(elev) * radius,
       Math.cos(yaw) * Math.cos(elev) * radius,
     )
-    camTarget.set(fx2 * 0.55 + Math.sin(t * 0.25) * 0.6, lvlY, fz * 0.55).add(camOffset)
-    camera.position.lerp(camTarget, 1 - Math.pow(0.0006, dt))
+    camTarget.set(fx2 * follow + idleSway, lvlY, fz * follow).add(camOffset)
+    const lerpK = tight ? (1 - Math.pow(0.00005, dt)) : (1 - Math.pow(0.0006, dt))
+    camera.position.lerp(camTarget, lerpK)
     if (shake > 0) {
       shake = Math.max(0, shake - dt * 1.8)
       const amp = shake * 0.65
@@ -628,8 +644,8 @@ export function createEnvironment(canvas, mapId) {
       camera.position.y += (Math.random() - 0.5) * amp
       camera.position.z += (Math.random() - 0.5) * amp * 0.45
     }
-    lookGoal.set(fx2 * 0.6, lvlY + 0.5, fz * 0.6)
-    lookTarget.lerp(lookGoal, 1 - Math.pow(0.0006, dt))
+    lookGoal.set(fx2 * lookFollow, lvlY + (tight ? 0.35 : 0.5), fz * lookFollow)
+    lookTarget.lerp(lookGoal, lerpK)
     camera.lookAt(lookTarget)
 
     // View cull + shadow budget at ~8 Hz (hysteresis avoids edge flicker).
@@ -689,6 +705,7 @@ export function createEnvironment(canvas, mapId) {
     resize, update, updateCamera, render, addShake, dispose,
     setCameraYaw, getCameraYaw,
     setCameraElev, getCameraElev,
+    setCameraRadius, getCameraRadius,
     getLightTweaks, setLightTweaks,
     getQuality,
     holdAdaptive,

@@ -11,11 +11,14 @@ export const MAPS = [
 ]
 
 export const ARENA_MAP_ID = 'arena'
+/** Local free-roam test sandbox (client-only, not in the training map list). */
+export const FREEROAM_MAP_ID = 'freeroam'
 
 export const DEFAULT_MAP = 'cyberpunk'
 
 // Guards the ?map= query: an unknown or not-yet-playable id falls back.
 export function resolveMapId(id) {
   if (id === ARENA_MAP_ID) return ARENA_MAP_ID
+  if (id === FREEROAM_MAP_ID) return FREEROAM_MAP_ID
   return MAPS.some((m) => m.id === id && m.ready) ? id : DEFAULT_MAP
 }
