@@ -28,9 +28,10 @@ export function startGame({
   initTelegram()
 
   const env = createEnvironment(canvas, mapId)
-  const isArena = mode === 'arena' || mapId === 'arena' || !!env.theme?.singleLevel
+  const isFreeFight = mode === 'free' || mapId === 'freefight'
+  const isArena = !isFreeFight && (mode === 'arena' || mapId === 'arena' || !!env.theme?.singleLevel)
   // Movement bounds + HP bar scale must match the map before first input.
-  setPlayHalf(isArena ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
+  setPlayHalf(isArena || isFreeFight ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
   setNameplateMaxHp(isArena ? 100 : MAX_HP)
   const arena = createArena(env)
 
@@ -99,6 +100,7 @@ export function startGame({
     initialMode: mode,
     freeCombat,
     voice,
+    onHud,
     onKicked: (reason) => {
       net.dispose()
       onAuthLost?.('kicked', reason)
@@ -207,7 +209,7 @@ export function startGame({
   const lastHud = {
     fps: 0,
     timer: '', timerKind: '', alive: '', banner: '', mine: '', mineReady: null, lives: null,
-    canStart: false, hideMine: false,
+    canStart: false, hideMine: false, freeCombat: false,
   }
 
   function resultText(r) {
@@ -270,6 +272,7 @@ export function startGame({
     const cooling = Math.max(0, players.local.mineReadyAt - performance.now())
     const out = mines.countOwned(players.state.myId)
     const hideMine = !!arenaHud.active || !!protocol.free
+    const freeCombatHud = !!protocol.free
     const mineReady = !hideMine && cooling === 0 && out < players.local.maxMines && players.canPlay()
     const mine = hideMine
       ? ''
@@ -289,7 +292,7 @@ export function startGame({
       || alive !== lastHud.alive || banner !== lastHud.banner
       || mine !== lastHud.mine || mineReady !== lastHud.mineReady
       || lives !== lastHud.lives || canStart !== lastHud.canStart
-      || hideMine !== lastHud.hideMine) {
+      || hideMine !== lastHud.hideMine || freeCombatHud !== lastHud.freeCombat) {
       lastHud.timer = timer
       lastHud.timerKind = timerKind
       lastHud.alive = alive
@@ -299,9 +302,11 @@ export function startGame({
       lastHud.lives = lives
       lastHud.canStart = canStart
       lastHud.hideMine = hideMine
+      lastHud.freeCombat = freeCombatHud
       onHud({
         timer, timerKind, timerDanger: danger, alive, banner, mine, mineReady,
         lives, maxLives: players.local.maxLives, canStart, hideMine,
+        freeCombat: freeCombatHud,
       })
     }
   }
@@ -407,6 +412,7 @@ export function startGame({
     isDay: () => env.isDay(),
     placeMine: () => input.placeMine(),
     startMatch: () => net.send({ t: 'start' }),
+    sendEmote: (emote) => freeCombat.sendEmote?.(emote),
     setCameraYaw: (deg) => env.setCameraYaw?.(deg),
     getCameraYaw: () => env.getCameraYaw?.() ?? 0,
     setCameraElev: (deg) => env.setCameraElev?.(deg),

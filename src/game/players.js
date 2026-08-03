@@ -239,15 +239,21 @@ export function createPlayers(env, arena) {
     // Smash into the obstacle, then spring back a little past rest (jelly rebound).
     const push = Math.sin(t * Math.PI * 1.85) * Math.exp(-2.3 * t) * 0.17
 
-    p.group.position.x = p.cell.x + j.dx * push
-    p.group.position.y = dieY(p.level)
-    p.group.position.z = p.cell.z + j.dz * push
-    if (j.dx !== 0) p.group.scale.set(along, across, across)
-    else p.group.scale.set(across, across, along)
+    if (p.freeCombat) {
+      // Continuous mode owns XZ/Y; jelly is squash-only so it doesn't fight knock slide.
+      if (j.dx !== 0) p.group.scale.set(along, across, across)
+      else p.group.scale.set(across, across, along)
+    } else {
+      p.group.position.x = p.cell.x + j.dx * push
+      p.group.position.y = dieY(p.level)
+      p.group.position.z = p.cell.z + j.dz * push
+      if (j.dx !== 0) p.group.scale.set(along, across, across)
+      else p.group.scale.set(across, across, along)
+    }
 
     if (t >= 1) {
       p.jelly = null
-      p.group.position.set(p.cell.x, dieY(p.level), p.cell.z)
+      if (!p.freeCombat) p.group.position.set(p.cell.x, dieY(p.level), p.cell.z)
       p.group.scale.set(1, 1, 1)
     }
   }
@@ -871,11 +877,11 @@ export function createPlayers(env, arena) {
         hopFx = updateCombatHop(p, dt)
         applyCombatHop(p, hopFx)
       } else {
-        // Continuous pose owns transform; clear stale grid anims.
+        // Continuous pose owns transform; keep jelly for splash shove feedback.
         p.anim = null
         p.queue.length = 0
-        p.jelly = null
         p.combatHop = null
+        if (p.jelly) updateJelly(p, dt)
       }
 
       // cubes on hidden (upper) platforms are hidden along with them;
@@ -970,16 +976,27 @@ export function createPlayers(env, arena) {
         const hx = anchored ? p.cell.x : p.group.position.x
         const hz = anchored ? p.cell.z : p.group.position.z
         const hy = anchored ? dieY(p.level) : p.group.position.y
-        // Local player: aim dir from WASD; others: last travel dir.
-        let wantX = p.faceDir[0]
-        let wantZ = p.faceDir[1]
-        if (p.id === state.myId) {
-          wantX = local.moveDir[0]
-          wantZ = local.moveDir[1]
+        // Free-combat already owns facing — re-lerping from moveDir causes 180° flips
+        // that yank the fists. Classic grid still aims from WASD / faceDir.
+        if (!p.freeCombat) {
+          let wantX = p.faceDir[0]
+          let wantZ = p.faceDir[1]
+          if (p.id === state.myId) {
+            wantX = local.moveDir[0]
+            wantZ = local.moveDir[1]
+          }
+          const wantLen = Math.hypot(wantX, wantZ)
+          if (wantLen > 0.2) {
+            wantX /= wantLen
+            wantZ /= wantLen
+            const faceK = Math.min(1, dt * 10)
+            p.faceX += (wantX - p.faceX) * faceK
+            p.faceZ += (wantZ - p.faceZ) * faceK
+            const fl = Math.hypot(p.faceX, p.faceZ) || 1
+            p.faceX /= fl
+            p.faceZ /= fl
+          }
         }
-        const faceK = Math.min(1, dt * 12)
-        p.faceX += (wantX - p.faceX) * faceK
-        p.faceZ += (wantZ - p.faceZ) * faceK
         updateHands(p.hands, { x: hx, y: hy, z: hz }, {
           t: performance.now() * 0.001,
           phase: p.handPhase,
@@ -990,6 +1007,9 @@ export function createPlayers(env, arena) {
           facingX: p.faceX,
           facingZ: p.faceZ,
           punch: p.punch,
+          walkSpeed: p.walkSpeed || 0,
+          walkPhase: p.gaitPhase || 0,
+          dt,
         })
       }
 

@@ -1,17 +1,24 @@
 import * as THREE from 'three'
 import { BODY_CLEARANCE, HIP_TO_SOLE, createLegs, disposeLegs, updateLegs } from './legs.js'
 import { PUNCH_TIME, facingYaw } from './hands.js'
-import { createDie, DEFAULT_SKIN } from './dice.js'
+import { createDie, DEFAULT_SKIN, setDieEmotion, EMOTE_MS } from './dice.js'
 import { floorY } from './layouts.js'
 import { ensureAudio, sfx } from './sfx.js'
 
-const MOVE_SPEED = 7.5
-const ACCEL = 28
-const FRICTION = 14
+const MOVE_SPEED = 7.8
+const ACCEL = 18
+const FRICTION = 10
 const HOP_VY = 7.0
 const GRAVITY = 22
 const POSE_MS = 50
 const BODY_SEP = 0.95
+/** Player radius vs static rock cylinders. */
+const PLAYER_R = 0.48
+const ROCK_NAME_RE = /^(VEG_Stone|VEG_Boulder|VEG_WaterStone)/
+
+const _rockSize = new THREE.Vector3()
+const _rockCenter = new THREE.Vector3()
+const _rockBox = new THREE.Box3()
 
 const KEYS = {
   KeyW: [0, -1], ArrowUp: [0, -1],
@@ -40,12 +47,65 @@ export function createFreeCombat({
   let lastPoseAt = 0
   let dragging = false
   let lastPtr = null
+  /** @type {{ x0: number, z0: number, x1: number, z1: number, t: number, dur: number } | null} */
+  let knock = null
   const splashes = []
   const remoteTargets = new Map()
+  /** @type {{ x: number, z: number, r: number }[]} */
+  let rockObstacles = []
+  /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+  const emoteTimers = new Map()
 
   function dieY(level) {
     const lift = env.theme?.arenaLift || 0
     return floorY(level, lift) + 0.5 - 0.02 + HIP_TO_SOLE + BODY_CLEARANCE
+  }
+
+  /** Harvest stone/boulder footprints from the jungle backdrop for XZ collision. */
+  function collectRockObstacles() {
+    const out = []
+    const playY = dieY(0)
+    env.scene.updateMatrixWorld(true)
+    env.scene.traverse((obj) => {
+      if (!obj.isMesh || !obj.visible || !obj.geometry) return
+      const name = obj.name || ''
+      if (!ROCK_NAME_RE.test(name)) return
+      if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox()
+      const bb = obj.geometry.boundingBox
+      if (!bb) return
+      _rockBox.copy(bb).applyMatrix4(obj.matrixWorld)
+      _rockBox.getCenter(_rockCenter)
+      _rockBox.getSize(_rockSize)
+      // Horizontal footprint; shrink a bit so soft blobs are not huge walls.
+      const r = Math.max(0.35, Math.max(_rockSize.x, _rockSize.z) * 0.42)
+      // Skip rocks fully buried under the grass field.
+      if (_rockBox.max.y < playY - 0.35) return
+      out.push({ x: _rockCenter.x, z: _rockCenter.z, r })
+    })
+    rockObstacles = out
+  }
+
+  /** Push a point out of rock cylinders. */
+  function separateFromRocks(x, z) {
+    let fx = x
+    let fz = z
+    for (const rock of rockObstacles) {
+      const need = rock.r + PLAYER_R
+      let dx = fx - rock.x
+      let dz = fz - rock.z
+      let d = Math.hypot(dx, dz)
+      if (d < 1e-4) {
+        dx = 1
+        dz = 0
+        d = 1
+      }
+      if (d < need) {
+        const push = (need - d) / d
+        fx += dx * push
+        fz += dz * push
+      }
+    }
+    return [fx, fz]
   }
 
   function hipY(level) {
@@ -121,13 +181,18 @@ export function createFreeCombat({
     punchCooldownMs = opts.punchCooldownMs || 480
     env.setCameraRadius?.(11)
     env.setCameraElev?.(32)
+    keys.clear()
+    vx = 0
+    vz = 0
+    collectRockObstacles()
     for (const p of pm.players.values()) {
       p.freeCombat = true
       ensureFaceDie(p)
       ensureLegs(p)
       p.group.rotation.order = 'YXZ'
-      const fx = p.fx ?? p.cell?.x ?? 0
-      const fz = p.fz ?? p.cell?.z ?? 0
+      let fx = p.fx ?? p.cell?.x ?? 0
+      let fz = p.fz ?? p.cell?.z ?? 0
+      ;[fx, fz] = separateFromRocks(fx, fz)
       p.fx = fx
       p.fz = fz
       p.group.position.set(fx, dieY(p.level || 0), fz)
@@ -138,6 +203,12 @@ export function createFreeCombat({
   function disable() {
     enabled = false
     keys.clear()
+    vx = 0
+    vz = 0
+    knock = null
+    rockObstacles = []
+    for (const [, id] of emoteTimers) clearTimeout(id)
+    emoteTimers.clear()
     for (const p of pm.players.values()) {
       dropLegs(p)
       p.freeCombat = false
@@ -284,6 +355,7 @@ export function createFreeCombat({
     ensureLegs(p)
     remoteTargets.set(msg.id, {
       fx: msg.fx, fz: msg.fz,
+      hop: msg.hop ?? 0,
       faceX: msg.faceX ?? 0, faceZ: msg.faceZ ?? -1,
       level: msg.level ?? p.level,
     })
@@ -291,24 +363,29 @@ export function createFreeCombat({
 
   function applySplashHit(msg) {
     const d = pm.players.get(msg.d)
-    if (d && msg.fx != null) {
-      d.fx = msg.fx
-      d.fz = msg.fz
-      if (d.id !== pm.state.myId) {
-        remoteTargets.set(d.id, {
-          fx: msg.fx, fz: msg.fz,
-          faceX: d.faceX, faceZ: d.faceZ,
-          level: d.level,
-        })
-      } else {
-        d.fx = msg.fx
-        d.fz = msg.fz
-        d.group.position.x = msg.fx
-        d.group.position.z = msg.fz
-        vx *= 0.35
-        vz *= 0.35
-      }
+    if (!d || msg.fx == null) return
+
+    if (d.id !== pm.state.myId) {
+      remoteTargets.set(d.id, {
+        fx: msg.fx, fz: msg.fz,
+        faceX: d.faceX ?? 0, faceZ: d.faceZ ?? -1,
+        level: d.level,
+        hop: d.hopY ?? 0,
+        knock: true,
+      })
+      return
     }
+
+    const x0 = d.fx ?? d.group.position.x
+    const z0 = d.fz ?? d.group.position.z
+    knock = {
+      x0, z0,
+      x1: msg.fx, z1: msg.fz,
+      t: 0, dur: 0.32,
+    }
+    // Seed velocity along the shove so WASD doesn't fight the slide.
+    vx = (msg.fx - x0) / knock.dur
+    vz = (msg.fz - z0) / knock.dur
   }
 
   function onJoinPlayer(p) {
@@ -317,10 +394,13 @@ export function createFreeCombat({
     ensureFaceDie(p)
     ensureLegs(p)
     p.group.rotation.order = 'YXZ'
-    const fx = p.fx ?? p.cell?.x ?? 0
-    const fz = p.fz ?? p.cell?.z ?? 0
+    let fx = p.fx ?? p.cell?.x ?? 0
+    let fz = p.fz ?? p.cell?.z ?? 0
+    ;[fx, fz] = separateFromRocks(fx, fz)
     p.fx = fx
     p.fz = fz
+    p.group.position.x = fx
+    p.group.position.z = fz
   }
 
   /** Same camera-relative wish as freeroam training. */
@@ -349,7 +429,7 @@ export function createFreeCombat({
     let dyaw = targetYaw - group.rotation.y
     while (dyaw > Math.PI) dyaw -= Math.PI * 2
     while (dyaw < -Math.PI) dyaw += Math.PI * 2
-    group.rotation.y += dyaw * Math.min(1, dt * 12)
+    group.rotation.y += dyaw * Math.min(1, dt * 9)
   }
 
   function tryPunch() {
@@ -392,6 +472,21 @@ export function createFreeCombat({
     keys.delete(e.code)
   }
 
+  /** Tab away / click outside drops keyup — clear stuck WASD. */
+  function clearMovementKeys() {
+    keys.clear()
+    vx = 0
+    vz = 0
+  }
+
+  function onWindowBlur() {
+    clearMovementKeys()
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) clearMovementKeys()
+  }
+
   function onPointerDown(e) {
     if (!enabled) return
     if (e.pointerType === 'mouse' && e.button !== 0) return
@@ -418,6 +513,7 @@ export function createFreeCombat({
 
   function update(dt) {
     if (!enabled) return
+    if (rockObstacles.length === 0) collectRockObstacles()
 
     updateSplashes(dt)
 
@@ -440,28 +536,49 @@ export function createFreeCombat({
       showLegs(p)
       p.fx = p.fx ?? p.group.position.x
       p.fz = p.fz ?? p.group.position.z
-      const k = Math.min(1, dt * 14)
+      p.hopY = p.hopY ?? 0
+      const k = Math.min(1, dt * (tgt.knock ? 16 : 11))
+      const prevX = p.fx
+      const prevZ = p.fz
       p.fx += (tgt.fx - p.fx) * k
       p.fz += (tgt.fz - p.fz) * k
+      if (tgt.knock && Math.hypot(tgt.fx - p.fx, tgt.fz - p.fz) < 0.04) {
+        tgt.knock = false
+      }
+      const hopTarget = tgt.hop ?? 0
+      p.hopY += (hopTarget - p.hopY) * Math.min(1, dt * 16)
       ;[p.fx, p.fz] = separateFromOthers(p.id, p.fx, p.fz, tgt.level ?? p.level)
+      ;[p.fx, p.fz] = separateFromRocks(p.fx, p.fz)
       p.level = tgt.level ?? p.level
       p.faceDir = [tgt.faceX, tgt.faceZ]
-      p.faceX += (tgt.faceX - p.faceX) * Math.min(1, dt * 12)
-      p.faceZ += (tgt.faceZ - p.faceZ) * Math.min(1, dt * 12)
+      p.faceX += (tgt.faceX - p.faceX) * Math.min(1, dt * 9)
+      p.faceZ += (tgt.faceZ - p.faceZ) * Math.min(1, dt * 9)
+      const rfl = Math.hypot(p.faceX, p.faceZ) || 1
+      p.faceX /= rfl
+      p.faceZ /= rfl
       p.group.rotation.order = 'YXZ'
       smoothYaw(p.group, facingYaw(p.faceX, p.faceZ), dt)
-      p.group.rotation.x = 0
-      p.group.rotation.z = 0
-      p.group.position.set(p.fx, dieY(p.level), p.fz)
+      const remoteSpd = Math.hypot(p.fx - prevX, p.fz - prevZ) / Math.max(dt, 1e-3)
+      const leanPitch = remoteSpd > 0.4 ? -Math.min(0.2, remoteSpd * 0.022) : 0
+      p.group.rotation.x = THREE.MathUtils.lerp(p.group.rotation.x, leanPitch, Math.min(1, dt * 8))
+      p.group.rotation.z = THREE.MathUtils.lerp(p.group.rotation.z, 0, Math.min(1, dt * 8))
+      const airborne = p.hopY > 0.04
+      const remoteBob = !airborne && remoteSpd > 0.4
+        ? Math.abs(Math.sin((p.legs?.userData?.phase || 0))) * 0.055
+        : 0
+      p.group.position.set(p.fx, dieY(p.level) + p.hopY + remoteBob, p.fz)
       p.cell = { x: Math.round(p.fx), z: Math.round(p.fz) }
+      p.walkSpeed = remoteSpd
+      p.gaitPhase = p.legs?.userData?.phase || 0
       if (p.legs?.visible) {
-        updateLegs(p.legs, { x: p.fx, y: hipY(p.level), z: p.fz }, {
-          speed: Math.hypot(tgt.fx - p.fx, tgt.fz - p.fz) / Math.max(dt, 1e-3),
+        updateLegs(p.legs, { x: p.fx, y: hipY(p.level) + p.hopY + remoteBob, z: p.fz }, {
+          speed: airborne ? remoteSpd * 0.25 : remoteSpd,
           facingX: p.faceX,
           facingZ: p.faceZ,
           dt,
-          grounded: true,
+          grounded: !airborne,
         })
+        p.gaitPhase = p.legs.userData.phase || 0
       }
     }
 
@@ -469,6 +586,7 @@ export function createFreeCombat({
     if (!me || me.dead || me.gone || me.spectating) {
       vx = 0
       vz = 0
+      knock = null
       if (me) hideLegs(me)
       return
     }
@@ -480,38 +598,58 @@ export function createFreeCombat({
 
     const [wx, wz] = wishDir()
     if (wx || wz) {
-      faceX += (wx - faceX) * Math.min(1, dt * 12)
-      faceZ += (wz - faceZ) * Math.min(1, dt * 12)
-      pm.local.moveDir = [wx, wz]
+      // Keep facing as a unit vector — lerping components through (0,0) flips yaw.
+      faceX += (wx - faceX) * Math.min(1, dt * 9)
+      faceZ += (wz - faceZ) * Math.min(1, dt * 9)
+      const fl = Math.hypot(faceX, faceZ) || 1
+      faceX /= fl
+      faceZ /= fl
+      pm.local.moveDir = [faceX, faceZ]
       me.faceDir = [faceX, faceZ]
     }
 
-    if (pm.canPlay()) {
-      if (wx || wz) {
-        vx += wx * ACCEL * dt
-        vz += wz * ACCEL * dt
-      } else {
-        const damp = Math.exp(-FRICTION * dt)
-        vx *= damp
-        vz *= damp
+    if (knock) {
+      knock.t += dt
+      const u = Math.min(1, knock.t / knock.dur)
+      // Ease-out cubic: fast shove, soft settle.
+      const e = 1 - (1 - u) ** 3
+      me.fx = knock.x0 + (knock.x1 - knock.x0) * e
+      me.fz = knock.z0 + (knock.z1 - knock.z0) * e
+      ;[me.fx, me.fz] = separateFromRocks(me.fx, me.fz)
+      ;[me.fx, me.fz] = separateFromOthers(me.id, me.fx, me.fz, me.level || 0)
+      if (u >= 1) {
+        me.fx = knock.x1
+        me.fz = knock.z1
+        ;[me.fx, me.fz] = separateFromRocks(me.fx, me.fz)
+        vx *= 0.25
+        vz *= 0.25
+        knock = null
       }
-      const sp = Math.hypot(vx, vz)
-      if (sp > MOVE_SPEED) {
-        vx = (vx / sp) * MOVE_SPEED
-        vz = (vz / sp) * MOVE_SPEED
+    } else if (pm.canPlay()) {
+      // Smooth approach to wish velocity — less snappy, more natural glide.
+      const tx = wx * MOVE_SPEED
+      const tz = wz * MOVE_SPEED
+      const rate = (wx || wz) ? ACCEL : FRICTION
+      const k = 1 - Math.exp(-rate * dt)
+      vx += (tx - vx) * k
+      vz += (tz - vz) * k
+      if (!(wx || wz) && Math.hypot(vx, vz) < 0.08) {
+        vx = 0
+        vz = 0
       }
+      me.fx = (me.fx ?? me.group.position.x) + vx * dt
+      me.fz = (me.fz ?? me.group.position.z) + vz * dt
+      ;[me.fx, me.fz] = separateFromOthers(me.id, me.fx, me.fz, me.level || 0)
+      ;[me.fx, me.fz] = separateFromRocks(me.fx, me.fz)
     } else {
       vx = 0
       vz = 0
     }
 
-    me.fx = (me.fx ?? me.group.position.x) + vx * dt
-    me.fz = (me.fz ?? me.group.position.z) + vz * dt
-    ;[me.fx, me.fz] = separateFromOthers(me.id, me.fx, me.fz, me.level || 0)
-
     const half = (env.theme?.gridHalf || 4) + 0.35
     me.fx = Math.max(-half, Math.min(half, me.fx))
     me.fz = Math.max(-half, Math.min(half, me.fz))
+    ;[me.fx, me.fz] = separateFromRocks(me.fx, me.fz)
 
     if (!grounded || hopVy !== 0) {
       hopVy -= GRAVITY * dt
@@ -525,37 +663,43 @@ export function createFreeCombat({
 
     const spd = Math.hypot(vx, vz)
     smoothYaw(me.group, facingYaw(faceX, faceZ), dt)
-    const leanPitch = grounded && spd > 0.4 ? -Math.min(0.16, spd * 0.018) : 0
-    me.group.rotation.x = THREE.MathUtils.lerp(me.group.rotation.x, leanPitch, Math.min(1, dt * 10))
-    me.group.rotation.z = THREE.MathUtils.lerp(me.group.rotation.z, 0, Math.min(1, dt * 10))
+    const leanPitch = grounded && spd > 0.35 ? -Math.min(0.22, spd * 0.026) : 0
+    const leanRoll = grounded && spd > 0.35
+      ? THREE.MathUtils.clamp((-vx * faceZ + vz * faceX) * 0.035, -0.12, 0.12)
+      : 0
+    me.group.rotation.x = THREE.MathUtils.lerp(me.group.rotation.x, leanPitch, Math.min(1, dt * 8))
+    me.group.rotation.z = THREE.MathUtils.lerp(me.group.rotation.z, leanRoll, Math.min(1, dt * 8))
 
-    const walkBob = grounded && spd > 0.4
-      ? Math.abs(Math.sin((me.legs?.userData?.phase || 0) * 2)) * 0.04
+    const walkBob = grounded && spd > 0.35
+      ? Math.abs(Math.sin(me.legs?.userData?.phase || 0)) * (0.045 + Math.min(spd, 8) * 0.004)
       : 0
     me.group.position.set(me.fx, dieY(me.level || 0) + hopY + walkBob, me.fz)
     me.cell = { x: Math.round(me.fx), z: Math.round(me.fz) }
     me.faceX = faceX
     me.faceZ = faceZ
+    me.walkSpeed = spd
 
     if (me.legs?.visible) {
-      updateLegs(me.legs, { x: me.fx, y: hipY(me.level || 0) + hopY, z: me.fz }, {
-        speed: spd,
+      updateLegs(me.legs, { x: me.fx, y: hipY(me.level || 0) + hopY + walkBob, z: me.fz }, {
+        speed: grounded ? spd : spd * 0.35,
         facingX: faceX,
         facingZ: faceZ,
         dt,
         grounded,
       })
+      me.gaitPhase = me.legs.userData.phase || 0
     }
 
     const now = performance.now()
     if (now - lastPoseAt >= POSE_MS && pm.canPlay()) {
       lastPoseAt = now
-      send({ t: 'pose', x: me.fx, z: me.fz, faceX, faceZ })
+      send({ t: 'pose', x: me.fx, z: me.fz, faceX, faceZ, hop: hopY })
     }
   }
 
   function handleSplashMsg(msg) {
-    spawnSplash(msg.fx, msg.fz, msg.level, msg.r || 1.85, msg.id)
+    // No splash-wave VFX — punch is fists + damage only.
+    sfx.hit?.()
     const p = pm.players.get(msg.id)
     if (p && !(p.punch && p.punch.t < 1)) {
       p.punch = { side: msg.side || 1, t: 0, time: PUNCH_TIME }
@@ -567,8 +711,36 @@ export function createFreeCombat({
     }
   }
 
+  function applyEmote(msg) {
+    if (!enabled || !msg?.id || !msg.emote) return
+    const p = pm.players.get(msg.id)
+    if (!p) return
+    ensureFaceDie(p)
+    setDieEmotion(p.group, msg.emote)
+    const prev = emoteTimers.get(msg.id)
+    if (prev) clearTimeout(prev)
+    const ms = Number(msg.ms) > 0 ? Number(msg.ms) : EMOTE_MS
+    const tid = setTimeout(() => {
+      emoteTimers.delete(msg.id)
+      const cur = pm.players.get(msg.id)
+      if (cur?.group) setDieEmotion(cur.group, 'happy')
+    }, ms)
+    emoteTimers.set(msg.id, tid)
+  }
+
+  function sendEmote(emote) {
+    if (!enabled) return
+    const me = pm.me()
+    if (!me || me.dead || me.gone || me.spectating) return
+    send({ t: 'emote', emote })
+    // Optimistic local face so the pick feels instant.
+    applyEmote({ id: me.id, emote, ms: EMOTE_MS })
+  }
+
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('blur', onWindowBlur)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   canvas.addEventListener('pointerdown', onPointerDown)
   canvas.addEventListener('pointermove', onPointerMove)
   canvas.addEventListener('pointerup', onPointerUp)
@@ -578,6 +750,8 @@ export function createFreeCombat({
     disable()
     window.removeEventListener('keydown', onKeyDown)
     window.removeEventListener('keyup', onKeyUp)
+    window.removeEventListener('blur', onWindowBlur)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     canvas.removeEventListener('pointerdown', onPointerDown)
     canvas.removeEventListener('pointermove', onPointerMove)
     canvas.removeEventListener('pointerup', onPointerUp)
@@ -593,6 +767,8 @@ export function createFreeCombat({
     applySplashHit,
     handleSplashMsg,
     onJoinPlayer,
+    applyEmote,
+    sendEmote,
     get enabled() { return enabled },
   }
 }

@@ -29,6 +29,7 @@ export function createProtocol({
   initialMode = '',
   freeCombat = null,
   voice = null,
+  onHud = null,
 }) {
   // destruction phase, driven by server messages; endsAt is in performance.now() time
   const phase = { mode: 'calm', level: 0, endsAt: 0 }
@@ -193,6 +194,10 @@ export function createProtocol({
         freeCombat?.handleSplashMsg?.(msg)
         break
 
+      case 'emote':
+        freeCombat?.applyEmote?.(msg)
+        break
+
       case 'voice':
         voice?.setPeerMic?.(msg.id, !!msg.on)
         break
@@ -288,8 +293,18 @@ export function createProtocol({
         if (p.anim || p.queue.length > 0) p.pendingDeath = mode
         else pm.startDeathAnim(p, mode)
         if (msg.id === myId()) {
-          if (msg.eliminated) setStatus(t('game.eliminated'))
-          else if (msg.lives == null) {
+          if (msg.eliminated) {
+            setStatus(t('game.eliminated'))
+            onHud?.({ deathOverlay: null })
+          } else if (msg.respawnMs != null) {
+            onHud?.({
+              deathOverlay: {
+                endsAt: performance.now() + Number(msg.respawnMs),
+                cause: msg.cause || '',
+              },
+            })
+            setStatus('')
+          } else if (msg.lives == null) {
             setStatus(msg.cause === 'fall' ? t('game.fall') : t('game.destroyed'))
           }
         }
@@ -301,7 +316,10 @@ export function createProtocol({
         if (!p) { pm.addPlayer(msg.p); break }
         if (msg.p.id === myId()) pm.predictions.length = 0
         reviveInto(p, msg.p)
-        if (msg.p.id === myId()) setStatus('')
+        if (msg.p.id === myId()) {
+          setStatus('')
+          onHud?.({ deathOverlay: null })
+        }
         break
       }
 
@@ -394,6 +412,7 @@ export function createProtocol({
           reviveInto(p, pd)
         }
         sfx.crumble()
+        onHud?.({ deathOverlay: null })
         setStatus(
           arenaState.active
             ? t('game.arenaStart')

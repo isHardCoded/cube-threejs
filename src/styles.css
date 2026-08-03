@@ -199,6 +199,15 @@ canvas.webgl {
   touch-action: none;
 }
 
+canvas.webgl.webgl--dead-ready {
+  transition: filter 520ms ease;
+  filter: none;
+}
+
+canvas.webgl.webgl--dead {
+  filter: blur(7px) grayscale(0.55) saturate(0.4) brightness(0.84);
+}
+
 /* ---------------------------------------------------------------- shared bits */
 
 .logo {
@@ -2369,6 +2378,112 @@ canvas.webgl {
   pointer-events: none;
 }
 
+.death-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 22, 14, 0.22);
+  opacity: 0;
+  transition: opacity 520ms ease;
+}
+
+.death-overlay--enter {
+  opacity: 0;
+}
+
+.death-overlay--in {
+  opacity: 1;
+}
+
+.death-overlay--out {
+  opacity: 0;
+}
+
+.death-card {
+  position: relative;
+  min-width: min(78vw, 280px);
+  padding: 1.35rem 1.55rem 1.25rem;
+  text-align: center;
+  color: var(--ink);
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 22px;
+  box-shadow:
+    0 6px 0 var(--ink),
+    0 14px 28px rgba(15, 42, 29, 0.22);
+  transform: rotate(-1.5deg) translateY(12px) scale(0.94);
+  opacity: 0;
+  transition:
+    transform 520ms var(--hop),
+    opacity 420ms ease;
+}
+
+.death-overlay--in .death-card {
+  transform: rotate(-1.5deg) translateY(0) scale(1);
+  opacity: 1;
+}
+
+.death-overlay--out .death-card {
+  transform: rotate(-1.5deg) translateY(10px) scale(0.96);
+  opacity: 0;
+  transition:
+    transform 420ms ease,
+    opacity 420ms ease;
+}
+
+.death-card__tag {
+  display: inline-block;
+  margin-bottom: 0.55rem;
+  padding: 0.32rem 0.78rem 0.28rem;
+  font: 900 12px/1 var(--font);
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--coral);
+  border-radius: 999px;
+  box-shadow: 0 3px 0 var(--coral-deep);
+  transform: rotate(-6deg);
+}
+
+.death-card__title {
+  font: 900 clamp(1.55rem, 6.5vw, 2.15rem)/1.05 var(--font);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-shadow: 0 3px 0 rgba(15, 42, 29, 0.12);
+}
+
+.death-card__timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  margin-top: 0.85rem;
+}
+
+.death-card__sec {
+  display: grid;
+  place-items: center;
+  width: 3.1rem;
+  height: 3.1rem;
+  font: 900 1.55rem/1 var(--font);
+  color: #06301b;
+  background: var(--sun);
+  border-radius: 16px;
+  box-shadow: 0 4px 0 var(--sun-deep);
+  animation: death-sec-pop 520ms var(--hop) both;
+}
+
+.death-card__hint {
+  font: 800 0.92rem/1.25 var(--font);
+  color: var(--ink-dim);
+}
+
+@keyframes death-sec-pop {
+  from { transform: scale(0.7); }
+  to { transform: scale(1); }
+}
+
 .hud {
   position: absolute;
   pointer-events: none;
@@ -2411,7 +2526,7 @@ canvas.webgl {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: min(calc(100vw - 120px - var(--pad-left) - var(--pad-right)), 420px);
   pointer-events: none;
 }
@@ -2421,19 +2536,19 @@ canvas.webgl {
   align-items: center;
   gap: 7px;
   max-width: 100%;
-  padding: 7px 12px 7px 9px;
+  padding: 8px 14px 8px 10px;
   font: 800 12px/1.2 var(--font);
   letter-spacing: .01em;
-  color: var(--hud-ink);
-  background: var(--hud-bg);
-  border: 1px solid rgba(234, 255, 241, .14);
-  border-radius: 12px;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, .22);
+  color: var(--ink);
+  background: var(--paper);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 4px 0 rgba(15, 42, 29, 0.16);
 }
 .toast .icon {
   flex: 0 0 auto;
   opacity: .9;
+  color: var(--green-dark);
 }
 .toast span {
   min-width: 0;
@@ -2443,26 +2558,31 @@ canvas.webgl {
 }
 .toast--danger {
   color: #fff;
-  background: rgba(211, 59, 74, .82);
-  border-color: rgba(255, 255, 255, .18);
+  background: var(--coral);
+  box-shadow: 0 4px 0 var(--coral-deep);
   animation: pulse .8s infinite;
 }
+.toast--danger .icon { color: #fff; }
 .toast--alive {
-  padding: 5px 10px 5px 8px;
-  font-size: 11px;
+  padding: 6px 12px 6px 9px;
+  font-size: 12px;
+  background: #e8fff0;
+  box-shadow: 0 4px 0 var(--green-deep);
 }
 .toast--status {
   color: #3a2500;
-  background: rgba(255, 198, 63, .9);
-  border-color: rgba(58, 37, 0, .12);
+  background: var(--sun);
+  box-shadow: 0 4px 0 var(--sun-deep);
 }
+.toast--status .icon { color: #3a2500; }
 .toast--banner {
   color: #06301b;
-  background: rgba(46, 230, 107, .92);
-  border-color: rgba(6, 48, 27, .12);
+  background: var(--green);
+  box-shadow: 0 4px 0 var(--green-dark);
   font-size: 13px;
   white-space: normal;
 }
+.toast--banner .icon { color: #06301b; }
 .toast--banner span {
   white-space: normal;
   text-overflow: unset;
@@ -2794,33 +2914,125 @@ canvas.webgl {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 8px 12px;
-  background: var(--hud-bg);
-  border: 1px solid rgba(234, 255, 241, .14);
-  border-radius: 14px;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 4px 0 rgba(0, 0, 0, .35);
-  color: var(--hud-ink);
+  gap: 6px;
+  padding: 8px 12px 9px;
+  background: var(--paper);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 4px 0 rgba(15, 42, 29, 0.16);
+  color: var(--ink);
   pointer-events: none;
+  transform: rotate(-1deg);
 }
 .lives__label {
-  margin-right: 3px;
+  margin-right: 2px;
   font-size: 11px;
   font-weight: 900;
-  letter-spacing: .06em;
-  color: var(--hud-dim);
+  letter-spacing: .04em;
+  color: var(--ink-dim);
 }
 .life {
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  background: var(--green);
-  box-shadow: 0 2px 0 var(--green-dark);
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--coral);
+  box-shadow: 0 2px 0 var(--coral-deep);
 }
 .life--spent {
-  background: rgba(234, 255, 241, .18);
+  background: rgba(15, 42, 29, .12);
   box-shadow: none;
+}
+
+/* Emote picker — own fab (not hint__fab) so it never inherits opacity:0. */
+.emote {
+  position: absolute;
+  right: calc(12px + var(--pad-right));
+  bottom: calc(16px + var(--pad-bottom));
+  z-index: 22;
+  pointer-events: auto;
+}
+.emote-fab {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  font-size: 22px;
+  line-height: 1;
+  color: #3a2500;
+  background: var(--sun);
+  box-shadow: 0 5px 0 var(--sun-deep), 0 10px 16px rgba(0, 0, 0, .22);
+  cursor: pointer;
+  transition: transform .2s var(--hop), filter .15s ease, box-shadow .2s var(--hop);
+}
+@media (hover: hover) {
+  .emote-fab:hover {
+    transform: translateY(-3px) rotate(4deg);
+    filter: brightness(1.05);
+  }
+}
+.emote-fab:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--sun-deep);
+}
+.emote__menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 148px;
+  padding: 8px;
+  background: var(--paper);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 5px 0 rgba(15, 42, 29, 0.16), 0 12px 24px rgba(0, 0, 0, .18);
+  opacity: 0;
+  transform: translateY(8px) scale(0.94);
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    transform 220ms var(--hop);
+  z-index: 30;
+}
+.emote.is-open .emote__menu {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+.emote__pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--green-soft);
+  color: var(--ink);
+  font: 800 13px/1 var(--font);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: 0 3px 0 rgba(15, 42, 29, .12);
+}
+.emote__pick:hover {
+  background: #d8f5e2;
+  transform: translateY(-1px);
+}
+.emote__pick:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 rgba(15, 42, 29, .12);
+}
+.emote__face {
+  font-size: 18px;
+  line-height: 1;
+}
+.emote__label {
+  letter-spacing: .01em;
 }
 
 /* Control cheatsheet: open for 10s (or until ?), then folds into a "?" chip. */

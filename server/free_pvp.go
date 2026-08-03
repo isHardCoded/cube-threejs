@@ -14,10 +14,30 @@ const (
 	PunchRadius       = 1.85
 	PunchDamage       = 7
 	PunchKnock        = 0.55
+	EmoteDuration     = 5 * time.Second
+	EmoteCooldown      = 1200 * time.Millisecond
 )
 
 func (h *Hub) isFreeCombat() bool {
 	return h.freeCombat
+}
+
+func (h *Hub) onEmote(p *Player, msg clientMsg, now time.Time) {
+	if p == nil || p.Dead || p.Spectating {
+		return
+	}
+	emote := msg.Emote
+	if emote != "happy" && emote != "sad" && emote != "angry" {
+		return
+	}
+	if now.Before(p.nextEmoteAt) {
+		return
+	}
+	p.nextEmoteAt = now.Add(EmoteCooldown)
+	h.broadcast(map[string]any{
+		"t": "emote", "id": p.ID, "emote": emote,
+		"ms": EmoteDuration.Milliseconds(),
+	})
 }
 
 func (p *Player) syncCellFromFree() {
@@ -40,6 +60,7 @@ func (h *Hub) freeSpawnInto(p *Player) {
 	p.Level, p.X, p.Z = l, x, z
 	p.FX, p.FZ = float64(x), float64(z)
 	p.FaceX, p.FaceZ = 0, -1
+	p.HopY = 0
 	p.Orient = StartOrient()
 }
 
@@ -115,10 +136,24 @@ func (h *Hub) onFreePose(p *Player, msg clientMsg, now time.Time) {
 		p.FaceX, p.FaceZ = fx/fl, fz/fl
 	}
 
+	// Relay hop height so remotes see jumps (clamp to sane cosmetic range).
+	hop := msg.Hop
+	if math.IsNaN(hop) || math.IsInf(hop, 0) {
+		hop = 0
+	}
+	if hop < 0 {
+		hop = 0
+	}
+	if hop > 2.2 {
+		hop = 2.2
+	}
+	p.HopY = hop
+
 	h.broadcast(map[string]any{
 		"t": "pose", "id": p.ID,
 		"fx": p.FX, "fz": p.FZ, "level": p.Level,
 		"faceX": p.FaceX, "faceZ": p.FaceZ,
+		"hop": p.HopY,
 	})
 
 	if h.isHole(p.Level, p.X, p.Z) {

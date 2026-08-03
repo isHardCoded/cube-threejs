@@ -1,132 +1,89 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, X } from 'lucide-react'
-import { matchmaking } from '../api/client.js'
+import { ArrowLeft, LogIn } from 'lucide-react'
+import { api, matchmaking } from '../api/client.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 import Spinner from '../components/Spinner.jsx'
 
-const POLL_MS = 900
-const MAX_POLL_FAILURES = 6
+const INFO_MS = 2500
 
-/** Free-fight PvP queue: WASD + splash punches + voice (K). */
+/** Persistent free-fight lobby: join / leave anytime — no matchmaking search. */
 export default function PvpFreePage() {
   const { t, translateError } = useLocale()
   const navigate = useNavigate()
   const [error, setError] = useState('')
-  const [searching, setSearching] = useState(false)
-  const pollRef = useRef(null)
-  const runRef = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const [info, setInfo] = useState(null)
 
-  function endRun({ release }) {
-    clearInterval(pollRef.current)
-    pollRef.current = null
-    if (!runRef.current) return
-    runRef.current.stale = true
-    runRef.current = null
-    if (release) matchmaking.cancel().catch(() => {})
-  }
-
-  function stopSearch() {
-    endRun({ release: true })
-    setSearching(false)
-  }
-
-  function goMatch(matchId, mapId) {
-    endRun({ release: false })
-    setSearching(false)
-    navigate(`/game?match=${encodeURIComponent(matchId)}&map=${mapId}`)
-  }
-
-  function failSearch(message) {
-    endRun({ release: true })
-    setSearching(false)
-    setError(message)
-  }
-
-  async function startSearch() {
-    if (runRef.current) return
-    setError('')
-    setSearching(true)
-
-    const run = { stale: false, failures: 0 }
-    runRef.current = run
-
-    async function claimSeat() {
-      const res = await matchmaking.free()
-      if (run.stale) {
-        matchmaking.cancel().catch(() => {})
-        return true
-      }
-      if (res.state === 'matched') {
-        goMatch(res.matchId, res.mapId)
-        return true
-      }
-      return false
-    }
-
+  const refresh = useCallback(async () => {
     try {
-      if (await claimSeat()) return
-    } catch (err) {
-      if (!run.stale) failSearch(translateError(err.message))
-      return
+      const res = await api('/api/match/free')
+      setInfo(res.lobby || null)
+    } catch {
+      // keep last known snapshot
     }
-    if (run.stale) return
-
-    pollRef.current = setInterval(async () => {
-      try {
-        const st = await matchmaking.status()
-        if (run.stale) return
-        run.failures = 0
-        if (st.state === 'matched') goMatch(st.matchId, st.mapId)
-        else if (st.state === 'idle') await claimSeat()
-      } catch (err) {
-        if (run.stale) return
-        if (++run.failures >= MAX_POLL_FAILURES) failSearch(translateError(err.message))
-      }
-    }, POLL_MS)
-  }
+  }, [])
 
   useEffect(() => {
-    startSearch()
-    return () => endRun({ release: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    refresh()
+    const id = setInterval(refresh, INFO_MS)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  async function join() {
+    if (busy) return
+    setError('')
+    setBusy(true)
+    try {
+      const res = await matchmaking.free()
+      if (res.state === 'matched' && res.matchId) {
+        navigate(`/game?match=${encodeURIComponent(res.matchId)}&map=${res.mapId || 'freefight'}`)
+        return
+      }
+      setError(t('pvp.free.joinFail'))
+    } catch (err) {
+      setError(translateError(err.message))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const players = info?.players ?? null
+  const capacity = info?.capacity ?? null
+  const full = info && !info.joinable
 
   return (
     <div className="screen">
       <div className="screen__title">{t('pvp.hub.free.name')}</div>
 
       <div className="screen__box">
-        {error ? (
-          <>
-            <div className="screen__error">{error}</div>
-            <div className="pick-actions">
-              <Link className="btn btn--ghost btn--icon" to="/play/pvp" aria-label={t('map.back')}>
-                <ArrowLeft className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
-              </Link>
-              <button className="btn" type="button" onClick={startSearch}>
-                {t('pvp.find')}
-              </button>
+        <div className="screen__card" style={{ display: 'grid', gap: '0.85rem', justifyItems: 'center' }}>
+          <div className="pvp-search__meta">{t('pvp.free.hint')}</div>
+          {players != null && capacity != null && (
+            <div className="pvp-search__meta">
+              {t('pvp.free.online', { n: players, max: capacity })}
             </div>
-          </>
-        ) : (
-          <div className="pvp-search screen__card">
-            <Spinner label={t('pvp.searching')} />
-            <div className="pvp-search__meta">{t('pvp.free.hint')}</div>
+          )}
+          {error && <div className="screen__error">{error}</div>}
+          <div className="pick-actions">
+            <Link className="btn btn--ghost btn--icon" to="/play/pvp" aria-label={t('map.back')}>
+              <ArrowLeft className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
+            </Link>
             <button
-              className="btn btn--ghost btn--with-icon"
+              className="btn btn--with-icon"
               type="button"
-              onClick={() => {
-                stopSearch()
-                navigate('/play/pvp')
-              }}
-              disabled={!searching}
+              onClick={join}
+              disabled={busy || full}
             >
-              <X className="icon" size={20} strokeWidth={2.4} aria-hidden="true" />
-              <span>{t('pvp.cancel')}</span>
+              {busy ? <Spinner /> : (
+                <>
+                  <LogIn className="icon" size={20} strokeWidth={2.4} aria-hidden="true" />
+                  <span>{full ? t('pvp.free.full') : t('pvp.free.join')}</span>
+                </>
+              )}
             </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

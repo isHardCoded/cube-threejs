@@ -54,6 +54,7 @@ type Player struct {
 	FZ     float64 `json:"fz"`
 	FaceX  float64 `json:"faceX"`
 	FaceZ  float64 `json:"faceZ"`
+	HopY   float64 `json:"hop,omitempty"` // free-combat hop height (cosmetic)
 	VoiceOn bool   `json:"voice,omitempty"`
 	Orient         // embedded: top/east/south
 	HP      int    `json:"hp"`
@@ -71,6 +72,7 @@ type Player struct {
 	mineReadyAt time.Time
 	punchReadyAt time.Time
 	nextPoseAt   time.Time
+	nextEmoteAt  time.Time
 	respawnAt   time.Time
 	bumpReadyAt time.Time // rate-limit for wall-bonk VFX relay
 
@@ -129,7 +131,9 @@ type clientMsg struct {
 	Z     float64 `json:"z"`
 	FaceX float64 `json:"faceX"`
 	FaceZ float64 `json:"faceZ"`
+	Hop   float64 `json:"hop"` // vertical hop offset (client cosmetic, clamped)
 	On    bool    `json:"on"` // voice mic toggle
+	Emote string  `json:"emote"` // happy | sad | angry
 	// WebRTC voice signaling
 	To        string          `json:"to"`
 	Sdp       string          `json:"sdp"`
@@ -294,6 +298,10 @@ func (h *Hub) dismissMatch(reason string) {
 // arena. Players are told why, so the client can put them back into the search
 // instead of leaving them staring at an arena that will never fill up.
 func (h *Hub) closeMatch(reason string) {
+	if h.isFreeCombat() {
+		log.Printf("%s: ignore closeMatch (%s) — persistent freefight", h.gameMap.ID, reason)
+		return
+	}
 	if h.closing {
 		return
 	}
@@ -327,7 +335,8 @@ func (h *Hub) watchMatch(now time.Time) {
 	if h.mode != ModePvP || h.closing {
 		return
 	}
-	if h.roundState == roundWaiting && h.hosted {
+	// Persistent freefight + hosted waiting lobbies never auto-close for thin population.
+	if h.isFreeCombat() || (h.roundState == roundWaiting && h.hosted) {
 		h.thinSince = time.Time{}
 		return
 	}
@@ -431,17 +440,38 @@ func (h *Hub) isTramp(l, x, z int) bool {
 
 func (h *Hub) freeSpawnCellOn(l int) (int, int, bool) {
 	hh := h.gridSpan()
+	// Freefight decorative rocks sit on the meadow rim; spawn in the open center.
+	spawnHalf := hh
+	if h.isFreeCombat() {
+		spawnHalf = hh * 2 / 5
+		if spawnHalf < 3 {
+			spawnHalf = 3
+		}
+		if spawnHalf > hh {
+			spawnHalf = hh
+		}
+	}
 	for i := 0; i < 64; i++ {
-		x := mrand.Intn(2*hh+1) - hh
-		z := mrand.Intn(2*hh+1) - hh
+		x := mrand.Intn(2*spawnHalf+1) - spawnHalf
+		z := mrand.Intn(2*spawnHalf+1) - spawnHalf
 		if h.cellFree(l, x, z) && !h.isTramp(l, x, z) {
 			return x, z, true
 		}
 	}
-	for x := -hh; x <= hh; x++ {
-		for z := -hh; z <= hh; z++ {
+	for x := -spawnHalf; x <= spawnHalf; x++ {
+		for z := -spawnHalf; z <= spawnHalf; z++ {
 			if h.cellFree(l, x, z) && !h.isTramp(l, x, z) {
 				return x, z, true
+			}
+		}
+	}
+	// Last resort: full board (classic maps / packed freefight).
+	if spawnHalf < hh {
+		for x := -hh; x <= hh; x++ {
+			for z := -hh; z <= hh; z++ {
+				if h.cellFree(l, x, z) && !h.isTramp(l, x, z) {
+					return x, z, true
+				}
 			}
 		}
 	}
@@ -580,9 +610,9 @@ func (h *Hub) onJoin(c *Client) {
 		client:     c,
 		MineSkinID: c.mineSkinID,
 	}
-	// a fight in progress is not joinable: watch it out and start with everyone
-	// else in the next round. Solo Arena always restarts instead.
-	if !h.isArena() && h.roundState != roundWaiting {
+	// Mid-round joins spectate until the next round — except freefight (always live)
+	// and Arena (restarts).
+	if !h.isArena() && !h.isFreeCombat() && h.roundState != roundWaiting {
 		p.Spectating = true
 		p.Dead = true
 	}
@@ -636,6 +666,7 @@ func (h *Hub) onJoin(c *Client) {
 		welcome["punchRadius"] = PunchRadius
 		welcome["hideMine"] = true
 		welcome["half"] = h.gridSpan()
+		welcome["maxHp"] = MaxHP
 	}
 	h.sendTo(p, welcome)
 	for _, pl := range h.players {
@@ -929,6 +960,9 @@ func (h *Hub) onCommand(cmd command) {
 		return
 	case "voice-offer", "voice-answer", "voice-ice":
 		h.onVoiceSignal(p, cmd.msg)
+		return
+	case "emote":
+		h.onEmote(p, cmd.msg, time.Now())
 		return
 	}
 	if p.Dead {
@@ -1332,6 +1366,16 @@ func (h *Hub) die(p *Player, cause string, now time.Time) {
 	h.store.Death(p.userID)
 
 	msg := map[string]any{"t": "death", "id": p.ID, "cause": cause}
+	// Freefight is a persistent lobby: always respawn, never eliminate.
+	if h.isFreeCombat() {
+		p.Lives = MaxLives
+		p.Spectating = false
+		p.respawnAt = now.Add(RespawnDelay)
+		msg["lives"] = p.Lives
+		msg["respawnMs"] = RespawnDelay.Milliseconds()
+		h.broadcast(msg)
+		return
+	}
 	// practice costs nothing; in a match every death burns a life
 	if h.roundState == roundLive {
 		p.Lives--

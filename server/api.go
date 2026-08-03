@@ -53,6 +53,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/match/queue", a.matchCancel)
 	mux.HandleFunc("GET /api/match/status", a.matchStatus)
 	mux.HandleFunc("POST /api/match/quick", a.matchQuick)
+	mux.HandleFunc("GET /api/match/free", a.matchFreeInfo)
 	mux.HandleFunc("POST /api/match/free", a.matchFree)
 	mux.HandleFunc("GET /api/match/lobbies", a.matchLobbies)
 	mux.HandleFunc("POST /api/match/lobbies", a.matchCreateLobby)
@@ -455,6 +456,17 @@ func (a *API) matchQuick(w http.ResponseWriter, r *http.Request) {
 	a.writeMatchResult(w, match, 0)
 }
 
+func (a *API) matchFreeInfo(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	info := a.arena.FreeFightInfo()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"lobby": info,
+	})
+}
+
 func (a *API) matchFree(w http.ResponseWriter, r *http.Request) {
 	u := a.authUser(w, r)
 	if u == nil {
@@ -462,10 +474,23 @@ func (a *API) matchFree(w http.ResponseWriter, r *http.Request) {
 	}
 	match, err := a.arena.FreeEnqueue(u.ID)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		status := http.StatusBadRequest
+		if err == errLobbyFull {
+			status = http.StatusConflict
+		}
+		writeErr(w, status, err.Error())
 		return
 	}
-	a.writeMatchResult(w, match, 8)
+	if match == nil {
+		writeErr(w, http.StatusInternalServerError, "ошибка сервера")
+		return
+	}
+	info := a.arena.FreeFightInfo()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"state": "matched", "matchId": match.ID, "mapId": match.MapID,
+		"mode": match.Mode, "size": match.Size,
+		"players": info.Players, "capacity": info.Capacity,
+	})
 }
 
 func (a *API) matchLobbies(w http.ResponseWriter, r *http.Request) {

@@ -31,8 +31,8 @@ const PIRANHA_BELLY = '#F0C070'
 const PIRANHA_FIN = '#D04058'
 
 // Lake surface height in Three.js after glTF (Blender Z → Y).
-const LAKE_Y = -3.15
-const LAKE_SWIM_R = 10.5
+export const LAKE_Y = -3.15
+export const LAKE_SWIM_R = 10.5
 
 const SCENE_URL = assetUrl('jungle', 'backdrop', 'scene') + '?v=gfx18'
 const TREE_URL = assetUrl('jungle', 'props', 'tree')
@@ -572,7 +572,8 @@ function createBackdrop(scene, _fx, opts = {}) {
   const waterMaps = []
   const waterFxMeshes = [] // Ripple / ShoreRing / Sparkle / Foam / LilyPad
   const piranhas = []
-  const lakeFx = createLakeSplashes(group)
+  const noLake = !!opts.noLake
+  const lakeFx = noLake ? null : createLakeSplashes(group)
   let authored = false
   const mobile = !!opts.mobile
   const castMode = opts.shadowCast || (mobile ? 'core' : 'heavy')
@@ -608,6 +609,17 @@ function createBackdrop(scene, _fx, opts = {}) {
         n === 'Water' || n === 'WaterDeep' || n === 'WaterFoam'
         || n === 'WaterRipple' || n === 'WaterShoreRing' || n === 'WaterSpark'
         || n === 'WaterPad' || n === 'WaterPadVein')
+      const isWaterFx = meshName.startsWith('Ripple_')
+        || meshName.startsWith('ShoreRing_')
+        || meshName.startsWith('Sparkle_')
+        || meshName.startsWith('Foam_')
+        || meshName.startsWith('LilyPad_')
+
+      // Freefight: hide lake + FX — grass meadow replaces them.
+      if (noLake && (isWater || isWaterFx || meshName.startsWith('LakeWater_'))) {
+        obj.visible = false
+        return
+      }
 
       if (isWater) {
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
@@ -662,13 +674,7 @@ function createBackdrop(scene, _fx, opts = {}) {
         }
       }
 
-      if (
-        meshName.startsWith('Ripple_')
-        || meshName.startsWith('ShoreRing_')
-        || meshName.startsWith('Sparkle_')
-        || meshName.startsWith('Foam_')
-        || meshName.startsWith('LilyPad_')
-      ) {
+      if (isWaterFx) {
         waterFxMeshes.push({
           mesh: obj,
           kind: meshName.split('_')[0],
@@ -722,7 +728,43 @@ function createBackdrop(scene, _fx, opts = {}) {
       })
     }
 
-    piranhas.push(...createPiranhas(group))
+    if (!noLake) {
+      piranhas.push(...createPiranhas(group))
+    } else {
+      // Plaster the lake basin with grass (no raised play-pad — just fill the water).
+      const grassH = 0.45
+      const meadow = new THREE.Mesh(
+        geo('jungle:freefightMeadow', () => new THREE.CylinderGeometry(
+          LAKE_SWIM_R + 1.2, LAKE_SWIM_R + 2.2, grassH, 48,
+        )),
+        toon(MOSS, { steps: 7 }),
+      )
+      meadow.position.y = LAKE_Y
+      meadow.receiveShadow = true
+      group.add(meadow)
+      const meadowDeep = new THREE.Mesh(
+        geo('jungle:freefightMeadowDirt', () => new THREE.CylinderGeometry(
+          LAKE_SWIM_R + 0.4, LAKE_SWIM_R + 1.6, 2.4, 40,
+        )),
+        toon(DIRT, { steps: 7 }),
+      )
+      meadowDeep.position.y = LAKE_Y - 1.15
+      meadowDeep.receiveShadow = true
+      group.add(meadowDeep)
+      // Soft moss blotches so the filled lake does not read as one flat plastic disk.
+      const blotchMat = toon(MOSS_DEEP, { steps: 7 })
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2
+        const r = 2.2 + (i % 3) * 2.1
+        const blotch = new THREE.Mesh(
+          geo(`jungle:freefightBlotch${i}`, () => new THREE.CylinderGeometry(1.4, 1.6, 0.12, 12)),
+          blotchMat,
+        )
+        blotch.position.set(Math.cos(a) * r, LAKE_Y + grassH * 0.35, Math.sin(a) * r)
+        blotch.receiveShadow = true
+        group.add(blotch)
+      }
+    }
   } else {
     // Procedural fallback if the authored scene failed to preload.
     const floorMat = toon('#3a6b34')
@@ -733,13 +775,24 @@ function createBackdrop(scene, _fx, opts = {}) {
     sea.rotation.x = -Math.PI / 2
     sea.position.y = -24
     group.add(sea)
-    const lake = new THREE.Mesh(
-      geo('jungle:lakeFallback', () => new THREE.CircleGeometry(LAKE_SWIM_R + 2, 48)),
-      toon('#48C8E0', { steps: 7 }))
-    lake.rotation.x = -Math.PI / 2
-    lake.position.y = LAKE_Y
-    group.add(lake)
-    piranhas.push(...createPiranhas(group))
+    if (!noLake) {
+      const lake = new THREE.Mesh(
+        geo('jungle:lakeFallback', () => new THREE.CircleGeometry(LAKE_SWIM_R + 2, 48)),
+        toon('#48C8E0', { steps: 7 }))
+      lake.rotation.x = -Math.PI / 2
+      lake.position.y = LAKE_Y
+      group.add(lake)
+      piranhas.push(...createPiranhas(group))
+    } else {
+      const meadow = new THREE.Mesh(
+        geo('jungle:freefightMeadowFallback', () => new THREE.CylinderGeometry(
+          LAKE_SWIM_R + 1.2, LAKE_SWIM_R + 2.2, 0.45, 40,
+        )),
+        toon(MOSS, { steps: 7 }),
+      )
+      meadow.position.y = LAKE_Y
+      group.add(meadow)
+    }
     const hillGeo = geo('jungle:hill', () => blob(1, 1))
     for (let i = 0; i < 18; i++) {
       const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.2
@@ -888,7 +941,7 @@ function createBackdrop(scene, _fx, opts = {}) {
     cullToCamera,
     update(dt, t) {
       if (motes.points?.visible !== false) motes.update(dt, t)
-      lakeFx.update(dt)
+      lakeFx?.update(dt)
 
       let anyFx = false
       for (let i = 0; i < waterFxMeshes.length; i++) {
@@ -935,7 +988,7 @@ function createBackdrop(scene, _fx, opts = {}) {
       updatePiranhas(piranhas, t)
       for (const f of piranhas) {
         if (f._pendingSplash) {
-          lakeFx.splash(f._pendingSplash.x, f._pendingSplash.z, f._pendingSplash.s)
+          lakeFx?.splash(f._pendingSplash.x, f._pendingSplash.z, f._pendingSplash.s)
           f._pendingSplash = null
         }
       }
@@ -975,7 +1028,7 @@ function createBackdrop(scene, _fx, opts = {}) {
       motes.material.opacity = day ? 0.1 : 0.55
     },
     splash(x, z, strength = 1) {
-      return lakeFx.splash(x, z, strength)
+      return lakeFx?.splash(x, z, strength) || false
     },
   }
 }

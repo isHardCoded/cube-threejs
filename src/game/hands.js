@@ -6,15 +6,21 @@ import { DEFAULT_SKIN } from './dice.js'
 export const HANDS_URL = '/assets/character/hands.glb?v=1'
 
 /** Idle levitation (stay upright — never tumble with the die). */
-export const HAND_BOB_AMP = 0.11
-export const HAND_BOB_SPEED = 2.55
-export const HAND_HOVER_AMP = 0.055
-export const HAND_HOVER_SPEED = 1.15
-export const HAND_SWAY_AMP = 0.06
-export const HAND_SWAY_SPEED = 1.85
-export const HAND_DRIFT_AMP = 0.045
-export const HAND_DRIFT_SPEED = 1.35
-export const HAND_TILT_AMP = 0.14
+export const HAND_BOB_AMP = 0.09
+export const HAND_BOB_SPEED = 2.35
+export const HAND_HOVER_AMP = 0.045
+export const HAND_HOVER_SPEED = 1.05
+export const HAND_SWAY_AMP = 0.05
+export const HAND_SWAY_SPEED = 1.7
+export const HAND_DRIFT_AMP = 0.04
+export const HAND_DRIFT_SPEED = 1.25
+export const HAND_TILT_AMP = 0.16
+
+/** CubeWorld-like arm pump while walking (driven by gait phase). */
+export const HAND_GAIT_SWING = 0.32
+export const HAND_GAIT_LIFT = 0.12
+export const HAND_GAIT_OUT = 0.06
+export const HAND_GAIT_TILT = 0.38
 
 /** Cosmetic Enter-punch (seconds). */
 export const PUNCH_TIME = 0.3
@@ -27,7 +33,19 @@ const _e = new THREE.Euler()
 const _yAxis = new THREE.Vector3(0, 1, 0)
 const _qIdle = new THREE.Quaternion()
 const _qPunch = new THREE.Quaternion()
+const _qYaw = new THREE.Quaternion()
 const _ePunch = new THREE.Euler()
+
+function shortestAngleDelta(from, to) {
+  let d = to - from
+  while (d > Math.PI) d -= Math.PI * 2
+  while (d < -Math.PI) d += Math.PI * 2
+  return d
+}
+
+function damp(current, target, rate, dt) {
+  return current + (target - current) * (1 - Math.exp(-rate * dt))
+}
 
 export async function preloadHands() {
   await preloadGltf([HANDS_URL], {
@@ -247,14 +265,29 @@ export function updateHands(hands, anchor, opts = {}) {
     facingX = 0,
     facingZ = -1,
     punch = null,
+    walkSpeed = 0,
+    walkPhase = 0,
+    dt = 1 / 60,
   } = opts
 
   hands.visible = visible
   if (!visible) return
 
   hands.position.set(anchor.x, anchor.y, anchor.z)
-  // Stay world-up; only yaw with look direction (never inherit die tumble).
-  hands.quaternion.setFromAxisAngle(_yAxis, facingYaw(facingX, facingZ))
+
+  // Smooth root yaw along the shortest arc — raw setFromAxisAngle jerks on 180° flips.
+  const ud = hands.userData
+  const faceLen = Math.hypot(facingX, facingZ)
+  if (faceLen > 0.15) {
+    ud.faceYawTarget = facingYaw(facingX / faceLen, facingZ / faceLen)
+  } else if (ud.faceYawTarget == null) {
+    ud.faceYawTarget = 0
+  }
+  if (ud.faceYaw == null) ud.faceYaw = ud.faceYawTarget
+  ud.faceYaw += shortestAngleDelta(ud.faceYaw, ud.faceYawTarget) * (1 - Math.exp(-9 * dt))
+  _qYaw.setFromAxisAngle(_yAxis, ud.faceYaw)
+  hands.quaternion.copy(_qYaw)
+
   if (scale) hands.scale.copy(scale)
   else hands.scale.set(1, 1, 1)
 
@@ -263,29 +296,60 @@ export function updateHands(hands, anchor, opts = {}) {
   if (!left || !right) return
 
   const move = movePose(anim)
+  // Soft gait amount — no hard on/off threshold that pops the arms.
+  ud.smoothSpeed = damp(ud.smoothSpeed || 0, walkSpeed, 10, dt)
+  ud.smoothHop = damp(ud.smoothHop || 0, hopLift, 14, dt)
+  const gait = Math.min(Math.max(ud.smoothSpeed / 5.5, 0), 1.2)
+  const gaitW = gait * gait * (3 - 2 * gait) // smoothstep
 
   for (const [side, hand, ph] of [
     [-1, left, phase],
     [1, right, phase + 1.15],
   ]) {
     const base = hand.userData.base
-    const bob = Math.sin(t * HAND_BOB_SPEED + ph) * HAND_BOB_AMP
-    const hover = Math.sin(t * HAND_HOVER_SPEED + ph * 0.55) * HAND_HOVER_AMP
-    const sway = Math.sin(t * HAND_SWAY_SPEED + ph * 1.3) * HAND_SWAY_AMP
-    const drift = Math.sin(t * HAND_DRIFT_SPEED + ph * 0.9) * HAND_DRIFT_AMP
     const jab = punchPose(punch, side)
+    // Arms opposite the legs (CubeWorld pump): left fist = π offset from left foot.
+    const gaitWave = Math.sin(walkPhase + (side < 0 ? Math.PI : 0))
+    const gaitLift = Math.max(0, Math.sin(walkPhase + (side < 0 ? Math.PI : 0) + 0.4))
 
-    hand.position.set(
-      base.x + sway * side * 0.55 + move.outX * side + jab.outX,
-      base.y + bob + hover + hopLift + move.up + jab.up,
-      base.z + drift + sway * 0.35 + move.back + jab.back,
-    )
+    let bob = Math.sin(t * HAND_BOB_SPEED + ph) * HAND_BOB_AMP
+    let hover = Math.sin(t * HAND_HOVER_SPEED + ph * 0.55) * HAND_HOVER_AMP
+    let sway = Math.sin(t * HAND_SWAY_SPEED + ph * 1.3) * HAND_SWAY_AMP
+    let drift = Math.sin(t * HAND_DRIFT_SPEED + ph * 0.9) * HAND_DRIFT_AMP
 
-    const idleWobble = jab.muteIdle
+    // Idle softens while walking; gait takes over gradually.
+    const idleMix = Math.max(0.2, 1 - gaitW)
+    bob *= idleMix
+    hover *= idleMix
+    sway *= idleMix
+    drift *= idleMix
+
+    const swingZ = -gaitWave * HAND_GAIT_SWING * gaitW
+    const swingY = gaitLift * HAND_GAIT_LIFT * gaitW
+    const swingX = side * Math.abs(gaitWave) * HAND_GAIT_OUT * gaitW
+
+    const tx = base.x + sway * side * 0.55 + move.outX * side + jab.outX + swingX
+    const ty = base.y + bob + hover + ud.smoothHop + move.up + jab.up + swingY
+    const tz = base.z + drift + sway * 0.35 + move.back + jab.back + swingZ
+
+    // Ease local fist pose so jumps / turns don't teleport the gloves.
+    if (!hand.userData.smoothPos) {
+      hand.userData.smoothPos = { x: tx, y: ty, z: tz }
+    }
+    const sp = hand.userData.smoothPos
+    const posK = 1 - Math.exp(-18 * dt)
+    sp.x += (tx - sp.x) * posK
+    sp.y += (ty - sp.y) * posK
+    sp.z += (tz - sp.z) * posK
+    hand.position.set(sp.x, sp.y, sp.z)
+
+    const idleWobble = jab.muteIdle * idleMix
+    const gaitPitch = -gaitWave * HAND_GAIT_TILT * gaitW
+    const gaitRoll = side * gaitWave * 0.28 * gaitW
     _e.set(
-      move.pitch + Math.sin(t * 1.55 + ph) * HAND_TILT_AMP * idleWobble,
+      move.pitch + Math.sin(t * 1.55 + ph) * HAND_TILT_AMP * idleWobble + gaitPitch,
       move.yaw * side + Math.sin(t * 1.2 + ph * 0.7) * (HAND_TILT_AMP * 0.7) * idleWobble,
-      move.roll * side + Math.cos(t * 1.75 + ph) * (HAND_TILT_AMP * 0.55) * idleWobble,
+      move.roll * side + Math.cos(t * 1.75 + ph) * (HAND_TILT_AMP * 0.55) * idleWobble + gaitRoll,
     )
     _qIdle.setFromEuler(_e)
     const bq = hand.userData.baseQuat
@@ -297,8 +361,15 @@ export function updateHands(hands, anchor, opts = {}) {
       _ePunch.set(-0.08, side * -0.05, side * (Math.PI * 0.5))
       _qPunch.setFromEuler(_ePunch)
       hand.quaternion.copy(_qIdle).slerp(_qPunch, jab.aim)
+      if (!hand.userData.smoothQuat) hand.userData.smoothQuat = hand.quaternion.clone()
+      else hand.userData.smoothQuat.copy(hand.quaternion)
     } else {
-      hand.quaternion.copy(_qIdle)
+      // Soft blend toward idle pose to avoid snap when punch ends / gait flips.
+      if (!hand.userData.smoothQuat) {
+        hand.userData.smoothQuat = hand.quaternion.clone()
+      }
+      hand.userData.smoothQuat.slerp(_qIdle, 1 - Math.exp(-16 * dt))
+      hand.quaternion.copy(hand.userData.smoothQuat)
     }
   }
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { DEFAULT_SKIN, createDie } from './dice.js'
+import { DEFAULT_SKIN, createDie, setDieEmotion, EMOTE_MS } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
 import { createHands, disposeHands, updateHands, PUNCH_TIME, facingYaw } from './hands.js'
 import {
@@ -9,9 +9,9 @@ import { ensureAudio } from './sfx.js'
 import { initTelegram, tg } from './telegram.js'
 import { t } from '../i18n/t.js'
 
-const MOVE_SPEED = 7.5
-const ACCEL = 28
-const FRICTION = 14
+const MOVE_SPEED = 7.8
+const ACCEL = 18
+const FRICTION = 10
 const HOP_VY = 7.2
 const GRAVITY = 22
 // Floor ≈ y=0; lift die so sole bottoms land on the grass (not through it).
@@ -100,6 +100,20 @@ export function startFreeRoam({
     keys.delete(e.code)
   }
 
+  function clearMovementKeys() {
+    keys.clear()
+    vx = 0
+    vz = 0
+  }
+
+  function onWindowBlur() {
+    clearMovementKeys()
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) clearMovementKeys()
+  }
+
   function onPointerDown(e) {
     if (e.pointerType === 'mouse' && e.button !== 0) return
     ensureAudio()
@@ -131,6 +145,8 @@ export function startFreeRoam({
 
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('blur', onWindowBlur)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('pointerdown', ensureAudio)
   window.addEventListener('keydown', ensureAudio)
   const onResize = () => env.resize()
@@ -155,7 +171,15 @@ export function startFreeRoam({
     hideMine: true,
     canStart: false,
     ping: null,
+    freeCombat: true,
   })
+
+  let emoteTimer = 0
+  function sendEmote(emote) {
+    setDieEmotion(group, emote)
+    clearTimeout(emoteTimer)
+    emoteTimer = window.setTimeout(() => setDieEmotion(group, 'happy'), EMOTE_MS)
+  }
 
   const clock = new THREE.Clock()
   let raf = 0
@@ -202,21 +226,26 @@ export function startFreeRoam({
 
     const [wx, wz] = wishDir()
     if (wx || wz) {
-      vx += wx * ACCEL * dt
-      vz += wz * ACCEL * dt
-      faceX += (wx - faceX) * Math.min(1, dt * 12)
-      faceZ += (wz - faceZ) * Math.min(1, dt * 12)
-    } else {
-      const damp = Math.exp(-FRICTION * dt)
-      vx *= damp
-      vz *= damp
+      faceX += (wx - faceX) * Math.min(1, dt * 9)
+      faceZ += (wz - faceZ) * Math.min(1, dt * 9)
+      const fl = Math.hypot(faceX, faceZ) || 1
+      faceX /= fl
+      faceZ /= fl
+    }
+    {
+      const tx = wx * MOVE_SPEED
+      const tz = wz * MOVE_SPEED
+      const rate = (wx || wz) ? ACCEL : FRICTION
+      const k = 1 - Math.exp(-rate * dt)
+      vx += (tx - vx) * k
+      vz += (tz - vz) * k
+      if (!(wx || wz) && Math.hypot(vx, vz) < 0.08) {
+        vx = 0
+        vz = 0
+      }
     }
 
     const spd = Math.hypot(vx, vz)
-    if (spd > MOVE_SPEED) {
-      vx = (vx / spd) * MOVE_SPEED
-      vz = (vz / spd) * MOVE_SPEED
-    }
 
     group.position.x += vx * dt
     group.position.z += vz * dt
@@ -245,8 +274,8 @@ export function startFreeRoam({
       }
     }
 
-    const walkBob = grounded && spd > 0.4
-      ? Math.abs(Math.sin((legs.userData.phase || 0) * 2)) * 0.04
+    const walkBob = grounded && spd > 0.35
+      ? Math.abs(Math.sin(legs.userData.phase || 0)) * (0.045 + Math.min(spd, 8) * 0.004)
       : 0
     group.position.y = DIE_Y + hopY + walkBob
 
@@ -255,14 +284,17 @@ export function startFreeRoam({
     let dyaw = targetYaw - group.rotation.y
     while (dyaw > Math.PI) dyaw -= Math.PI * 2
     while (dyaw < -Math.PI) dyaw += Math.PI * 2
-    group.rotation.y += dyaw * Math.min(1, dt * 12)
+    group.rotation.y += dyaw * Math.min(1, dt * 9)
 
-    // Lean in local space (YXZ): pitch forward when moving.
-    const leanPitch = grounded && spd > 0.4
-      ? -Math.min(0.16, spd * 0.018)
+    // Lean in local space (YXZ): pitch forward + soft strafe roll.
+    const leanPitch = grounded && spd > 0.35
+      ? -Math.min(0.22, spd * 0.026)
       : 0
-    group.rotation.x = THREE.MathUtils.lerp(group.rotation.x, leanPitch, Math.min(1, dt * 10))
-    group.rotation.z = THREE.MathUtils.lerp(group.rotation.z, 0, Math.min(1, dt * 10))
+    const leanRoll = grounded && spd > 0.35
+      ? THREE.MathUtils.clamp((-vx * faceZ + vz * faceX) * 0.035, -0.12, 0.12)
+      : 0
+    group.rotation.x = THREE.MathUtils.lerp(group.rotation.x, leanPitch, Math.min(1, dt * 8))
+    group.rotation.z = THREE.MathUtils.lerp(group.rotation.z, leanRoll, Math.min(1, dt * 8))
 
     // Hips under the die bottom face.
     updateLegs(legs, {
@@ -304,6 +336,9 @@ export function startFreeRoam({
       facingX: faceX,
       facingZ: faceZ,
       punch,
+      walkSpeed: spd,
+      walkPhase: legs.userData.phase || 0,
+      dt,
     })
 
     arena.update?.(dt, t, 0)
@@ -325,6 +360,7 @@ export function startFreeRoam({
     isDay: () => env.isDay(),
     placeMine: () => {},
     startMatch: () => {},
+    sendEmote,
     setCameraYaw: (deg) => env.setCameraYaw?.(deg),
     getCameraYaw: () => env.getCameraYaw?.() ?? 0,
     setCameraElev: (deg) => env.setCameraElev?.(deg),
@@ -333,8 +369,11 @@ export function startFreeRoam({
     setLightTweaks: (partial) => env.setLightTweaks?.(partial) ?? null,
     stop() {
       cancelAnimationFrame(raf)
+      clearTimeout(emoteTimer)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onWindowBlur)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('pointerdown', ensureAudio)
       window.removeEventListener('keydown', ensureAudio)
       window.removeEventListener('resize', onResize)

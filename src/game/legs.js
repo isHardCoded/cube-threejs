@@ -1,20 +1,20 @@
 import * as THREE from 'three'
-import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { DEFAULT_SKIN } from './dice.js'
 
 /** Approximate visual leg length (for reference / tuning). */
-export const LEG_LENGTH = 0.32
+export const LEG_LENGTH = 0.28
 /**
- * Distance from freeroam hipAnchor to sole bottom at rest:
- * |foot.y| + soleHalf − hip.y = 0.405 + 0.0225 − 0.02.
+ * Distance from freeroam hipAnchor to sole bottom at rest.
+ * Keep in sync with makeLeg() sole bottom.
  */
-export const HIP_TO_SOLE = 0.408
+export const HIP_TO_SOLE = 0.34
 /** Tiny gap so soles sit on the grass, not inside it. */
 export const BODY_CLEARANCE = 0.01
 
 /**
- * Two toy legs (scene siblings of the die). Origin = hip; feet hang −Y.
- * Forward = local −Z (same as the cube face / freeroam facing).
+ * Two floating M&M-style sneakers (scene siblings of the die):
+ * chunky round shoes with a clear air gap — not limb stacks.
+ * Origin = hipAnchor under the die; feet hang −Y. Forward = local −Z.
  */
 export function createLegs(skinOrColor = DEFAULT_SKIN) {
   const bodyHex = typeof skinOrColor === 'string' || skinOrColor?.isColor
@@ -25,23 +25,23 @@ export function createLegs(skinOrColor = DEFAULT_SKIN) {
   const root = new THREE.Group()
   const bodyMat = new THREE.MeshStandardMaterial({
     color: bodyHex,
-    roughness: 0.52,
-    metalness: 0.08,
+    roughness: 0.48,
+    metalness: 0.06,
+  })
+  const soleMat = new THREE.MeshStandardMaterial({
+    color: '#f4f0e8',
+    roughness: 0.72,
+    metalness: 0,
   })
   const darkMat = new THREE.MeshStandardMaterial({
     color: pipHex,
-    roughness: 0.65,
-    metalness: 0.05,
+    roughness: 0.78,
+    metalness: 0.02,
   })
-  const sockMat = new THREE.MeshStandardMaterial({
-    color: '#fff6e8',
-    roughness: 0.7,
-    metalness: 0,
-  })
-  root.userData.mats = [bodyMat, darkMat, sockMat]
+  root.userData.mats = [bodyMat, soleMat, darkMat]
 
-  const left = makeLeg(-1, bodyMat, darkMat, sockMat)
-  const right = makeLeg(1, bodyMat, darkMat, sockMat)
+  const left = makeLeg(-1, bodyMat, soleMat, darkMat)
+  const right = makeLeg(1, bodyMat, soleMat, darkMat)
   root.add(left, right)
   root.userData.left = left
   root.userData.right = right
@@ -49,76 +49,60 @@ export function createLegs(skinOrColor = DEFAULT_SKIN) {
   return root
 }
 
-function makeLeg(side, bodyMat, darkMat, sockMat) {
+/**
+ * One chubby round sneaker (M&M candy shoes): fat upper sphere + white sole.
+ * Rest sole bottom ≈ y −0.34 (see HIP_TO_SOLE).
+ */
+function makeLeg(side, bodyMat, soleMat, darkMat) {
   const hip = new THREE.Group()
-  hip.position.set(side * 0.2, 0.02, 0)
+  // Float below the die with a clear gap (like fists beside the body).
+  hip.position.set(side * 0.28, -0.05, 0.04)
   hip.userData.side = side
+  hip.userData.baseY = -0.05
 
-  const hipBall = new THREE.Mesh(new THREE.SphereGeometry(0.078, 12, 10), bodyMat)
-  hipBall.position.y = -0.018
-  hipBall.castShadow = true
-  hip.add(hipBall)
+  const shoe = new THREE.Group()
+  shoe.position.set(0, -0.16, -0.02)
 
-  const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.095, 5, 10), bodyMat)
-  thigh.position.y = -0.115
-  thigh.castShadow = true
-  thigh.receiveShadow = true
-  hip.add(thigh)
+  // Chunky round upper — the candy “sneaker” body.
+  const upper = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 12), bodyMat)
+  upper.scale.set(1.15, 0.92, 1.35)
+  upper.position.set(0, 0.02, -0.02)
+  upper.castShadow = true
+  upper.receiveShadow = true
+  shoe.add(upper)
 
-  const knee = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), bodyMat)
-  knee.position.y = -0.2
-  knee.castShadow = true
-  hip.add(knee)
+  // Soft ankle cuff peeking up toward the die (still detached).
+  const cuff = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10), bodyMat)
+  cuff.scale.set(1.05, 0.7, 1.05)
+  cuff.position.set(0, 0.095, 0.01)
+  cuff.castShadow = true
+  shoe.add(cuff)
 
-  const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.075, 5, 10), bodyMat)
-  shin.position.y = -0.275
-  shin.castShadow = true
-  hip.add(shin)
-
-  const sock = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.062, 0.05, 12), sockMat)
-  sock.position.y = -0.335
-  sock.castShadow = true
-  hip.add(sock)
-
-  const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), bodyMat)
-  ankle.position.y = -0.37
-  ankle.castShadow = true
-  hip.add(ankle)
-
-  const foot = new THREE.Group()
-  foot.position.set(0, -0.405, -0.018)
-
-  const sole = new THREE.Mesh(
-    new RoundedBoxGeometry(0.14, 0.045, 0.19, 2, 0.028),
-    darkMat,
-  )
-  sole.position.set(0, 0, -0.035)
+  // Fat white midsole / platform.
+  const sole = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 10), soleMat)
+  sole.scale.set(1.35, 0.42, 1.55)
+  sole.position.set(0, -0.07, -0.02)
   sole.castShadow = true
   sole.receiveShadow = true
-  foot.add(sole)
+  shoe.add(sole)
 
-  const vamp = new THREE.Mesh(
-    new RoundedBoxGeometry(0.12, 0.055, 0.12, 2, 0.022),
-    bodyMat,
-  )
-  vamp.position.set(0, 0.03, -0.018)
-  vamp.castShadow = true
-  foot.add(vamp)
+  // Dark outsole strip under the white.
+  const outsole = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 8), darkMat)
+  outsole.scale.set(1.32, 0.22, 1.5)
+  outsole.position.set(0, -0.105, -0.02)
+  outsole.castShadow = true
+  outsole.receiveShadow = true
+  shoe.add(outsole)
 
-  const toe = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), bodyMat)
-  toe.position.set(0, 0.018, -0.11)
-  toe.scale.set(1.15, 0.75, 0.9)
+  // Tiny toe bump for read.
+  const toe = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), bodyMat)
+  toe.scale.set(1.15, 0.85, 1.0)
+  toe.position.set(0, -0.01, -0.14)
   toe.castShadow = true
-  foot.add(toe)
+  shoe.add(toe)
 
-  const heel = new THREE.Mesh(new THREE.SphereGeometry(0.036, 8, 8), darkMat)
-  heel.position.set(0, 0, 0.06)
-  heel.scale.set(1.1, 0.7, 0.8)
-  foot.add(heel)
-
-  hip.add(foot)
-  hip.userData.foot = foot
-  hip.userData.knee = knee
+  hip.add(shoe)
+  hip.userData.boot = shoe
   return hip
 }
 
@@ -128,7 +112,7 @@ export function setLegsColor(root, color) {
 }
 
 /**
- * Drive a walk cycle. Forward = local −Z (matches cube face).
+ * Drive a CubeWorld-style wide stride. Forward = local −Z (matches cube face).
  */
 export function updateLegs(root, hipAnchor, opts = {}) {
   if (!root) return
@@ -146,37 +130,48 @@ export function updateLegs(root, hipAnchor, opts = {}) {
 
   root.position.set(hipAnchor.x, hipAnchor.y, hipAnchor.z)
 
-  // Same yaw as fists / cube face: local −Z = look direction.
   const len = Math.hypot(facingX, facingZ)
   const yaw = len < 1e-6 ? 0 : Math.atan2(-facingX / len, -facingZ / len)
   root.rotation.set(0, yaw, 0)
 
-  const moving = grounded && speed > 0.35
-  const stepRate = 9.2
-  if (moving) root.userData.phase += dt * stepRate * Math.min(speed / 4.5, 1.6)
-  else root.userData.phase *= Math.max(0, 1 - dt * 6)
+  const moving = grounded && speed > 0.25
+  const pace = Math.min(speed / 5.2, 1.85)
+  // Faster, livelier cadence when sprinting.
+  const stepRate = 10.5 + pace * 3.2
+  if (moving) root.userData.phase += dt * stepRate
+  else root.userData.phase *= Math.max(0, 1 - dt * 5.5)
 
   const ph = root.userData.phase
-  const amp = moving ? Math.min(0.5, 0.2 + speed * 0.045) : 0.032
-  const idle = moving ? 0 : Math.sin(performance.now() * 0.002) * 0.022
+  // Wide forward swing + high step like CubeWorld toy legs.
+  const amp = moving ? 0.42 + pace * 0.38 : 0.028
+  const liftAmp = moving ? 0.09 + pace * 0.07 : 0
+  const strideZ = moving ? 0.07 + pace * 0.06 : 0
+  const spread = moving ? 0.04 + pace * 0.03 : 0.02
+  const idle = moving ? 0 : Math.sin(performance.now() * 0.0024) * 0.022
 
   for (const [leg, offset] of [[left, 0], [right, Math.PI]]) {
-    const swing = Math.sin(ph + offset) * amp + idle * (offset ? -1 : 1)
-    const lift = moving ? Math.max(0, Math.sin(ph + offset)) * 0.085 : 0
-    const kneeBend = moving ? Math.max(0, -Math.sin(ph + offset)) * 0.32 : 0.07
+    const side = leg.userData.side
+    const wave = Math.sin(ph + offset)
+    const liftWave = Math.max(0, Math.sin(ph + offset))
+    const swing = wave * amp + idle * (offset ? -1 : 1)
+    const lift = liftWave * liftAmp
+
+    // Plant farther apart and step forward/back along facing (−Z).
+    leg.position.x = side * (0.28 + spread)
+    leg.position.y = leg.userData.baseY + lift
+    leg.position.z = -wave * strideZ
 
     leg.rotation.x = -swing
-    leg.rotation.z = leg.userData.side * 0.032
-    // Keep makeLeg() hip base (0.02); only add swing lift on top.
-    leg.position.y = 0.02 + lift
+    leg.rotation.z = side * (0.05 + pace * 0.04)
+    leg.rotation.y = side * wave * 0.08 * pace
 
-    if (leg.userData.knee) {
-      leg.userData.knee.scale.setScalar(1 + kneeBend * 0.13)
-    }
-    if (leg.userData.foot) {
-      leg.userData.foot.rotation.x = moving ? swing * 0.52 : 0.045
+    if (leg.userData.boot) {
+      // Toe points down on the forward swing, lifts on the back swing.
+      leg.userData.boot.rotation.x = moving ? swing * 0.55 + liftWave * 0.2 : 0.02
     }
   }
+
+  root.userData.gaitAmp = amp
 }
 
 export function disposeLegs(root) {

@@ -15,6 +15,7 @@ import { sfx } from '../game/sfx.js'
 const EMPTY_HUD = {
   status: '', timer: '', timerKind: '', timerDanger: false, alive: '', banner: '',
   mine: '', mineReady: false, fps: 0, ping: null, canStart: false,
+  deathOverlay: null, freeCombat: false,
 }
 
 export default function GamePage() {
@@ -120,6 +121,7 @@ export default function GamePage() {
         onMine={() => gameRef.current?.placeMine()}
         onStartMatch={() => gameRef.current?.startMatch()}
         onOpenAssets={openAssets}
+        onEmote={(emote) => gameRef.current?.sendEmote?.(emote)}
       />
       <MapAssetModal
         open={assetsOpen}

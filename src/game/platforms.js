@@ -114,6 +114,14 @@ export function createArena(env) {
     const seamless = !!theme.seamlessFloor
     const half = halfOf()
 
+    // Freefight: jungle meadow (backdrop) is the floor — skip raised pads / tiles.
+    if (theme.noArenaFloor) {
+      platforms[level] = {
+        group, pieces, tramp: null, trampKey: null, rimGone: 0, spot: null,
+      }
+      return
+    }
+
     // Freeroam / test: one continuous grass pad — no per-cell sectors or grid.
     if (seamless) {
       const size = theme.floorSize || spanOf()
