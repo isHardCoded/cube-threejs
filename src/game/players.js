@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { NEON_YELLOW } from './palette.js'
 import { DEFAULT_SKIN, createDie, dieGeo, quatForOrient, rollOrient, yAxis } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
-import { createHands, disposeHands, updateHands } from './hands.js'
+import { createHands, disposeHands, updateHands, PUNCH_TIME } from './hands.js'
 import { inArena, floorY, LEVELS } from './layouts.js'
 import { createNameplate, drawNameplate } from './sprites.js'
 import { sfx } from './sfx.js'
@@ -216,6 +216,7 @@ export function createPlayers(env, arena) {
     const dirX = Math.sign(dx) || 0
     const dirZ = Math.sign(dz) || 0
     if (dirX === 0 && dirZ === 0) return
+    if (dirX || dirZ) p.faceDir = [dirX, dirZ]
     p.jelly = { t: 0, dx: dirX, dz: dirZ, time: JELLY_TIME }
     if (opts.sfx !== false) sfx.bump()
     if (opts.shake) env.addShake?.(opts.shake)
@@ -327,7 +328,7 @@ export function createPlayers(env, arena) {
     scene.add(hat)
 
     // Same for fists — levitate beside the die, never inherit roll quat.
-    const hands = createHands()
+    const hands = createHands(skin)
     scene.add(hands)
 
     const bar = createNameplate(data.name, isMe)
@@ -349,6 +350,11 @@ export function createPlayers(env, arena) {
       gone: data.dead || data.spectating || false, // fully hidden
       hatPhase: Math.random() * Math.PI * 2,
       handPhase: Math.random() * Math.PI * 2,
+      // look dir for floating fists (WASD / last move); default toward −Z
+      faceDir: [0, -1],
+      faceX: 0,
+      faceZ: -1,
+      punch: null,                 // { side, t } cosmetic Enter jab
       hatFlight: null,              // detached hat ballistic after arena fall
     }
     paintPlate(p)
@@ -698,6 +704,8 @@ export function createPlayers(env, arena) {
     const dz = Math.sign(m.p.z - p.cell.z)
     const dist = Math.abs(m.p.x - p.cell.x) + Math.abs(m.p.z - p.cell.z)
     const baseY = dieY(p.level)
+    // Fists yaw with travel so left/right stay beside the die relative to facing.
+    if (dx || dz) p.faceDir = [dx, dz]
 
     if (m.jump) {
       const stomp = !!m.stomp
@@ -920,13 +928,27 @@ export function createPlayers(env, arena) {
         }
       }
 
-      // fists float beside the die (idle bob + move punch/lag)
+      // fists float beside the die (idle bob + yaw with facing + Enter jab)
       if (p.hands) {
+        if (p.punch) {
+          p.punch.t += dt / p.punch.time
+          if (p.punch.t >= 1) p.punch = null
+        }
         const showHands = !p.gone && (p.group.visible || p.deathAnim)
         const anchored = !!p.jelly
         const hx = anchored ? p.cell.x : p.group.position.x
         const hz = anchored ? p.cell.z : p.group.position.z
         const hy = anchored ? dieY(p.level) : p.group.position.y
+        // Local player: aim dir from WASD; others: last travel dir.
+        let wantX = p.faceDir[0]
+        let wantZ = p.faceDir[1]
+        if (p.id === state.myId) {
+          wantX = local.moveDir[0]
+          wantZ = local.moveDir[1]
+        }
+        const faceK = Math.min(1, dt * 12)
+        p.faceX += (wantX - p.faceX) * faceK
+        p.faceZ += (wantZ - p.faceZ) * faceK
         updateHands(p.hands, { x: hx, y: hy, z: hz }, {
           t: performance.now() * 0.001,
           phase: p.handPhase,
@@ -934,6 +956,9 @@ export function createPlayers(env, arena) {
           anim: p.anim,
           hopLift: hopFx ? hopFx.hatExtra * 0.6 : 0,
           visible: showHands,
+          facingX: p.faceX,
+          facingZ: p.faceZ,
+          punch: p.punch,
         })
       }
 
@@ -996,10 +1021,20 @@ export function createPlayers(env, arena) {
     }
   }
 
+  /** Cosmetic fist jab — Enter only, no gameplay. Random left/right each press. */
+  function punch() {
+    const p = me()
+    if (!p || p.gone || p.dead || !p.hands) return
+    // Let the current jab finish — spam must not cut the swing short.
+    if (p.punch && p.punch.t < 1) return
+    const side = Math.random() < 0.5 ? -1 : 1
+    p.punch = { side, t: 0, time: PUNCH_TIME }
+  }
+
   return {
     players, state, local, predictions,
     me, canPlay, setSkins, setHat, addPlayer, removePlayer, clear, paintPlate,
     syncConfirmed, rollbackPrediction, predictRoll, predictDash, playBump,
-    enqueueMove, startDeathAnim, clearHatFlight, update,
+    enqueueMove, startDeathAnim, clearHatFlight, punch, update,
   }
 }

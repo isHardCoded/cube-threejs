@@ -97,10 +97,25 @@ export function createInput({ canvas, players: pm, send }) {
     send({ t: 'mine' })
   }
 
+  function inputPunch() {
+    // Cosmetic only — works whenever we have a visible cube (incl. spectate no).
+    const p = pm.me()
+    if (!p || p.gone || p.dead) return
+    // Don't steal Enter from text fields / chat.
+    const tag = document.activeElement?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return
+    pm.punch()
+  }
+
   function onKeyDown(e) {
     if (e.repeat) return
     if (e.code === 'Space') { e.preventDefault(); inputJump(); return }
     if (e.code === 'KeyE') { e.preventDefault(); inputMine(); return }
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+      e.preventDefault()
+      inputPunch()
+      return
+    }
     const dir = KEYS[e.code]
     if (dir) { e.preventDefault(); inputDir(dir[0], dir[1]) }
   }
