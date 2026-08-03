@@ -186,6 +186,9 @@ type Hub struct {
 	crumbleOrder [][2]int
 	nextTileAt   time.Time
 
+	// freeCombat: continuous WASD + splash punch (freefight map). Classic PvP stays grid.
+	freeCombat bool
+
 	// Arena PvE (ModeArena): hostile cubes, survival / kill-goal waves
 	mobs         map[string]*ArenaMob
 	nextMobSeq   int
@@ -632,6 +635,7 @@ func (h *Hub) onJoin(c *Client) {
 		welcome["punchCooldownMs"] = PunchCooldownFree.Milliseconds()
 		welcome["punchRadius"] = PunchRadius
 		welcome["hideMine"] = true
+		welcome["half"] = h.gridSpan()
 	}
 	h.sendTo(p, welcome)
 	for _, pl := range h.players {
@@ -878,6 +882,9 @@ func (h *Hub) onTick() {
 	}
 	if h.isArena() {
 		return // flat floor, no crumble waves
+	}
+	if h.isFreeCombat() {
+		return // freefight pad stays intact
 	}
 	switch h.phaseMode {
 	case modeCalm:

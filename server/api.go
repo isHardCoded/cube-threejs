@@ -53,6 +53,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/match/queue", a.matchCancel)
 	mux.HandleFunc("GET /api/match/status", a.matchStatus)
 	mux.HandleFunc("POST /api/match/quick", a.matchQuick)
+	mux.HandleFunc("POST /api/match/free", a.matchFree)
 	mux.HandleFunc("GET /api/match/lobbies", a.matchLobbies)
 	mux.HandleFunc("POST /api/match/lobbies", a.matchCreateLobby)
 	mux.HandleFunc("GET /api/match/lobbies/{id}", a.matchLobbyInfo)
@@ -452,6 +453,19 @@ func (a *API) matchQuick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.writeMatchResult(w, match, 0)
+}
+
+func (a *API) matchFree(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	match, err := a.arena.FreeEnqueue(u.ID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.writeMatchResult(w, match, 8)
 }
 
 func (a *API) matchLobbies(w http.ResponseWriter, r *http.Request) {

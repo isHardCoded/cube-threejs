@@ -6,17 +6,17 @@ import (
 )
 
 const (
-	// Continuous PvP (WASD + splash punch). Enabled for all ModePvP hubs.
-	FreeMaxSpeed     = 8.5
-	FreePoseMinGap   = 40 * time.Millisecond
+	// Continuous PvP (WASD + splash punch). Opt-in via hub.freeCombat (freefight map).
+	FreeMaxSpeed      = 8.5
+	FreePoseMinGap    = 40 * time.Millisecond
 	PunchCooldownFree = 480 * time.Millisecond
-	PunchRadius      = 1.85
-	PunchDamage      = 7
-	PunchKnock       = 0.55
+	PunchRadius       = 1.85
+	PunchDamage       = 7
+	PunchKnock        = 0.55
 )
 
 func (h *Hub) isFreeCombat() bool {
-	return h.mode == ModePvP
+	return h.freeCombat
 }
 
 func (p *Player) syncCellFromFree() {
@@ -86,6 +86,26 @@ func (h *Hub) onFreePose(p *Player, msg clientMsg, now time.Time) {
 		nz = p.FZ + dz*s
 	}
 	nx, nz = h.clampFreePos(p, nx, nz)
+
+	// Soft body separation — cubes may not stack on top of each other.
+	const sep = 0.95
+	for _, o := range h.players {
+		if o == p || o.Dead || o.Spectating || o.Level != p.Level {
+			continue
+		}
+		dx, dz := nx-o.FX, nz-o.FZ
+		d := math.Hypot(dx, dz)
+		if d < 1e-4 {
+			dx, dz, d = 1, 0, 1
+		}
+		if d < sep {
+			s := (sep - d) / d
+			nx += dx * s
+			nz += dz * s
+			nx, nz = h.clampFreePos(p, nx, nz)
+		}
+	}
+
 	p.FX, p.FZ = nx, nz
 	p.syncCellFromFree()
 

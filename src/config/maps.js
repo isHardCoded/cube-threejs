@@ -13,6 +13,8 @@ export const MAPS = [
 export const ARENA_MAP_ID = 'arena'
 /** Local free-roam test sandbox (client-only, not in the training map list). */
 export const FREEROAM_MAP_ID = 'freeroam'
+/** Networked free-fight PvP (WASD + splash + voice). */
+export const FREEFIGHT_MAP_ID = 'freefight'
 
 export const DEFAULT_MAP = 'cyberpunk'
 
@@ -20,5 +22,6 @@ export const DEFAULT_MAP = 'cyberpunk'
 export function resolveMapId(id) {
   if (id === ARENA_MAP_ID) return ARENA_MAP_ID
   if (id === FREEROAM_MAP_ID) return FREEROAM_MAP_ID
+  if (id === FREEFIGHT_MAP_ID) return FREEFIGHT_MAP_ID
   return MAPS.some((m) => m.id === id && m.ready) ? id : DEFAULT_MAP
 }

@@ -337,6 +337,7 @@ export function createPlayers(env, arena) {
 
     const p = {
       id: data.id, group, bodyMat, bar, hat, hatId: data.hatId || 'none', hands,
+      skinId: data.skinId || skin.id,
       cell: { x: data.x, z: data.z },
       confirmedCell: { x: data.x, z: data.z },
       fx: data.fx ?? data.x,
@@ -361,6 +362,7 @@ export function createPlayers(env, arena) {
       hatFlight: null,              // detached hat ballistic after arena fall
       voiceOn: !!data.voice,
       freeCombat: false,
+      faceDie: false,
       legs: null,
     }
     paintPlate(p)
@@ -914,12 +916,14 @@ export function createPlayers(env, arena) {
           }
           const k = Math.min(da.t / 1.1, 1)
           p.group.scale.setScalar(1 - k * 0.5)
+          if (p.legs) p.legs.visible = false
           if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
         } else {
           const k = Math.min(da.t * 1.6, 1)
           p.group.scale.setScalar(Math.max(0.001, 1 - k * 0.999))
           p.group.rotation.y += dt * 10
           p.group.position.y = dieY(p.level) + k * 1.2
+          if (p.legs) p.legs.visible = false
           if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
         }
       }

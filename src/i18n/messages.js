@@ -140,6 +140,9 @@ export const ru = {
 
   'pvp.hub.quick.name': 'Быстрый поиск',
   'pvp.hub.quick.desc': 'Войти в любое открытое лобби',
+  'pvp.hub.free.name': 'Свободный бой',
+  'pvp.hub.free.desc': 'WASD, удары-волны, голос на K',
+  'pvp.free.hint': 'Ищем арену свободного боя…',
   'pvp.hub.list.name': 'Список лобби',
   'pvp.hub.list.desc': 'Выбрать комнату вручную',
   'pvp.hub.create.name': 'Создать лобби',
@@ -580,6 +583,9 @@ export const en = {
 
   'pvp.hub.quick.name': 'Quick search',
   'pvp.hub.quick.desc': 'Join any open lobby',
+  'pvp.hub.free.name': 'Free fight',
+  'pvp.hub.free.desc': 'WASD, splash punches, voice on K',
+  'pvp.free.hint': 'Looking for a free-fight arena…',
   'pvp.hub.list.name': 'Lobby list',
   'pvp.hub.list.desc': 'Pick a room yourself',
   'pvp.hub.create.name': 'Create lobby',

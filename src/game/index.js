@@ -158,7 +158,7 @@ export function startGame({
 
   function onVoiceKey(e) {
     if (e.repeat || e.code !== 'KeyK') return
-    if (!protocol.free) return
+    if (!protocol.free && !freeCombat.enabled) return
     const tag = document.activeElement?.tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return
     e.preventDefault()
@@ -166,10 +166,13 @@ export function startGame({
     voice.toggle().then((on) => {
       const me = players.me()
       if (me) {
+        me.voiceOn = !!on
         attachMicBadge(THREE, env.scene, me)
         setMicBadge(me, on)
       }
       setStatus(on ? t('game.voiceOn') : t('game.voiceOff'), 1600)
+    }).catch(() => {
+      setStatus(t('game.voiceOff'), 1600)
     })
   }
   window.addEventListener('keydown', onVoiceKey)

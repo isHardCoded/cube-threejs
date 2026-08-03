@@ -234,9 +234,14 @@ func (a *Arena) MatchHub(matchID string) *Hub {
 	return a.rooms[matchID]
 }
 
-// QuickEnqueue finds any open lobby (any map, any size) or waits for one.
+// QuickEnqueue finds any open classic lobby (any map, any size) or waits for one.
 func (a *Arena) QuickEnqueue(userID int64) (*PendingMatch, error) {
 	return a.Enqueue(userID, allMapIDs(), 0)
+}
+
+// FreeEnqueue seats into freefight (WASD + splash) or opens a new freefight lobby.
+func (a *Arena) FreeEnqueue(userID int64) (*PendingMatch, error) {
+	return a.Enqueue(userID, []string{FreeFightMapID}, 8)
 }
 
 // CreateLobby opens a hosted room the founder can start when enough players join.
@@ -301,6 +306,9 @@ func (a *Arena) ListLobbies() []LobbyPublic {
 
 	out := make([]LobbyPublic, 0, len(a.lobbies))
 	for _, l := range a.lobbies {
+		if l.mapID == FreeFightMapID {
+			continue // freefight has its own matchmaking entry
+		}
 		out = append(out, a.lobbyPublicLocked(l))
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -487,6 +495,10 @@ func (a *Arena) openLobbyLocked(mapID string, size int, now time.Time, first ...
 	h := NewHub(a.store, gm, a.presence)
 	h.id = id
 	h.mode = ModePvP
+	h.freeCombat = gm.ID == FreeFightMapID
+	if h.freeCombat {
+		h.gridHalf = 14 // matches freeroam pad radius on the client
+	}
 	h.maxPlayers = size
 	h.allowed = map[int64]bool{} // filled as the arena admits players
 	h.onEmpty = func(hub *Hub) { a.removeRoom(hub.id) }
@@ -703,8 +715,8 @@ func firstIntersection(a, b []string) string {
 func allMapIDs() []string {
 	out := make([]string, 0, len(GameMaps))
 	for id := range GameMaps {
-		if id == ArenaMapID {
-			continue // PvE-only floor, not in PvP matchmaking
+		if id == ArenaMapID || id == FreeFightMapID {
+			continue // PvE arena / freefight have separate queues
 		}
 		out = append(out, id)
 	}

@@ -1,3 +1,5 @@
+import { SPRITE_LAYER } from './sprites.js'
+
 /**
  * P2P voice chat over WebRTC, signaled through the game WebSocket.
  * Toggle with K — broadcasts voice on/off for the mic icon above the head.
@@ -15,6 +17,9 @@ export function createVoiceChat({ send, getMyId, getPeerIds }) {
 
   async function ensureMic() {
     if (localStream) return localStream
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('mic unsupported')
+    }
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -121,10 +126,8 @@ export function createVoiceChat({ send, getMyId, getPeerIds }) {
     const me = getMyId()
     if (!me) return
     const ids = (getPeerIds?.() || []).filter((id) => id && id !== me)
-    // Lower id offers (prevents glare for 1v1 / small lobbies).
     for (const id of ids) {
-      const polite = me < id
-      await ensurePeer(id, polite)
+      await ensurePeer(id, me < id)
     }
   }
 
@@ -138,7 +141,6 @@ export function createVoiceChat({ send, getMyId, getPeerIds }) {
         micOn = true
         send({ t: 'voice', on: true })
         await connectAll()
-        // Attach tracks to existing peers that joined before mic was on.
         for (const [, pc] of peers) {
           const senders = pc.getSenders()
           for (const track of localStream.getTracks()) {
@@ -151,12 +153,11 @@ export function createVoiceChat({ send, getMyId, getPeerIds }) {
         setTrackEnabled(false)
         micOn = false
         send({ t: 'voice', on: false })
-        // Keep connections; just mute outbound.
       }
     } catch (err) {
       console.warn('voice mic failed', err)
       micOn = false
-      send({ t: 'voice', on: false })
+      try { send({ t: 'voice', on: false }) } catch { /* ignore */ }
       stopMicTracks()
     }
     return micOn
@@ -250,49 +251,6 @@ export function createVoiceChat({ send, getMyId, getPeerIds }) {
   }
 }
 
-/** Small mic badge sprite above a die. */
-export function createMicBadge() {
-  const c = document.createElement('canvas')
-  c.width = 64
-  c.height = 64
-  const ctx = c.getContext('2d')
-  function draw(active) {
-    ctx.clearRect(0, 0, 64, 64)
-    ctx.fillStyle = active ? 'rgba(40, 200, 90, 0.92)' : 'rgba(20, 20, 28, 0.75)'
-    ctx.beginPath()
-    ctx.arc(32, 32, 28, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.strokeStyle = active ? '#e8ffe8' : '#889'
-    ctx.lineWidth = 3
-    ctx.stroke()
-    // mic body
-    ctx.fillStyle = '#fff'
-    ctx.beginPath()
-    ctx.roundRect(26, 14, 12, 22, 6)
-    ctx.fill()
-    ctx.strokeStyle = '#fff'
-    ctx.lineWidth = 3
-    ctx.beginPath()
-    ctx.arc(32, 34, 10, 0.15 * Math.PI, 0.85 * Math.PI)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(32, 44)
-    ctx.lineTo(32, 50)
-    ctx.moveTo(24, 50)
-    ctx.lineTo(40, 50)
-    ctx.stroke()
-  }
-  draw(false)
-  const tex = new THREE_OR_NULL_TEXTURE(c)
-  return { canvas: c, ctx, tex, draw, materialMap: tex }
-}
-
-// Avoid importing three at top for badge-only path — use lazy factory from sprites caller.
-function THREE_OR_NULL_TEXTURE(c) {
-  // Placeholder — real texture created in attachMicBadge via three.
-  return c
-}
-
 export function attachMicBadge(THREE, scene, p) {
   if (p.micBadge) return p.micBadge
   const c = document.createElement('canvas')
@@ -310,7 +268,6 @@ export function attachMicBadge(THREE, scene, p) {
     ctx.stroke()
     ctx.fillStyle = '#fff'
     ctx.beginPath()
-    // capsule mic
     ctx.fillRect(27, 14, 10, 18)
     ctx.beginPath()
     ctx.arc(32, 14, 5, Math.PI, 0)
@@ -333,8 +290,10 @@ export function attachMicBadge(THREE, scene, p) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: tex, transparent: true, depthTest: false, depthWrite: false,
   }))
-  sprite.scale.set(0.45, 0.45, 1)
+  sprite.scale.set(0.55, 0.55, 1)
   sprite.visible = false
+  sprite.layers.set(SPRITE_LAYER)
+  sprite.renderOrder = 11
   scene.add(sprite)
   p.micBadge = { sprite, tex, draw, active: false }
   return p.micBadge
@@ -347,4 +306,5 @@ export function setMicBadge(p, on) {
   b.draw(!!on)
   b.tex.needsUpdate = true
   b.sprite.visible = !!on
+  if (p) p.voiceOn = !!on
 }

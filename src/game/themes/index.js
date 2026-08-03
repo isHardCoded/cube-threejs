@@ -64,6 +64,10 @@ import freeroam from './freeroam.js'
 // authored Blender backdrops replace procedural scenery.
 const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean, arena, freeroam }
 
+// Networked free-fight PvP reuses the freeroam moss pad look.
+const freefight = { ...freeroam, id: 'freefight' }
+THEMES.freefight = freefight
+
 export function themeFor(id) {
   return THEMES[id] || cyberpunk
 }
