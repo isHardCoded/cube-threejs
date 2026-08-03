@@ -153,6 +153,11 @@ func (c *Client) readLoop() {
 			c.hub.sendRaw(c, map[string]any{"t": "pong", "ts": msg.Ts})
 			continue
 		}
+		// Voice SDP/ICE must not be dropped — pose floods can fill the queue.
+		if msg.T == "voice" || msg.T == "voice-offer" || msg.T == "voice-answer" || msg.T == "voice-ice" {
+			c.hub.commands <- command{client: c, msg: msg}
+			continue
+		}
 		select {
 		case c.hub.commands <- command{client: c, msg: msg}:
 		default: // command queue full: drop input rather than block

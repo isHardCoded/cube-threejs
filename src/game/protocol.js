@@ -193,11 +193,9 @@ export function createProtocol({
         freeCombat?.handleSplashMsg?.(msg)
         break
 
-      case 'voice': {
-        const p = pm.players.get(msg.id)
-        if (p) voice?.setPeerMic?.(msg.id, !!msg.on)
+      case 'voice':
+        voice?.setPeerMic?.(msg.id, !!msg.on)
         break
-      }
 
       case 'voice-offer':
       case 'voice-answer':

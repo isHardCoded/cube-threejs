@@ -1,4 +1,6 @@
 # Production stack for the VPS: game server + Postgres + Caddy (auto-TLS).
+# Voice TURN: install host coturn (`apt install coturn`) using ./coturn.conf
+# (Docker Hub pulls for coturn are unreliable on this VPS).
 # Usage: set SERVER_HOST in .env (e.g. 1-2-3-4.sslip.io), then `docker compose up -d`.
 services:
   caddy:

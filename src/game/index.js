@@ -85,10 +85,13 @@ export function startGame({
 
   voice.setPeerMic = (id, on) => {
     const p = players.players.get(id)
-    if (!p) return
-    attachMicBadge(THREE, env.scene, p)
-    setMicBadge(p, on)
-    p.voiceOn = !!on
+    if (p) {
+      attachMicBadge(THREE, env.scene, p)
+      setMicBadge(p, on)
+      p.voiceOn = !!on
+    }
+    // Drive WebRTC even if the visual player row is briefly missing.
+    if (id !== players.state.myId) voice.onRemoteVoice?.(id, !!on)
   }
 
   const protocol = createProtocol({

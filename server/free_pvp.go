@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"math"
 	"time"
 )
@@ -219,8 +220,12 @@ func (h *Hub) onVoiceSignal(from *Player, msg clientMsg) {
 	if msg.Sdp != "" {
 		out["sdp"] = msg.Sdp
 	}
+	// RawMessage inside map[string]any would be base64'd on remarshal — unwrap first.
 	if len(msg.Candidate) > 0 {
-		out["candidate"] = msg.Candidate
+		var cand any
+		if json.Unmarshal(msg.Candidate, &cand) == nil {
+			out["candidate"] = cand
+		}
 	}
 	h.sendTo(target, out)
 }
