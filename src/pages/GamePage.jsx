@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import Hud from '../components/Hud.jsx'
+import DuelRunHud from '../components/DuelRunHud.jsx'
 import MapAssetModal from '../components/MapAssetModal.jsx'
 import { startGame } from '../game/index.js'
 import { preloadHats } from '../game/hats.js'
@@ -8,12 +9,13 @@ import { preloadHands } from '../game/hands.js'
 import { preloadThemeAssets } from '../game/themes/index.js'
 import { getToken } from '../auth/tokenStore.js'
 import { useAuth } from '../auth/context.js'
-import { resolveMapId } from '../config/maps.js'
+import { resolveMapId, DUEL_RUN_MAP_ID } from '../config/maps.js'
+import { matchmaking } from '../api/client.js'
 import { sfx } from '../game/sfx.js'
 
 const EMPTY_HUD = {
   status: '', timer: '', timerKind: '', timerDanger: false, alive: '', banner: '',
-  mine: '', mineReady: false, fps: 0, ping: null, canStart: false,
+  mine: '', mineReady: false, fps: 0, ping: null, canStart: false, duelRun: false,
 }
 
 export default function GamePage() {
@@ -22,12 +24,13 @@ export default function GamePage() {
   const [hud, setHud] = useState(EMPTY_HUD)
   const [isDay, setIsDay] = useState(false)
   const [assetsOpen, setAssetsOpen] = useState(false)
-  const { logout, patchUser } = useAuth()
+  const { logout, patchUser, user } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const mapId = resolveMapId(params.get('map'))
   const mode = params.get('mode') || ''
   const matchId = params.get('match') || ''
+  const isDuelRun = mapId === DUEL_RUN_MAP_ID || mode === 'duel_run'
 
   useEffect(() => {
     let stopped = false
@@ -44,23 +47,24 @@ export default function GamePage() {
         mode,
         matchId,
         onHud: (patch) => setHud((prev) => ({ ...prev, ...patch })),
-        // a win is paid out server-side; keep the menu balance in sync
         onCubes: (cubes) => patchUser({ cubes }),
         onAuthLost: (kind, reason) => {
           if (kind === 'kicked') {
-            // a match that ended without us is not a reason to leave PvP: drop
-            // the player back on the search screen so they can queue again
-            const backToSearch = !!matchId && reason !== 'another_session'
+            const backToDuel = isDuelRun && reason !== 'another_session'
+            const backToSearch = !!matchId && reason !== 'another_session' && !isDuelRun
             const backToPve = mode === 'arena' && reason !== 'another_session'
             navigate(
-              backToSearch ? '/play/pvp' : backToPve ? '/play/pve' : '/',
+              backToDuel ? '/play/pvp/duel-run'
+                : backToSearch ? '/play/pvp'
+                  : backToPve ? '/play/pve' : '/',
               { replace: true, state: { reason } },
             )
             return
           }
-          // Socket never opened (404 match, unknown mode, server restart…). Keep
-          // the session — only a real 401-style reject should force re-login, and
-          // solo modes must never look like a stolen token.
+          if (matchId && isDuelRun) {
+            navigate('/play/pvp/duel-run', { replace: true, state: { reason: 'match_gone' } })
+            return
+          }
           if (matchId) {
             navigate('/play/pvp', { replace: true, state: { reason: 'match_gone' } })
             return
@@ -90,7 +94,6 @@ export default function GamePage() {
       game?.stop()
       gameRef.current = null
     }
-    // the game owns its own lifecycle: mount once, tear down on unmount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -107,17 +110,43 @@ export default function GamePage() {
     setAssetsOpen(true)
   }
 
+  async function rematch() {
+    try {
+      const res = await matchmaking.duelRunQuick()
+      if (res.state === 'matched') {
+        navigate(`/game?match=${encodeURIComponent(res.matchId)}&map=${res.mapId || 'duelrun'}`, { replace: true })
+        window.location.reload()
+      } else {
+        navigate('/play/pvp/duel-run/quick', { replace: true })
+      }
+    } catch {
+      navigate('/play/pvp/duel-run/quick', { replace: true })
+    }
+  }
+
   return (
     <>
       <canvas className="webgl" ref={canvasRef} />
-      <Hud
-        {...hud}
-        isDay={isDay}
-        onToggleDay={toggleDay}
-        onMine={() => gameRef.current?.placeMine()}
-        onStartMatch={() => gameRef.current?.startMatch()}
-        onOpenAssets={openAssets}
-      />
+      {hud.duelRun || isDuelRun ? (
+        <DuelRunHud
+          {...hud}
+          myId={hud.myId || String(user?.id || '')}
+          isDay={isDay}
+          onToggleDay={toggleDay}
+          onRematch={rematch}
+          onMine={() => gameRef.current?.placeMine()}
+          onOpenAssets={openAssets}
+        />
+      ) : (
+        <Hud
+          {...hud}
+          isDay={isDay}
+          onToggleDay={toggleDay}
+          onMine={() => gameRef.current?.placeMine()}
+          onStartMatch={() => gameRef.current?.startMatch()}
+          onOpenAssets={openAssets}
+        />
+      )}
       <MapAssetModal
         open={assetsOpen}
         mapId={mapId}

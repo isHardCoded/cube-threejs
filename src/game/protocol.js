@@ -27,6 +27,7 @@ const KICK_MESSAGES = {
 export function createProtocol({
   env, arena, players: pm, mines, enemies, popups, setStatus, onKicked, onCubes,
   initialMode = '',
+  duelRun = null,
 }) {
   // destruction phase, driven by server messages; endsAt is in performance.now() time
   const phase = { mode: 'calm', level: 0, endsAt: 0 }
@@ -104,6 +105,39 @@ export function createProtocol({
   function handleMessage(msg) {
     const myId = () => pm.state.myId
 
+    // Duel Run owns its own protocol surface.
+    const dr = duelRun?.current || duelRun
+    if (dr && typeof msg?.t === 'string' && (msg.t.startsWith('dr_') || (msg.t === 'welcome' && (msg.mode === 'duel_run' || msg.dr)))) {
+      if (msg.t === 'welcome') {
+        pm.state.myId = msg.id
+        pm.setSkins(msg.skins)
+        mines.setSkin(msg.mineSkinId)
+        pm.local.maxLives = msg.maxLives || 3
+        pm.local.dashCooldownMs = msg.dashCooldownMs || 5000
+        pm.local.jumpCooldownMs = msg.jumpCooldownMs || 1200
+        pm.local.mineCooldownMs = msg.mineCooldownMs || 8000
+        pm.local.maxMines = msg.maxMines || 2
+        if (msg.maxHp != null) setNameplateMaxHp(msg.maxHp)
+        arena.build([{}, {}, {}])
+        for (const pd of msg.players || []) pm.addPlayer(pd)
+        const mine = pm.me()
+        if (mine) pm.setHat(mine, getStoredHatId())
+      }
+      if (msg.t === 'join') pm.addPlayer(msg.p)
+      if (msg.t === 'leave') pm.removePlayer(msg.id)
+      if (msg.t === 'kicked') {
+        setStatus(t(KICK_MESSAGES[msg.reason] || 'game.matchClosed'))
+        onKicked?.(msg.reason || '')
+        return
+      }
+      if (msg.t === 'cubes') {
+        onCubes?.(msg.total)
+        return
+      }
+      if (dr.handleMessage?.(msg)) return
+      if (msg.t.startsWith('dr_')) return
+    }
+
     switch (msg.t) {
       case 'welcome': {
         pm.state.myId = msg.id
@@ -160,22 +194,50 @@ export function createProtocol({
       case 'move': {
         const p = pm.players.get(msg.p.id)
         if (!p) { pm.addPlayer(msg.p); break }
-        pm.syncConfirmed(p, msg.p)
+        const liftY = floorY(p.level || 0, env.theme?.arenaLift || 0) + 0.5
 
         if (msg.p.id === myId()) {
           if (msg.dash) pm.local.dashReadyAt = performance.now() + pm.local.dashCooldownMs
           if (msg.jump) pm.local.jumpReadyAt = performance.now() + pm.local.jumpCooldownMs
 
-          // regular rolls/dashes were already animated by the prediction:
-          // just confirm them, never enqueue the same move twice
-          if (pm.predictions.length > 0 && !msg.knock && !msg.jump) {
-            const pred = pm.predictions.shift()
-            if (pred.x === msg.p.x && pred.z === msg.p.z) break
-            pm.rollbackPrediction(p) // server disagreed: snap to its state
+          // Jump: never rollback onto the landing (that killed the arc). Prefer
+          // server fromX/fromZ; if we already predicted this leap, just confirm.
+          if (msg.jump) {
+            pm.syncConfirmed(p, msg.p)
+            if (pm.predictions.length > 0) {
+              const pred = pm.predictions[0]
+              if (pred.jump && pred.x === msg.p.x && pred.z === msg.p.z) {
+                pm.predictions.shift()
+                break
+              }
+              pm.predictions.length = 0
+              p.queue = p.queue.filter((m) => !m.predicted)
+            }
+            const ox = msg.fromX != null ? msg.fromX : p.cell.x
+            const oz = msg.fromZ != null ? msg.fromZ : p.cell.z
+            p.anim = null
+            p.cell = { x: ox, z: oz }
+            p.group.position.set(ox, liftY, oz)
+            pm.enqueueMove(p, msg)
             break
           }
-          // knockback/jump arrive unpredicted; drop stale predictions first
+
+          pm.syncConfirmed(p, msg.p)
+          if (pm.predictions.length > 0 && !msg.knock) {
+            const pred = pm.predictions.shift()
+            if (pred.x === msg.p.x && pred.z === msg.p.z) break
+            pm.rollbackPrediction(p)
+            break
+          }
           if (pm.predictions.length > 0) pm.rollbackPrediction(p)
+        } else {
+          if (msg.jump) {
+            const ox = msg.fromX != null ? msg.fromX : p.confirmedCell.x
+            const oz = msg.fromZ != null ? msg.fromZ : p.confirmedCell.z
+            p.cell = { x: ox, z: oz }
+            p.group.position.set(ox, liftY, oz)
+          }
+          pm.syncConfirmed(p, msg.p)
         }
 
         pm.enqueueMove(p, msg)

@@ -83,6 +83,8 @@ export function createInput({ canvas, players: pm, send }) {
     // here a key pressed right after take-off comes back denied
     moveGateAt = now + MOVE_GATE_MS
     lastDir = null
+    // Duel Run: start the classic 2-cell arc immediately; server confirms.
+    if (typeof pm.predictJump === 'function') pm.predictJump()
     send({ t: 'jump', dx: lastMoveDir[0], dz: lastMoveDir[1] })
   }
 

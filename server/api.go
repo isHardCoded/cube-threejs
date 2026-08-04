@@ -57,6 +57,9 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/match/lobbies", a.matchCreateLobby)
 	mux.HandleFunc("GET /api/match/lobbies/{id}", a.matchLobbyInfo)
 	mux.HandleFunc("POST /api/match/lobbies/{id}/join", a.matchJoinLobby)
+	mux.HandleFunc("POST /api/match/duel-run/quick", a.matchDuelRunQuick)
+	mux.HandleFunc("POST /api/match/duel-run/lobbies", a.matchDuelRunCreateLobby)
+	mux.HandleFunc("GET /api/match/duel-run/lobbies", a.matchDuelRunLobbies)
 	mux.HandleFunc("POST /api/online/heartbeat", a.onlineHeartbeat)
 	mux.HandleFunc("GET /api/online", a.onlineList)
 	a.registerFriendRoutes(mux)
@@ -514,6 +517,44 @@ func (a *API) matchJoinLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.writeMatchResult(w, match, match.Size)
+}
+
+func (a *API) matchDuelRunQuick(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	match, err := a.arena.QuickEnqueueDuelRun(u.ID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.writeMatchResult(w, match, 2)
+}
+
+func (a *API) matchDuelRunCreateLobby(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	match, err := a.arena.CreateDuelRunLobby(u.ID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.writeMatchResult(w, match, 2)
+}
+
+func (a *API) matchDuelRunLobbies(w http.ResponseWriter, r *http.Request) {
+	u := a.authUser(w, r)
+	if u == nil {
+		return
+	}
+	list := a.arena.ListDuelRunLobbies()
+	if list == nil {
+		list = []LobbyPublic{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"lobbies": list})
 }
 
 func (a *API) writeMatchResult(w http.ResponseWriter, match *PendingMatch, size int) {

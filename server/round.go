@@ -177,6 +177,9 @@ func (h *Hub) creditQuestProgress(winner *Player) {
 }
 
 func (h *Hub) roundTick(now time.Time) {
+	if h.isDuelRun() {
+		return
+	}
 	switch h.roundState {
 	case roundWaiting:
 		if h.isArena() {

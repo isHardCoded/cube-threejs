@@ -107,6 +107,9 @@ export const matchmaking = {
   lobby: (id) => api(`/api/match/lobbies/${encodeURIComponent(id)}`),
   createLobby: (mapId, size) => api('/api/match/lobbies', { method: 'POST', body: { mapId, size } }),
   joinLobby: (id) => api(`/api/match/lobbies/${encodeURIComponent(id)}/join`, { method: 'POST', body: {} }),
+  duelRunQuick: () => api('/api/match/duel-run/quick', { method: 'POST', body: {} }),
+  duelRunCreateLobby: () => api('/api/match/duel-run/lobbies', { method: 'POST', body: {} }),
+  duelRunLobbies: () => api('/api/match/duel-run/lobbies'),
 }
 
 export const online = {

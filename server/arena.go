@@ -47,6 +47,7 @@ type Arena struct {
 	rooms   map[string]*Hub         // match / training id → hub
 	lobbies map[string]*lobby       // pvp rooms the arena can still fill
 	queue   []*queueEntry
+	duelQueue []*queueEntry         // Duel Run size-2 queue (isolated from PvP)
 	pending map[int64]*PendingMatch // userID → seat waiting to be taken
 }
 
@@ -241,7 +242,7 @@ func (a *Arena) QuickEnqueue(userID int64) (*PendingMatch, error) {
 
 // CreateLobby opens a hosted room the founder can start when enough players join.
 func (a *Arena) CreateLobby(userID int64, mapID string, size int) (*PendingMatch, error) {
-	if !MapExists(mapID) || mapID == ArenaMapID {
+	if !MapExists(mapID) || mapID == ArenaMapID || mapID == DuelRunMapID {
 		return nil, errNoMaps
 	}
 	if !validRoomSize(size) {
@@ -301,6 +302,9 @@ func (a *Arena) ListLobbies() []LobbyPublic {
 
 	out := make([]LobbyPublic, 0, len(a.lobbies))
 	for _, l := range a.lobbies {
+		if l != nil && l.hub != nil && l.hub.mode == ModeDuelRun {
+			continue // Duel Run has its own browser
+		}
 		out = append(out, a.lobbyPublicLocked(l))
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -460,6 +464,9 @@ func (a *Arena) joinOpenLobbyLocked(userID int64, maps []string, size int, now t
 		if !l.hasRoom() || l.members[userID] {
 			continue
 		}
+		if l.hub != nil && l.hub.mode == ModeDuelRun {
+			continue
+		}
 		if size != 0 && l.capacity != size {
 			continue
 		}
@@ -516,10 +523,14 @@ func (a *Arena) openLobbyLocked(mapID string, size int, now time.Time, first ...
 func (a *Arena) admitLocked(l *lobby, userID int64, now time.Time) *PendingMatch {
 	l.members[userID] = true
 	l.hub.allow(userID)
+	mode := ModePvP
+	if l.hub != nil && l.hub.mode != "" {
+		mode = l.hub.mode
+	}
 	m := &PendingMatch{
 		ID:      l.hub.id,
 		MapID:   l.mapID,
-		Mode:    ModePvP,
+		Mode:    mode,
 		Size:    l.capacity,
 		Expires: now.Add(reserveTTL),
 	}
@@ -534,6 +545,7 @@ func (a *Arena) admitLocked(l *lobby, userID int64, now time.Time) *PendingMatch
 func (a *Arena) Dequeue(userID int64) {
 	a.mu.Lock()
 	a.dequeueLocked(userID)
+	a.dequeueDuelLocked(userID)
 	m := a.pending[userID]
 	if m == nil {
 		a.mu.Unlock()
@@ -592,6 +604,10 @@ func (a *Arena) Status(userID int64) SearchState {
 		e.Seen = now
 		return SearchState{State: "searching", Maps: e.Maps, Size: e.Size}
 	}
+	if e := a.duelEntryLocked(userID); e != nil {
+		e.Seen = now
+		return SearchState{State: "searching", Maps: e.Maps, Size: e.Size}
+	}
 	return SearchState{State: "idle"}
 }
 
@@ -604,7 +620,7 @@ func (a *Arena) IsSearching(userID int64) bool {
 	if a.liveTicketLocked(userID, now) != nil {
 		return true
 	}
-	return a.entryLocked(userID) != nil
+	return a.entryLocked(userID) != nil || a.duelEntryLocked(userID) != nil
 }
 
 // ClaimMatch clears the ticket once the player is in the room. The seat stays
@@ -657,6 +673,15 @@ func (a *Arena) sweepLocked(now time.Time) {
 		log.Printf("arena: dropped stale search slot of %d", e.UserID)
 	}
 	a.queue = live
+	duelLive := a.duelQueue[:0]
+	for _, e := range a.duelQueue {
+		if now.Sub(e.Seen) <= queueTTL {
+			duelLive = append(duelLive, e)
+			continue
+		}
+		log.Printf("arena: dropped stale duel_run search slot of %d", e.UserID)
+	}
+	a.duelQueue = duelLive
 }
 
 // validMaps normalises the requested maps. An unknown id is refused rather than
@@ -666,7 +691,7 @@ func validMaps(maps []string) ([]string, error) {
 	seen := map[string]bool{}
 	var out []string
 	for _, id := range maps {
-		if !MapExists(id) || id == ArenaMapID || seen[id] {
+		if !MapExists(id) || id == ArenaMapID || id == DuelRunMapID || seen[id] {
 			continue
 		}
 		seen[id] = true
@@ -703,8 +728,8 @@ func firstIntersection(a, b []string) string {
 func allMapIDs() []string {
 	out := make([]string, 0, len(GameMaps))
 	for id := range GameMaps {
-		if id == ArenaMapID {
-			continue // PvE-only floor, not in PvP matchmaking
+		if id == ArenaMapID || id == DuelRunMapID {
+			continue // mode-specific floors, not in classic PvP matchmaking
 		}
 		out = append(out, id)
 	}

@@ -9,6 +9,7 @@ import kawaii from './kawaii.js'
 import jungle from './jungle.js'
 import ocean from './ocean.js'
 import arena from './arena.js'
+import duelrun from './duelrun.js'
 
 // A theme owns everything that makes one map look like itself. The arena
 // geometry, the rules and the animations are shared by all maps; only colours,
@@ -61,7 +62,7 @@ import arena from './arena.js'
 // Anything a theme animates itself belongs in its own update().
 // Polished maps share post/shadows/AO/godrays via themes/gfxPolish.js until
 // authored Blender backdrops replace procedural scenery.
-const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean, arena }
+const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean, arena, duelrun }
 
 export function themeFor(id) {
   return THEMES[id] || cyberpunk

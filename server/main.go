@@ -59,6 +59,10 @@ func main() {
 	_ = ensureAvatarDir()
 	_ = ensureBotPostsDir()
 
+	if duelRunSoloDev() {
+		log.Println("duel_run: SOLO DEV on (1 player can start — set DUEL_RUN_SOLO=0 to require 2)")
+	}
+
 	log.Println("cube game server listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

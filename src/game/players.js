@@ -327,8 +327,9 @@ export function createPlayers(env, arena) {
     scene.add(hat)
 
     // Same for fists — levitate beside the die, never inherit roll quat.
-    const hands = createHands()
-    scene.add(hands)
+    // Duel Run (and any theme with hideHands) skips them.
+    const hands = env.theme?.hideHands ? null : createHands()
+    if (hands) scene.add(hands)
 
     const bar = createNameplate(data.name, isMe)
     scene.add(bar.sprite)
@@ -701,11 +702,19 @@ export function createPlayers(env, arena) {
 
     if (m.jump) {
       const stomp = !!m.stomp
-      const dir = new THREE.Vector3(dx, 0, dz)
+      // Prefer server/predicted start cell so the arc always covers the leap.
+      const ox = m.fromX != null ? m.fromX : p.cell.x
+      const oz = m.fromZ != null ? m.fromZ : p.cell.z
+      const jdx = m.p.x - ox
+      const jdz = m.p.z - oz
+      const dir = new THREE.Vector3(Math.sign(jdx), 0, Math.sign(jdz))
+      const from = new THREE.Vector3(ox, baseY, oz)
+      p.cell = { x: ox, z: oz }
+      p.group.position.copy(from)
       p.anim = {
         type: 'jump', t: 0,
         stomp,
-        from: p.group.position.clone(),
+        from,
         to: new THREE.Vector3(m.p.x, baseY + (stomp ? 1.05 : 0), m.p.z),
         settleY: baseY,
         axis: dir.lengthSq() > 0 ? new THREE.Vector3().crossVectors(yAxis, dir).normalize() : null,
@@ -718,9 +727,10 @@ export function createPlayers(env, arena) {
       }
       sfx.jump()
     } else if (m.dash || m.knock || dist > 1 || dist === 0) {
+      const from = new THREE.Vector3(p.group.position.x, baseY, p.group.position.z)
       p.anim = {
         type: 'dash', t: 0,
-        from: p.group.position.clone(),
+        from,
         to: new THREE.Vector3(m.p.x, baseY, m.p.z),
         dir: new THREE.Vector3(dx, 0, dz),
         target: m.p,

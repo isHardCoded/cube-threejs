@@ -603,13 +603,17 @@ export function createEnvironment(canvas, mapId) {
   function updateCamera(dt, t, focus) {
     const fx2 = focus ? focus.x : 0
     const fz = focus ? focus.z : 0
+    // Classic arenas damp focus so the frame stays readable; long corridors
+    // (Duel Run) must track 1:1 or the camera drifts behind the cube.
+    const follow = focus?.follow != null ? focus.follow : 0.55
+    const lookFollow = focus?.lookFollow != null ? focus.lookFollow : Math.min(1, follow + 0.05)
     // Prefer the live focus height (cube during trampoline launch) so level
     // changes don't yank the camera up a full platform in one frame.
     const lvlY = focus?.y != null
       ? focus.y
       : (focus ? floorY(focus.level, theme.arenaLift || 0) : 0)
 
-    applyShadowFollow(fx2 * 0.55, fz * 0.55)
+    applyShadowFollow(fx2 * follow, fz * follow)
 
     const yaw = (camYawDeg * Math.PI) / 180
     const elev = (camElevDeg * Math.PI) / 180
@@ -619,7 +623,7 @@ export function createEnvironment(canvas, mapId) {
       Math.sin(elev) * radius,
       Math.cos(yaw) * Math.cos(elev) * radius,
     )
-    camTarget.set(fx2 * 0.55 + Math.sin(t * 0.25) * 0.6, lvlY, fz * 0.55).add(camOffset)
+    camTarget.set(fx2 * follow + Math.sin(t * 0.25) * 0.6, lvlY, fz * follow).add(camOffset)
     camera.position.lerp(camTarget, 1 - Math.pow(0.0006, dt))
     if (shake > 0) {
       shake = Math.max(0, shake - dt * 1.8)
@@ -628,7 +632,7 @@ export function createEnvironment(canvas, mapId) {
       camera.position.y += (Math.random() - 0.5) * amp
       camera.position.z += (Math.random() - 0.5) * amp * 0.45
     }
-    lookGoal.set(fx2 * 0.6, lvlY + 0.5, fz * 0.6)
+    lookGoal.set(fx2 * lookFollow, lvlY + 0.5, fz * lookFollow)
     lookTarget.lerp(lookGoal, 1 - Math.pow(0.0006, dt))
     camera.lookAt(lookTarget)
 
@@ -648,9 +652,14 @@ export function createEnvironment(canvas, mapId) {
 
   function render() {
     // World only through post — keeps godrays/bloom from trailing nameplates.
+    // Always restore layer 0: if the sprite pass throws, a stuck disable(0)
+    // leaves only the sky clear color (solid blue on duelrun).
     camera.layers.disable(SPRITE_LAYER)
-    composer.render()
-    camera.layers.enable(SPRITE_LAYER)
+    try {
+      composer.render()
+    } finally {
+      camera.layers.enable(SPRITE_LAYER)
+    }
 
     // Overlay sprites without wiping the graded frame.
     // (A normal scene render would redraw scene.background = blue sky over everything.)
@@ -660,12 +669,15 @@ export function createEnvironment(canvas, mapId) {
     scene.fog = null
     camera.layers.disable(0)
     renderer.autoClear = false
-    renderer.clearDepth()
-    renderer.render(scene, camera)
-    camera.layers.enable(0)
-    scene.background = prevBg
-    scene.fog = prevFog
-    renderer.autoClear = true
+    try {
+      renderer.clearDepth()
+      renderer.render(scene, camera)
+    } finally {
+      camera.layers.enable(0)
+      scene.background = prevBg
+      scene.fog = prevFog
+      renderer.autoClear = true
+    }
   }
 
   function dispose() {

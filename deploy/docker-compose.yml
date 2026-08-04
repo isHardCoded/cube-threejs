@@ -25,6 +25,8 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_USERNAMES: ${ADMIN_USERNAMES:-}
+      # Always require 2 players on prod
+      DUEL_RUN_SOLO: "0"
     depends_on:
       postgres:
         condition: service_healthy

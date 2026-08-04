@@ -12,6 +12,7 @@ import { ensureAudio } from './sfx.js'
 import { initTelegram, tg } from './telegram.js'
 import { ARENA_HALF, HALF, setPlayHalf } from './layouts.js'
 import { MAX_HP } from './dice.js'
+import { createDuelRunRuntime } from './duelrun/index.js'
 import { WS_BASE } from '../config/env.js'
 import { t } from '../i18n/t.js'
 
@@ -22,15 +23,24 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   initTelegram()
 
   const env = createEnvironment(canvas, mapId)
-  const isArena = mode === 'arena' || mapId === 'arena' || !!env.theme?.singleLevel
+  const isDuelRun = mapId === 'duelrun' || mode === 'duel_run'
+  const isArena = !isDuelRun && (mode === 'arena' || mapId === 'arena' || !!env.theme?.singleLevel)
   // Movement bounds + HP bar scale must match the map before first input.
-  setPlayHalf(isArena ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
-  setNameplateMaxHp(isArena ? 100 : MAX_HP)
+  setPlayHalf(isArena || isDuelRun ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
+  setNameplateMaxHp(isArena || isDuelRun ? 100 : MAX_HP)
   const arena = createArena(env)
   // Flat PvE floor: show sectors immediately so a slow welcome does not leave
   // only the grass backdrop. Server layout still wins on welcome.
-  if (isArena) {
+  if (isArena || isDuelRun) {
     arena.build([{}, {}, {}])
+  }
+  if (isDuelRun) {
+    // Hide default square floor — Duel Run draws its own sector corridor + battle grid.
+    for (const p of arena.platforms || []) {
+      if (p?.group) p.group.visible = false
+    }
+    // Track runs +Z. Classic yaw=0 looks −Z (at the runner's back). Face down the corridor.
+    env.setCameraYaw?.(180)
   }
   // the arena itself waits for the server layout; apply the saved day/night to
   // the sky and city right away so the scene looks right while connecting
@@ -48,9 +58,13 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     if (text && autoClearMs) statusTimer = setTimeout(() => setStatus(''), autoClearMs)
   }
 
+  let duelRun = null
+  const duelRef = { get current() { return duelRun } }
+
   const protocol = createProtocol({
     env, arena, players, mines, enemies, popups, setStatus,
     initialMode: mode,
+    duelRun: duelRef,
     onKicked: (reason) => {
       net.dispose()
       onAuthLost?.('kicked', reason)
@@ -89,11 +103,191 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     },
   })
 
+  if (isDuelRun) {
+    duelRun = createDuelRunRuntime({ env, players, send: net.send, onHud })
+    const baseCanPlay = players.canPlay.bind(players)
+    players.canPlay = () => {
+      if (!baseCanPlay()) return false
+      // Block speculative rolls during countdown/loading — server ignores them.
+      return !!(duelRun?.fsm?.canRunnerInput?.() || duelRun?.fsm?.canBattleInput?.())
+    }
+    // Manual corridor: W advances +Z (server inverts classic dz). Predict the same.
+    // Player cells live on p.cell / confirmedCell — never p.x/p.z (those are undefined → NaN → blue sky).
+    players.predictRoll = (dx, dz) => {
+      const p = players.me()
+      if (!p || p.dead || p.gone) return true
+      if (duelRun?.fsm?.canBattleInput?.()) {
+        // Same cam yaw 180 → screen-relative invert in battle too.
+        const fx = -dx
+        const fz = -dz
+        players.local.moveDir = [fx, fz]
+        const o = players.predictions.length
+          ? players.predictions[players.predictions.length - 1]
+          : p.confirmedCell
+        const nx = o.x + fx
+        const nz = o.z + fz
+        const half = env.theme?.gridHalf ?? 4
+        if (nx < -half || nx > half || nz < -half || nz > half) {
+          players.playBump(dx, dz)
+          return false
+        }
+        for (const [, op] of players.players) {
+          if (op !== p && !op.dead && !op.gone && op.cell.x === nx && op.cell.z === nz) {
+            players.playBump(dx, dz, { hop: true })
+            return true
+          }
+        }
+        players.predictions.push({ x: nx, z: nz, at: performance.now() })
+        players.enqueueMove(p, {
+          predicted: true,
+          p: { id: p.id, level: 0, x: nx, z: nz, top: p.orient?.top, east: p.orient?.east, south: p.orient?.south },
+        })
+        return true
+      }
+      // Screen-relative with cam yaw 180: invert both axes so WASD matches the view.
+      const fx = -dx
+      const fz = -dz
+      // Aim chevron uses world dir (matches the roll)
+      players.local.moveDir = [fx, fz]
+      const o = players.predictions.length
+        ? players.predictions[players.predictions.length - 1]
+        : p.confirmedCell
+      const nx = o.x + fx
+      const nz = o.z + fz
+      if (nz < 0 || nx < -1 || nx > 1) {
+        players.playBump(dx, dz)
+        return false
+      }
+      // Solid obstacles — bump client-side so we don't phase through before deny.
+      if (duelRun?.track?.walkBlocked?.(nx, nz)) {
+        players.playBump(dx, dz)
+        return false
+      }
+      for (const [, op] of players.players) {
+        if (op !== p && !op.dead && !op.gone && op.cell.x === nx && op.cell.z === nz) {
+          players.playBump(dx, dz, { hop: true })
+          return true
+        }
+      }
+      players.predictions.push({ x: nx, z: nz, at: performance.now() })
+      players.enqueueMove(p, {
+        predicted: true,
+        p: { id: p.id, level: 0, x: nx, z: nz, top: p.orient?.top, east: p.orient?.east, south: p.orient?.south },
+      })
+      return true
+    }
+    players.predictDash = (dx, dz) => {
+      const p = players.me()
+      if (!p || p.dead) return 'ok'
+      const battle = !!duelRun?.fsm?.canBattleInput?.()
+      // Run: screen-relative invert. Battle: same cam yaw → same invert.
+      const fx = -dx
+      const fz = -dz
+      players.local.moveDir = [fx, fz]
+      let x = p.confirmedCell.x
+      let z = p.confirmedCell.z
+      if (players.predictions.length) {
+        const last = players.predictions[players.predictions.length - 1]
+        x = last.x
+        z = last.z
+      }
+      const half = env.theme?.gridHalf ?? 4
+      let steps = 0
+      for (let i = 0; i < 2; i++) {
+        const nx = x + fx
+        const nz = z + fz
+        if (battle) {
+          if (nx < -half || nx > half || nz < -half || nz > half) break
+        } else if (nz < 0 || nx < -1 || nx > 1) {
+          // Rails block walk/dash — only Space jump clears them
+          break
+        }
+        if (!battle && duelRun?.track?.walkBlocked?.(nx, nz)) {
+          break
+        }
+        x = nx
+        z = nz
+        steps++
+      }
+      if (steps === 0) {
+        players.playBump(dx, dz)
+        return 'wall'
+      }
+      players.predictions.push({ x, z, at: performance.now() })
+      players.enqueueMove(p, {
+        predicted: true, dash: true,
+        p: { id: p.id, level: 0, x, z, ...p.orient },
+      })
+      return 'ok'
+    }
+    // Local jump arc immediately (same as waiting for server felt like a teleport
+    // under duel-run prediction load). Server confirms via fromX/fromZ.
+    players.predictJump = () => {
+      const p = players.me()
+      if (!p || p.dead || p.gone) return false
+      if (duelRun?.fsm?.canBattleInput?.()) return false
+      const o = players.predictions.length
+        ? players.predictions[players.predictions.length - 1]
+        : p.confirmedCell
+      // World aim: moveDir is already cam-corrected in duel run.
+      let fx = Number(players.local.moveDir?.[0]) || 0
+      let fz = Number(players.local.moveDir?.[1]) || 0
+      if (fx === 0 && fz === 0) { fx = 0; fz = 1 }
+      // Normalize to unit step
+      if (fx !== 0) { fx = Math.sign(fx); fz = 0 }
+      else { fz = Math.sign(fz); fx = 0 }
+
+      const lx = o.x + 2 * fx
+      const lz = o.z + 2 * fz
+      const mx = o.x + fx
+      const mz = o.z + fz
+      if (lz < 0 && mz < 0) {
+        players.playBump(fx, fz)
+        return false
+      }
+      // Never predict landing on an occupied cell — short-land or bump (matches server).
+      let tx = lx
+      let tz = lz
+      const landIn = lx >= -1 && lx <= 1 && lz >= 0
+      if (landIn && duelRun?.track?.walkBlocked?.(lx, lz)) {
+        const midIn = mx >= -1 && mx <= 1 && mz >= 0
+        if (!midIn || duelRun.track.walkBlocked(mx, mz)) {
+          players.playBump(fx, fz)
+          return false
+        }
+        tx = mx
+        tz = mz
+      }
+      // Clear pending rolls so the leap isn't fast-forwarded away
+      players.predictions.length = 0
+      p.queue = p.queue.filter((m) => !m.predicted)
+      p.anim = null
+      p.cell = { x: o.x, z: o.z }
+      const y = (env.theme?.arenaLift || 0) + 0.5
+      p.group.position.set(o.x, y, o.z)
+
+      players.predictions.push({ x: tx, z: tz, at: performance.now(), jump: true })
+      players.enqueueMove(p, {
+        predicted: true,
+        jump: true,
+        fromX: o.x,
+        fromZ: o.z,
+        p: {
+          id: p.id, level: 0, x: tx, z: tz,
+          top: p.orient?.top, east: p.orient?.east, south: p.orient?.south,
+        },
+      })
+      return true
+    }
+  }
+
   const input = createInput({
     canvas,
     players,
     send: net.send,
   })
+  // Corridor forward is +Z (cam yaw 180). Default classic aim [0,-1] points backward.
+  if (isDuelRun) players.local.moveDir = [0, 1]
 
   const onResize = () => env.resize()
   window.addEventListener('resize', onResize)
@@ -285,16 +479,25 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     mines.update(dt, t, viewLevel)
     players.update(dt, viewLevel)
     enemies.update(dt, env.camera)
-    updateHud()
+    if (duelRun) {
+      duelRun.update(dt)
+    } else {
+      updateHud()
+    }
     popups.update(dt)
     env.update(dt, t)
+    // Duel Run uses classic isometric follow (same as PvP) — the old runner
+    // chase cam pointed down the thin corridor into the sky and filled the
+    // frame with solid blue fog/background.
     env.updateCamera(dt, t, spectating
-      ? { x: 0, z: 0, level: viewLevel }
+      ? { x: 0, z: 0, level: viewLevel, follow: isDuelRun ? 1 : 0.55, lookFollow: isDuelRun ? 1 : 0.6 }
       : {
         x: me.group.position.x,
         z: me.group.position.z,
         level: me.level,
         y: me.group.position.y - 0.5,
+        follow: isDuelRun ? 1 : 0.55,
+        lookFollow: isDuelRun ? 1 : 0.6,
       })
     env.render()
 
@@ -316,6 +519,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     stop() {
       cancelAnimationFrame(raf)
       clearTimeout(statusTimer)
+      duelRun?.dispose?.()
       input.dispose()
       net.dispose()
       enemies.clear()

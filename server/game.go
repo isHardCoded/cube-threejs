@@ -112,10 +112,16 @@ type command struct {
 }
 
 type clientMsg struct {
-	T  string  `json:"t"` // "move" | "dash" | "jump" | "mine" | "bump" | "ping"
+	T  string  `json:"t"` // "move" | "dash" | "jump" | "mine" | "bump" | "ping" | "dr_input"
 	DX int     `json:"dx"`
 	DZ int     `json:"dz"`
 	Ts float64 `json:"ts"` // client timestamp echoed by "pong"
+	// Duel Run extras
+	Action   string  `json:"action"`
+	ActionID string  `json:"actionId"`
+	Lane     int     `json:"lane"`
+	BX       float64 `json:"bx"`
+	BZ       float64 `json:"bz"`
 }
 
 type Hub struct {
@@ -175,6 +181,28 @@ type Hub struct {
 	arenaKills   int
 	arenaEndsAt  time.Time
 	gridHalf     int // 0 = default Half; Arena uses a wider floor
+
+	// Duel Run (ModeDuelRun)
+	drState            string
+	drStateEntered     time.Time
+	drStateEnds        time.Time
+	drStateBeforePause string
+	drSeed             uint64
+	drRng              *drRng
+	drBattleIndex      int
+	drNextBattleAt     float64
+	drSegments         []*DRSegment
+	drTrackEnd         float64
+	drLastKind         string
+	drRunners          map[string]*DRRunnerState
+	drEventSeen        map[string]bool
+	drPaused           bool
+	drDisconnectID     string
+	drReconnectDeadline time.Time
+	drSuddenDeath      bool
+	drBattleWinnerID   string
+	drWaveZ            int       // last fully crumbled row (−1 = none yet)
+	drWaveAt           time.Time // next wave step
 }
 
 // Each map is a separate world: its own hub, round timer and player list.
@@ -303,6 +331,27 @@ func (h *Hub) closeMatch(reason string) {
 // duel rooms that never get a second cube still close after MatchWaitWindow;
 // hosted lobbies stay open in waiting so friends can join from the browser.
 func (h *Hub) watchMatch(now time.Time) {
+	if h.isDuelRun() {
+		if h.closing {
+			return
+		}
+		// Hosted duel lobby waiting for second player stays open.
+		if h.drState == DRWaitingForPlayers && h.hosted {
+			return
+		}
+		if h.drState == DRWaitingForPlayers && len(h.players) < 2 {
+			if h.thinSince.IsZero() {
+				h.thinSince = now
+				return
+			}
+			if now.Sub(h.thinSince) >= MatchWaitWindow {
+				h.closeMatch("opponent_missing")
+			}
+			return
+		}
+		h.thinSince = time.Time{}
+		return
+	}
 	if h.mode != ModePvP || h.closing {
 		return
 	}
@@ -370,6 +419,10 @@ func (h *Hub) gridSpan() int {
 }
 
 func (h *Hub) inBounds(x, z int) bool {
+	if h != nil && h.isDuelRun() {
+		// Shared corridor: 3 lanes, open along +Z (crumble/holes handled separately).
+		return x >= -1 && x <= 1 && z >= 0
+	}
 	hh := h.gridSpan()
 	return x >= -hh && x <= hh && z >= -hh && z <= hh
 }
@@ -548,6 +601,9 @@ func (h *Hub) onJoin(c *Client) {
 	if h.isArena() {
 		l, x, z = 0, 0, 0 // centre of the flat floor
 	}
+	if h.isDuelRun() {
+		l, x, z = 0, 0, 0
+	}
 	p := &Player{
 		ID: id, Name: sanitizeName(c.name), SkinID: c.skinID, HatID: c.hatID, ClassID: c.classID,
 		Level: l, X: x, Z: z,
@@ -560,7 +616,7 @@ func (h *Hub) onJoin(c *Client) {
 	}
 	// a fight in progress is not joinable: watch it out and start with everyone
 	// else in the next round. Solo Arena always restarts instead.
-	if !h.isArena() && h.roundState != roundWaiting {
+	if !h.isArena() && !h.isDuelRun() && h.roundState != roundWaiting {
 		p.Spectating = true
 		p.Dead = true
 	}
@@ -575,6 +631,9 @@ func (h *Hub) onJoin(c *Client) {
 	// timer / kill goal — otherwise the HUD sits on "practice".
 	if h.isArena() && !p.Spectating {
 		h.prepareArena(time.Now())
+	}
+	if h.isDuelRun() {
+		h.drOnJoin(c, p, time.Now())
 	}
 
 	others := make([]*Player, 0, len(h.players))
@@ -607,6 +666,9 @@ func (h *Hub) onJoin(c *Client) {
 		welcome["half"] = h.gridSpan()
 		welcome["mobs"] = h.mobList()
 		welcome["arena"] = h.arenaInfo(time.Now())
+	}
+	if h.isDuelRun() {
+		h.drWelcomeExtras(welcome)
 	}
 	h.sendTo(p, welcome)
 	for _, pl := range h.players {
@@ -668,6 +730,18 @@ func (h *Hub) onLeave(c *Client) {
 	p := c.player
 	// a reconnect may already have replaced this player: only the live one leaves
 	if p == nil || h.players[p.ID] != p {
+		return
+	}
+	if h.isDuelRun() && h.drState != DRMatchFinished && h.drState != DRWaitingForPlayers {
+		h.drOnPlayerDisconnect(p, time.Now())
+		h.dropPlayer(p)
+		h.presence.Leave(p.userID, h)
+		log.Printf("leave %s on duel_run %s (reconnect window), players=%d", p.ID, h.id, len(h.players))
+		// Keep seat reserved during reconnect timeout — do not call onLeft.
+		if len(h.players) == 0 && h.onEmpty != nil {
+			// Both gone: reap
+			h.onEmpty(h)
+		}
 		return
 	}
 	h.dropPlayer(p)
@@ -820,6 +894,12 @@ func (h *Hub) resetRound() {
 func (h *Hub) onTick() {
 	now := time.Now()
 
+	if h.isDuelRun() {
+		h.drTick(now)
+		h.watchMatch(now)
+		return
+	}
+
 	// respawns while lives remain (practice never spends them); the intermission
 	// leaves the board frozen, so nobody comes back during it
 	if h.roundState != roundOver && !h.isArena() {
@@ -885,10 +965,13 @@ func (h *Hub) onCommand(cmd command) {
 		h.hostStart(p)
 		return
 	}
+	now := time.Now()
+	if h.drHandleCommand(p, cmd.msg, now) {
+		return
+	}
 	if p.Dead {
 		return
 	}
-	now := time.Now()
 	// abilities carry no direction, so they skip the movement validation below
 	if cmd.msg.T == "mine" {
 		if h.isArena() {

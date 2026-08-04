@@ -265,6 +265,16 @@ var GameMaps = map[string]*GameMap{
 		},
 	},
 
+	// Duel Run: layout unused (procedural track); placeholder for MapExists.
+	"duelrun": {
+		ID: "duelrun",
+		Levels: [Levels]LevelLayout{
+			{Obstacles: nil, Decals: nil},
+			{},
+			{},
+		},
+	},
+
 	"ocean": {
 		ID: "ocean",
 		Levels: [Levels]LevelLayout{

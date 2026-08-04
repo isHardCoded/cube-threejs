@@ -3747,3 +3747,59 @@ canvas.webgl {
   .admin-table-wrap { max-height: none; }
   .admin__main { padding: 16px; }
 }
+
+/* Duel Run HUD — shares classic arcade chrome; keep result card only */
+.dr-hud .hud-lives--opp {
+  left: auto;
+  right: max(14px, var(--pad-right));
+}
+.dr-hud .dr-result {
+  position: absolute;
+  inset: 18% 12% auto;
+  z-index: 5;
+  text-align: center;
+}
+.dr-hud .dr-result .pick-actions {
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.dr-countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, rgba(255, 230, 120, 0.22), transparent 55%),
+    rgba(8, 28, 18, 0.28);
+}
+.dr-countdown__pop {
+  font-family: var(--font);
+  font-weight: 900;
+  font-size: clamp(72px, 22vw, 180px);
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  color: #fff8c8;
+  text-shadow:
+    0 4px 0 #f0b429,
+    0 10px 0 #c36b2e,
+    0 18px 28px rgba(15, 42, 29, 0.35);
+  transform: rotate(-4deg) scale(0.6);
+  animation: dr-count-pop 0.55s var(--hop) forwards;
+}
+.dr-countdown__pop.is-go {
+  color: #7dff9a;
+  text-shadow:
+    0 4px 0 #3eaa5c,
+    0 10px 0 #1f7a42,
+    0 18px 28px rgba(15, 42, 29, 0.4);
+  font-size: clamp(56px, 16vw, 140px);
+  letter-spacing: 0.02em;
+}
+@keyframes dr-count-pop {
+  0% { opacity: 0; transform: rotate(-8deg) scale(0.35); }
+  55% { opacity: 1; transform: rotate(-2deg) scale(1.12); }
+  100% { opacity: 1; transform: rotate(-4deg) scale(1); }
+}

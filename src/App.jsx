@@ -9,6 +9,9 @@ import PvpQuickPage from './pages/PvpQuickPage.jsx'
 import PvpLobbiesPage from './pages/PvpLobbiesPage.jsx'
 import PvpLobbyPage from './pages/PvpLobbyPage.jsx'
 import PvpCreatePage from './pages/PvpCreatePage.jsx'
+import DuelRunHubPage from './pages/DuelRunHubPage.jsx'
+import DuelRunQuickPage from './pages/DuelRunQuickPage.jsx'
+import DuelRunCreatePage from './pages/DuelRunCreatePage.jsx'
 import PvePage from './pages/PvePage.jsx'
 import ProfilePage from './pages/ProfilePage.jsx'
 import RatingPage from './pages/RatingPage.jsx'
@@ -69,6 +72,9 @@ function GameRoutes() {
             <Route path="/play/pvp/lobbies" element={<RequireAuth><PvpLobbiesPage /></RequireAuth>} />
             <Route path="/play/pvp/lobby/:id" element={<RequireAuth><PvpLobbyPage /></RequireAuth>} />
             <Route path="/play/pvp/create" element={<RequireAuth><PvpCreatePage /></RequireAuth>} />
+            <Route path="/play/pvp/duel-run" element={<RequireAuth><DuelRunHubPage /></RequireAuth>} />
+            <Route path="/play/pvp/duel-run/quick" element={<RequireAuth><DuelRunQuickPage /></RequireAuth>} />
+            <Route path="/play/pvp/duel-run/create" element={<RequireAuth><DuelRunCreatePage /></RequireAuth>} />
             <Route path="/play/pve" element={<RequireAuth><PvePage /></RequireAuth>} />
             <Route path="/character" element={<RequireAuth><CharacterPage /></RequireAuth>} />
             <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
