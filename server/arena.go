@@ -119,14 +119,56 @@ type SearchState struct {
 	Match *PendingMatch
 }
 
+// Persistent free-fight lobby: join/leave anytime; never destroyed when empty.
+const (
+	FreeFightLobbyID  = "pvp-freefight"
+	FreeFightCapacity = 16
+)
+
 func NewArena(store *Store, presence *Presence) *Arena {
-	return &Arena{
+	a := &Arena{
 		store:    store,
 		presence: presence,
 		rooms:    make(map[string]*Hub),
 		lobbies:  make(map[string]*lobby),
 		pending:  make(map[int64]*PendingMatch),
 	}
+	a.ensureFreeFightLobbyLocked()
+	return a
+}
+
+// ensureFreeFightLobbyLocked creates the always-on freefight hub if missing.
+// Caller must hold a.mu (except NewArena, which runs before any concurrent use).
+func (a *Arena) ensureFreeFightLobbyLocked() *lobby {
+	if l := a.lobbies[FreeFightLobbyID]; l != nil {
+		return l
+	}
+	gm := MapByID(FreeFightMapID)
+	h := NewHub(a.store, gm, a.presence)
+	h.id = FreeFightLobbyID
+	h.mode = ModePvP
+	h.freeCombat = true
+	h.gridHalf = 10
+	h.maxPlayers = FreeFightCapacity
+	h.hosted = true
+	h.roundState = roundLive // continuous fight; no classic round machine
+	h.allowed = map[int64]bool{}
+	// Empty freefight must stay up — next join reuses the same room.
+	h.onEmpty = func(hub *Hub) {
+		log.Println("arena: freefight empty (kept alive)", hub.id)
+	}
+	h.onJoined = func(uid int64) { a.ClaimMatch(uid, FreeFightLobbyID) }
+	h.onLeft = func(uid int64) { a.releaseSlot(FreeFightLobbyID, uid) }
+
+	l := &lobby{
+		hub: h, mapID: gm.ID, capacity: FreeFightCapacity,
+		members: map[int64]bool{},
+	}
+	a.rooms[FreeFightLobbyID] = h
+	a.lobbies[FreeFightLobbyID] = l
+	a.startHub(h)
+	log.Printf("arena: persistent freefight lobby %s (cap %d)", FreeFightLobbyID, FreeFightCapacity)
+	return l
 }
 
 // KickUser removes a player from any live hub (ban).
@@ -235,9 +277,42 @@ func (a *Arena) MatchHub(matchID string) *Hub {
 	return a.rooms[matchID]
 }
 
-// QuickEnqueue finds any open lobby (any map, any size) or waits for one.
+// QuickEnqueue finds any open classic lobby (any map, any size) or waits for one.
 func (a *Arena) QuickEnqueue(userID int64) (*PendingMatch, error) {
 	return a.Enqueue(userID, allMapIDs(), 0)
+}
+
+// FreeEnqueue seats into the persistent freefight lobby (no search / no new rooms).
+func (a *Arena) FreeEnqueue(userID int64) (*PendingMatch, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	a.sweepLocked(now)
+
+	if m := a.liveTicketLocked(userID, now); m != nil {
+		if m.ID == FreeFightLobbyID {
+			return m, nil
+		}
+		return nil, errAlreadySeated
+	}
+
+	l := a.ensureFreeFightLobbyLocked()
+	if l.members[userID] {
+		return a.admitLocked(l, userID, now), nil
+	}
+	if !l.hasRoom() {
+		return nil, errLobbyFull
+	}
+	a.dequeueLocked(userID)
+	return a.admitLocked(l, userID, now), nil
+}
+
+// FreeFightInfo is a snapshot of the persistent freefight lobby for the UI.
+func (a *Arena) FreeFightInfo() LobbyPublic {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	l := a.ensureFreeFightLobbyLocked()
+	return a.lobbyPublicLocked(l)
 }
 
 // CreateLobby opens a hosted room the founder can start when enough players join.
@@ -304,6 +379,9 @@ func (a *Arena) ListLobbies() []LobbyPublic {
 	for _, l := range a.lobbies {
 		if l != nil && l.hub != nil && l.hub.mode == ModeDuelRun {
 			continue // Duel Run has its own browser
+		}
+		if l.mapID == FreeFightMapID {
+			continue // freefight has its own matchmaking entry
 		}
 		out = append(out, a.lobbyPublicLocked(l))
 	}
@@ -494,9 +572,22 @@ func (a *Arena) openLobbyLocked(mapID string, size int, now time.Time, first ...
 	h := NewHub(a.store, gm, a.presence)
 	h.id = id
 	h.mode = ModePvP
+	h.freeCombat = gm.ID == FreeFightMapID
+	if h.freeCombat {
+		h.gridHalf = 10 // matches jungle lake basin radius on the client
+	}
 	h.maxPlayers = size
 	h.allowed = map[int64]bool{} // filled as the arena admits players
-	h.onEmpty = func(hub *Hub) { a.removeRoom(hub.id) }
+	if h.freeCombat {
+		// Prefer the persistent singleton; if one is ever opened this way, keep it.
+		h.hosted = true
+		h.roundState = roundLive
+		h.onEmpty = func(hub *Hub) {
+			log.Println("arena: freefight empty (kept alive)", hub.id)
+		}
+	} else {
+		h.onEmpty = func(hub *Hub) { a.removeRoom(hub.id) }
+	}
 	h.onJoined = func(uid int64) { a.ClaimMatch(uid, id) }
 	h.onLeft = func(uid int64) { a.releaseSlot(id, uid) }
 
@@ -556,7 +647,7 @@ func (a *Arena) Dequeue(userID int64) {
 	var dead *Hub
 	if l := a.lobbies[m.ID]; l != nil {
 		delete(l.members, userID)
-		if len(l.members) == 0 {
+		if len(l.members) == 0 && l.mapID != FreeFightMapID {
 			dead = l.hub
 			delete(a.lobbies, m.ID)
 			delete(a.rooms, m.ID)
@@ -728,7 +819,7 @@ func firstIntersection(a, b []string) string {
 func allMapIDs() []string {
 	out := make([]string, 0, len(GameMaps))
 	for id := range GameMaps {
-		if id == ArenaMapID || id == DuelRunMapID {
+		if id == ArenaMapID || id == DuelRunMapID || id == FreeFightMapID {
 			continue // mode-specific floors, not in classic PvP matchmaking
 		}
 		out = append(out, id)

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { DEFAULT_SKIN, createDie } from '../game/dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED, preloadHats } from '../game/hats.js'
-import { createHands, disposeHands, updateHands, preloadHands } from '../game/hands.js'
+import { createHands, disposeHands, updateHands, setHandsSkin, preloadHands } from '../game/hands.js'
 import { createOrbit } from './orbitPreview.js'
 
 // Small standalone viewport that reuses the in-game die factory. Drag to orbit,
@@ -41,7 +41,7 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
     let hat = createHat(hatRef.current)
     scene.add(hat)
 
-    let hands = createHands()
+    let hands = createHands(skinRef.current || DEFAULT_SKIN)
     scene.add(hands)
 
     const orbit = createOrbit(camera, {
@@ -60,6 +60,7 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
       pipMat.color.set(s.pip)
       pipMat.emissive.set(s.pip)
       rim.color.set(s.pip)
+      setHandsSkin(hands, s)
     }
 
     function swapHat(id) {
@@ -85,7 +86,7 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
       swapHat(hatRef.current)
       scene.remove(hands)
       disposeHands(hands)
-      hands = createHands()
+      hands = createHands(skinRef.current || DEFAULT_SKIN)
       scene.add(hands)
     })
 
@@ -105,6 +106,9 @@ export default function DiePreview({ skin = DEFAULT_SKIN, hatId = 'none', size =
         t: clock.elapsedTime,
         phase: 0.4,
         visible: true,
+        // Soft idle turn so fists read as orbiting the die in the wardrobe preview.
+        facingX: Math.sin(clock.elapsedTime * 0.35) * 0.25,
+        facingZ: -1,
       })
       renderer.render(scene, camera)
       raf = requestAnimationFrame(tick)

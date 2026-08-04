@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { NEON_YELLOW } from './palette.js'
 import { DEFAULT_SKIN, createDie, dieGeo, quatForOrient, rollOrient, yAxis } from './dice.js'
 import { createHat, disposeHat, HAT_BASE_Y, HAT_BOB_AMP, HAT_BOB_SPEED } from './hats.js'
-import { createHands, disposeHands, updateHands } from './hands.js'
+import { createHands, disposeHands, updateHands, PUNCH_TIME } from './hands.js'
 import { inArena, floorY, LEVELS } from './layouts.js'
 import { createNameplate, drawNameplate } from './sprites.js'
 import { sfx } from './sfx.js'
@@ -216,6 +216,7 @@ export function createPlayers(env, arena) {
     const dirX = Math.sign(dx) || 0
     const dirZ = Math.sign(dz) || 0
     if (dirX === 0 && dirZ === 0) return
+    if (dirX || dirZ) p.faceDir = [dirX, dirZ]
     p.jelly = { t: 0, dx: dirX, dz: dirZ, time: JELLY_TIME }
     if (opts.sfx !== false) sfx.bump()
     if (opts.shake) env.addShake?.(opts.shake)
@@ -238,15 +239,21 @@ export function createPlayers(env, arena) {
     // Smash into the obstacle, then spring back a little past rest (jelly rebound).
     const push = Math.sin(t * Math.PI * 1.85) * Math.exp(-2.3 * t) * 0.17
 
-    p.group.position.x = p.cell.x + j.dx * push
-    p.group.position.y = dieY(p.level)
-    p.group.position.z = p.cell.z + j.dz * push
-    if (j.dx !== 0) p.group.scale.set(along, across, across)
-    else p.group.scale.set(across, across, along)
+    if (p.freeCombat) {
+      // Continuous mode owns XZ/Y; jelly is squash-only so it doesn't fight knock slide.
+      if (j.dx !== 0) p.group.scale.set(along, across, across)
+      else p.group.scale.set(across, across, along)
+    } else {
+      p.group.position.x = p.cell.x + j.dx * push
+      p.group.position.y = dieY(p.level)
+      p.group.position.z = p.cell.z + j.dz * push
+      if (j.dx !== 0) p.group.scale.set(along, across, across)
+      else p.group.scale.set(across, across, along)
+    }
 
     if (t >= 1) {
       p.jelly = null
-      p.group.position.set(p.cell.x, dieY(p.level), p.cell.z)
+      if (!p.freeCombat) p.group.position.set(p.cell.x, dieY(p.level), p.cell.z)
       p.group.scale.set(1, 1, 1)
     }
   }
@@ -296,6 +303,7 @@ export function createPlayers(env, arena) {
   function canPlay() {
     const p = me()
     if (!p || p.dead || p.spectating) return false
+    if (p.freeCombat) return true
     // Trampoline flight owns the cube — WASD mid-arc desyncs level vs. mesh Y
     // (prediction queues a roll on the pad floor while the server is already up).
     if (isLaunchLocked(p)) return false
@@ -316,7 +324,7 @@ export function createPlayers(env, arena) {
     const glow = new THREE.PointLight(skin.body, isMe ? 1.8 : 1.4, 3.5)
     glow.position.y = 0.2
     group.add(glow)
-    group.position.set(data.x, dieY(data.level || 0), data.z)
+    group.position.set(data.fx ?? data.x, dieY(data.level || 0), data.fz ?? data.z)
     const q = quatForOrient(data)
     if (q) group.quaternion.copy(q)
     scene.add(group)
@@ -327,8 +335,9 @@ export function createPlayers(env, arena) {
     scene.add(hat)
 
     // Same for fists — levitate beside the die, never inherit roll quat.
+    // Same for fists — levitate beside the die, never inherit roll quat.
     // Duel Run (and any theme with hideHands) skips them.
-    const hands = env.theme?.hideHands ? null : createHands()
+    const hands = env.theme?.hideHands ? null : createHands(skin)
     if (hands) scene.add(hands)
 
     const bar = createNameplate(data.name, isMe)
@@ -336,8 +345,11 @@ export function createPlayers(env, arena) {
 
     const p = {
       id: data.id, group, bodyMat, bar, hat, hatId: data.hatId || 'none', hands,
+      skinId: data.skinId || skin.id,
       cell: { x: data.x, z: data.z },
       confirmedCell: { x: data.x, z: data.z },
+      fx: data.fx ?? data.x,
+      fz: data.fz ?? data.z,
       level: data.level || 0,
       hp: data.hp, lives: data.lives ?? null, dead: data.dead || false,
       spectating: data.spectating || false, // out of the round, waiting for the next
@@ -350,7 +362,16 @@ export function createPlayers(env, arena) {
       gone: data.dead || data.spectating || false, // fully hidden
       hatPhase: Math.random() * Math.PI * 2,
       handPhase: Math.random() * Math.PI * 2,
+      // look dir for floating fists (WASD / last move); default toward −Z
+      faceDir: [data.faceX || 0, data.faceZ ?? -1],
+      faceX: data.faceX || 0,
+      faceZ: data.faceZ ?? -1,
+      punch: null,                 // { side, t } cosmetic Enter jab
       hatFlight: null,              // detached hat ballistic after arena fall
+      voiceOn: !!data.voice,
+      freeCombat: false,
+      faceDie: false,
+      legs: null,
     }
     paintPlate(p)
     players.set(data.id, p)
@@ -368,6 +389,18 @@ export function createPlayers(env, arena) {
     if (p.hands) {
       scene.remove(p.hands)
       disposeHands(p.hands)
+    }
+    if (p.legs) {
+      scene.remove(p.legs)
+      // dispose via dynamic import avoidance — geometry dispose in clear path
+      p.legs.traverse?.((o) => { if (o.geometry) o.geometry.dispose() })
+      for (const m of p.legs.userData?.mats || []) m.dispose?.()
+      p.legs = null
+    }
+    if (p.micBadge) {
+      scene.remove(p.micBadge.sprite)
+      p.micBadge.tex.dispose?.()
+      p.micBadge = null
     }
     scene.remove(p.bar.sprite)
     players.delete(id)
@@ -699,6 +732,8 @@ export function createPlayers(env, arena) {
     const dz = Math.sign(m.p.z - p.cell.z)
     const dist = Math.abs(m.p.x - p.cell.x) + Math.abs(m.p.z - p.cell.z)
     const baseY = dieY(p.level)
+    // Fists yaw with travel so left/right stay beside the die relative to facing.
+    if (dx || dz) p.faceDir = [dx, dz]
 
     if (m.jump) {
       const stomp = !!m.stomp
@@ -846,10 +881,19 @@ export function createPlayers(env, arena) {
 
   function update(dt, visibleUpTo) {
     for (const p of players.values()) {
-      updatePlayerAnim(p, dt)
-      if (!p.anim) updateJelly(p, dt)
-      const hopFx = updateCombatHop(p, dt)
-      applyCombatHop(p, hopFx)
+      let hopFx = null
+      if (!p.freeCombat) {
+        updatePlayerAnim(p, dt)
+        if (!p.anim) updateJelly(p, dt)
+        hopFx = updateCombatHop(p, dt)
+        applyCombatHop(p, hopFx)
+      } else {
+        // Continuous pose owns transform; keep jelly for splash shove feedback.
+        p.anim = null
+        p.queue.length = 0
+        p.combatHop = null
+        if (p.jelly) updateJelly(p, dt)
+      }
 
       // cubes on hidden (upper) platforms are hidden along with them;
       // a launch in progress stays visible from the pad it left
@@ -889,12 +933,14 @@ export function createPlayers(env, arena) {
           }
           const k = Math.min(da.t / 1.1, 1)
           p.group.scale.setScalar(1 - k * 0.5)
+          if (p.legs) p.legs.visible = false
           if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
         } else {
           const k = Math.min(da.t * 1.6, 1)
           p.group.scale.setScalar(Math.max(0.001, 1 - k * 0.999))
           p.group.rotation.y += dt * 10
           p.group.position.y = dieY(p.level) + k * 1.2
+          if (p.legs) p.legs.visible = false
           if (k >= 1) { p.gone = true; p.group.visible = false; p.deathAnim = null }
         }
       }
@@ -930,13 +976,38 @@ export function createPlayers(env, arena) {
         }
       }
 
-      // fists float beside the die (idle bob + move punch/lag)
+      // fists float beside the die (idle bob + yaw with facing + Enter jab)
       if (p.hands) {
+        if (p.punch) {
+          p.punch.t += dt / p.punch.time
+          if (p.punch.t >= 1) p.punch = null
+        }
         const showHands = !p.gone && (p.group.visible || p.deathAnim)
         const anchored = !!p.jelly
         const hx = anchored ? p.cell.x : p.group.position.x
         const hz = anchored ? p.cell.z : p.group.position.z
         const hy = anchored ? dieY(p.level) : p.group.position.y
+        // Free-combat already owns facing — re-lerping from moveDir causes 180° flips
+        // that yank the fists. Classic grid still aims from WASD / faceDir.
+        if (!p.freeCombat) {
+          let wantX = p.faceDir[0]
+          let wantZ = p.faceDir[1]
+          if (p.id === state.myId) {
+            wantX = local.moveDir[0]
+            wantZ = local.moveDir[1]
+          }
+          const wantLen = Math.hypot(wantX, wantZ)
+          if (wantLen > 0.2) {
+            wantX /= wantLen
+            wantZ /= wantLen
+            const faceK = Math.min(1, dt * 10)
+            p.faceX += (wantX - p.faceX) * faceK
+            p.faceZ += (wantZ - p.faceZ) * faceK
+            const fl = Math.hypot(p.faceX, p.faceZ) || 1
+            p.faceX /= fl
+            p.faceZ /= fl
+          }
+        }
         updateHands(p.hands, { x: hx, y: hy, z: hz }, {
           t: performance.now() * 0.001,
           phase: p.handPhase,
@@ -944,6 +1015,12 @@ export function createPlayers(env, arena) {
           anim: p.anim,
           hopLift: hopFx ? hopFx.hatExtra * 0.6 : 0,
           visible: showHands,
+          facingX: p.faceX,
+          facingZ: p.faceZ,
+          punch: p.punch,
+          walkSpeed: p.walkSpeed || 0,
+          walkPhase: p.gaitPhase || 0,
+          dt,
         })
       }
 
@@ -970,7 +1047,7 @@ export function createPlayers(env, arena) {
     }
 
     // aim arrow: billboard UI — tip follows screen dir of move (forward = up)
-    facingArrow.visible = marker.visible
+    facingArrow.visible = marker.visible && !mine?.freeCombat
     if (facingArrow.visible) {
       const [mdx, mdz] = local.moveDir
       const px = mine.group.position.x
@@ -1006,10 +1083,20 @@ export function createPlayers(env, arena) {
     }
   }
 
+  /** Cosmetic fist jab — Enter only, no gameplay. Random left/right each press. */
+  function punch() {
+    const p = me()
+    if (!p || p.gone || p.dead || !p.hands) return
+    // Let the current jab finish — spam must not cut the swing short.
+    if (p.punch && p.punch.t < 1) return
+    const side = Math.random() < 0.5 ? -1 : 1
+    p.punch = { side, t: 0, time: PUNCH_TIME }
+  }
+
   return {
     players, state, local, predictions,
     me, canPlay, setSkins, setHat, addPlayer, removePlayer, clear, paintPlate,
     syncConfirmed, rollbackPrediction, predictRoll, predictDash, playBump,
-    enqueueMove, startDeathAnim, clearHatFlight, update,
+    enqueueMove, startDeathAnim, clearHatFlight, punch, update,
   }
 }

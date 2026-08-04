@@ -9,13 +9,15 @@ import { preloadHands } from '../game/hands.js'
 import { preloadThemeAssets } from '../game/themes/index.js'
 import { getToken } from '../auth/tokenStore.js'
 import { useAuth } from '../auth/context.js'
-import { resolveMapId, DUEL_RUN_MAP_ID } from '../config/maps.js'
+import { DEFAULT_SKIN } from '../game/dice.js'
+import { resolveMapId, DUEL_RUN_MAP_ID, FREEROAM_MAP_ID } from '../config/maps.js'
 import { matchmaking } from '../api/client.js'
 import { sfx } from '../game/sfx.js'
 
 const EMPTY_HUD = {
   status: '', timer: '', timerKind: '', timerDanger: false, alive: '', banner: '',
   mine: '', mineReady: false, fps: 0, ping: null, canStart: false, duelRun: false,
+  deathOverlay: null, freeCombat: false,
 }
 
 export default function GamePage() {
@@ -27,8 +29,8 @@ export default function GamePage() {
   const { logout, patchUser, user } = useAuth()
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const mapId = resolveMapId(params.get('map'))
   const mode = params.get('mode') || ''
+  const mapId = mode === 'freeroam' ? FREEROAM_MAP_ID : resolveMapId(params.get('map'))
   const matchId = params.get('match') || ''
   const isDuelRun = mapId === DUEL_RUN_MAP_ID || mode === 'duel_run'
 
@@ -46,6 +48,8 @@ export default function GamePage() {
         mapId,
         mode,
         matchId,
+        skin: DEFAULT_SKIN,
+        hatId: user?.hatId || 'none',
         onHud: (patch) => setHud((prev) => ({ ...prev, ...patch })),
         onCubes: (cubes) => patchUser({ cubes }),
         onAuthLost: (kind, reason) => {
@@ -73,7 +77,7 @@ export default function GamePage() {
             navigate('/play/pve', { replace: true, state: { reason: 'connect_failed' } })
             return
           }
-          if (mode === 'training') {
+          if (mode === 'training' || mode === 'freeroam') {
             navigate('/play/training', { replace: true, state: { reason: 'connect_failed' } })
             return
           }
@@ -145,6 +149,7 @@ export default function GamePage() {
           onMine={() => gameRef.current?.placeMine()}
           onStartMatch={() => gameRef.current?.startMatch()}
           onOpenAssets={openAssets}
+          onEmote={(emote) => gameRef.current?.sendEmote?.(emote)}
         />
       )}
       <MapAssetModal

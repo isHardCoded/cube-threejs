@@ -28,6 +28,9 @@ export function createProtocol({
   env, arena, players: pm, mines, enemies, popups, setStatus, onKicked, onCubes,
   initialMode = '',
   duelRun = null,
+  freeCombat = null,
+  voice = null,
+  onHud = null,
 }) {
   // destruction phase, driven by server messages; endsAt is in performance.now() time
   const phase = { mode: 'calm', level: 0, endsAt: 0 }
@@ -47,6 +50,9 @@ export function createProtocol({
     endsAt: 0,
     surviveMs: 60000,
   }
+
+  let freeMode = false
+  const state = { get free() { return freeMode } }
 
   function applyPhase(ph) {
     if (!ph) return
@@ -84,7 +90,11 @@ export function createProtocol({
     p.hp = data.hp
     p.lives = data.lives ?? p.lives
     p.level = data.level
+    const fx = data.fx ?? data.x
+    const fz = data.fz ?? data.z
     p.cell = { x: data.x, z: data.z }
+    p.fx = fx
+    p.fz = fz
     pm.syncConfirmed(p, data)
     p.queue = []
     p.anim = null
@@ -94,10 +104,14 @@ export function createProtocol({
     p.pendingDeath = null
     p.gone = false
     pm.clearHatFlight(p)
-    p.group.position.set(data.x, floorY(p.level, env.theme?.arenaLift || 0) + 0.5, data.z)
-    p.group.scale.set(1, 1, 1)
-    const q = quatForOrient(data)
-    if (q) p.group.quaternion.copy(q)
+    const y = freeMode
+      ? p.group.position.y // freeCombat will set dieY next frame
+      : floorY(p.level, env.theme?.arenaLift || 0) + 0.5
+    p.group.position.set(fx, y, fz)
+    if (!freeMode) {
+      const q = quatForOrient(data)
+      if (q) p.group.quaternion.copy(q)
+    }
     p.spawnAnim = { t: 0 }
     pm.paintPlate(p)
   }
@@ -171,20 +185,61 @@ export function createProtocol({
         applyArena(msg.arena)
         enemies?.clear()
         for (const mob of msg.mobs || []) enemies?.spawn(mob)
-        for (const pd of msg.players) pm.addPlayer(pd)
+        freeMode = !!msg.free
+        for (const pd of msg.players) {
+          const p = pm.addPlayer(pd)
+          if (pd.fx != null) { p.fx = pd.fx; p.fz = pd.fz }
+          if (pd.voice) voice?.setPeerMic?.(pd.id, true)
+        }
         // Older servers omit hatId — apply the locally equipped hat to me.
         const mine = pm.me()
         if (mine) pm.setHat(mine, getStoredHatId())
         if (mine?.spectating) setStatus(t('game.spectate'))
+        if (freeMode) {
+          freeCombat?.enable({
+            punchCooldownMs: msg.punchCooldownMs || 480,
+            punchRadius: msg.punchRadius || 1.85,
+          })
+          setStatus(t('game.freeCombat'), 2800)
+        } else {
+          freeCombat?.disable?.()
+        }
         break
       }
 
-      case 'join':
-        pm.addPlayer(msg.p)
+      case 'join': {
+        const p = pm.addPlayer(msg.p)
+        if (msg.p?.fx != null) { p.fx = msg.p.fx; p.fz = msg.p.fz }
+        if (freeMode) freeCombat?.onJoinPlayer?.(p)
+        voice?.onPeerJoined?.(msg.p?.id)
         break
+      }
 
       case 'leave':
         pm.removePlayer(msg.id)
+        voice?.onPeerLeft?.(msg.id)
+        break
+
+      case 'pose':
+        freeCombat?.applyRemotePose?.(msg)
+        break
+
+      case 'splash':
+        freeCombat?.handleSplashMsg?.(msg)
+        break
+
+      case 'emote':
+        freeCombat?.applyEmote?.(msg)
+        break
+
+      case 'voice':
+        voice?.setPeerMic?.(msg.id, !!msg.on)
+        break
+
+      case 'voice-offer':
+      case 'voice-answer':
+      case 'voice-ice':
+        voice?.handleSignal?.(msg)
         break
 
       case 'round':
@@ -256,7 +311,7 @@ export function createProtocol({
             a.flash = 1
             pm.paintPlate(a)
             popups.spawn(`-${msg.dmgToA}`, NEON_MAGENTA, a.group.position.clone().add(POPUP_OFFSET))
-            pm.playBump(a, dx, dz, { sfx: false, hop: true })
+            if (!msg.splash) pm.playBump(a, dx, dz, { sfx: false, hop: true })
           }
         }
         if (d) {
@@ -264,11 +319,12 @@ export function createProtocol({
           d.flash = 1
           pm.paintPlate(d)
           popups.spawn(`-${msg.dmgToD}`, NEON_MAGENTA, d.group.position.clone().add(POPUP_OFFSET))
-          pm.playBump(d, -dx, -dz, { sfx: false, hop: true })
+          if (!msg.splash) pm.playBump(d, -dx, -dz, { sfx: false, hop: true })
         }
+        if (msg.splash) freeCombat?.applySplashHit?.(msg)
         if (!stomp) sfx.hit()
         if (msg.a === myId() || msg.d === myId()) {
-          env.addShake(stomp ? 0.34 : 0.28)
+          env.addShake(stomp ? 0.34 : msg.splash ? 0.32 : 0.28)
           hapticHeavy()
         }
         // a predicted step may have raced into a cell someone just occupied
@@ -299,8 +355,18 @@ export function createProtocol({
         if (p.anim || p.queue.length > 0) p.pendingDeath = mode
         else pm.startDeathAnim(p, mode)
         if (msg.id === myId()) {
-          if (msg.eliminated) setStatus(t('game.eliminated'))
-          else if (msg.lives == null) {
+          if (msg.eliminated) {
+            setStatus(t('game.eliminated'))
+            onHud?.({ deathOverlay: null })
+          } else if (msg.respawnMs != null) {
+            onHud?.({
+              deathOverlay: {
+                endsAt: performance.now() + Number(msg.respawnMs),
+                cause: msg.cause || '',
+              },
+            })
+            setStatus('')
+          } else if (msg.lives == null) {
             setStatus(msg.cause === 'fall' ? t('game.fall') : t('game.destroyed'))
           }
         }
@@ -312,7 +378,10 @@ export function createProtocol({
         if (!p) { pm.addPlayer(msg.p); break }
         if (msg.p.id === myId()) pm.predictions.length = 0
         reviveInto(p, msg.p)
-        if (msg.p.id === myId()) setStatus('')
+        if (msg.p.id === myId()) {
+          setStatus('')
+          onHud?.({ deathOverlay: null })
+        }
         break
       }
 
@@ -405,6 +474,7 @@ export function createProtocol({
           reviveInto(p, pd)
         }
         sfx.crumble()
+        onHud?.({ deathOverlay: null })
         setStatus(
           arenaState.active
             ? t('game.arenaStart')
@@ -523,5 +593,5 @@ export function createProtocol({
     }
   }
 
-  return { handleMessage, phase, round, arena: arenaState }
+  return { handleMessage, phase, round, arena: arenaState, get free() { return freeMode } }
 }

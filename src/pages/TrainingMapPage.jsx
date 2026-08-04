@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Gamepad2 } from 'lucide-react'
-import { DEFAULT_MAP, MAPS } from '../config/maps.js'
+import { ArrowLeft, Footprints, Gamepad2 } from 'lucide-react'
+import { DEFAULT_MAP, FREEROAM_MAP_ID, MAPS } from '../config/maps.js'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
 /** Solo training: pick one map and enter a private room. */
@@ -53,6 +53,14 @@ export default function TrainingMapPage() {
           >
             <ArrowLeft className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
           </Link>
+          <button
+            className="btn btn--ghost btn--with-icon"
+            type="button"
+            onClick={() => navigate(`/game?map=${FREEROAM_MAP_ID}&mode=freeroam`)}
+          >
+            <Footprints className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
+            <span>{t('training.freeroam.name')}</span>
+          </button>
           <button
             className="btn btn--with-icon"
             type="button"

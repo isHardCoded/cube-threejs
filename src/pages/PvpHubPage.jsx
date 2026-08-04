@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ArrowLeft, List, Search, Zap } from 'lucide-react'
+import { ArrowLeft, List, Search, Swords, Zap } from 'lucide-react'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
 const RETURN_MESSAGES = {
@@ -9,7 +9,7 @@ const RETURN_MESSAGES = {
   match_gone: 'pvp.matchGone',
 }
 
-/** PvP entry: quick search, lobby browser, or Duel Run. */
+/** PvP entry: quick search, free fight, lobby browser, or Duel Run. */
 export default function PvpHubPage() {
   const { t } = useLocale()
   const { state } = useLocation()
@@ -38,9 +38,23 @@ export default function PvpHubPage() {
           </Link>
 
           <Link
+            to="/play/pvp/free"
+            className="mode mode--pvp"
+            style={{ animationDelay: '0.08s' }}
+          >
+            <span className="mode__icon" aria-hidden="true">
+              <Swords size={28} strokeWidth={2.4} />
+            </span>
+            <span className="mode__text">
+              <span className="mode__name">{t('pvp.hub.free.name')}</span>
+              <span className="mode__desc">{t('pvp.hub.free.desc')}</span>
+            </span>
+          </Link>
+
+          <Link
             to="/play/pvp/lobbies"
             className="mode mode--pvp"
-            style={{ animationDelay: '0.11s' }}
+            style={{ animationDelay: '0.12s' }}
           >
             <span className="mode__icon" aria-hidden="true">
               <List size={28} strokeWidth={2.4} />

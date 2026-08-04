@@ -69,6 +69,9 @@ var MapOrder = []string{"cyberpunk", "lava", "desert", "kawaii", "jungle", "ocea
 
 const DefaultMapID = "cyberpunk"
 
+// FreeFightMapID is continuous-combat PvP (not in classic sector matchmaking).
+const FreeFightMapID = "freefight"
+
 func obs(kind string, cells ...[2]int) []Obstacle {
 	out := make([]Obstacle, 0, len(cells))
 	for _, c := range cells {
@@ -305,6 +308,16 @@ var GameMaps = map[string]*GameMap{
 				),
 				Decals: [][2]int{{0, 0}, {3, 3}, {-3, -3}},
 			},
+		},
+	},
+
+	// Free-fight PvP: open pad, continuous WASD + splash punches (no sector rolls).
+	FreeFightMapID: {
+		ID: FreeFightMapID,
+		Levels: [Levels]LevelLayout{
+			{},
+			{},
+			{},
 		},
 	},
 }

@@ -101,6 +101,7 @@ export const friends = {
 export const matchmaking = {
   queue: (maps, size) => api('/api/match/queue', { method: 'POST', body: { maps, size } }),
   quick: () => api('/api/match/quick', { method: 'POST', body: {} }),
+  free: () => api('/api/match/free', { method: 'POST', body: {} }),
   cancel: () => api('/api/match/queue', { method: 'DELETE' }),
   status: () => api('/api/match/status'),
   lobbies: () => api('/api/match/lobbies'),

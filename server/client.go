@@ -132,7 +132,8 @@ func (c *Client) readLoop() {
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
-	c.conn.SetReadLimit(512)
+	// SDP / ICE for voice chat can exceed a few KB.
+	c.conn.SetReadLimit(32 << 10)
 	c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 	c.conn.SetPongHandler(func(string) error {
 		c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
@@ -150,6 +151,11 @@ func (c *Client) readLoop() {
 		// Latency probe: answer immediately so RTT is not queued behind gameplay.
 		if msg.T == "ping" {
 			c.hub.sendRaw(c, map[string]any{"t": "pong", "ts": msg.Ts})
+			continue
+		}
+		// Voice SDP/ICE must not be dropped — pose floods can fill the queue.
+		if msg.T == "voice" || msg.T == "voice-offer" || msg.T == "voice-answer" || msg.T == "voice-ice" {
+			c.hub.commands <- command{client: c, msg: msg}
 			continue
 		}
 		select {

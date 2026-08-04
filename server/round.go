@@ -180,6 +180,14 @@ func (h *Hub) roundTick(now time.Time) {
 	if h.isDuelRun() {
 		return
 	}
+	// Persistent freefight: continuous fight, no classic round end / room close.
+	if h.isFreeCombat() {
+		if h.roundState != roundLive {
+			h.roundState = roundLive
+			h.roundStartedAt = now
+		}
+		return
+	}
 	switch h.roundState {
 	case roundWaiting:
 		if h.isArena() {

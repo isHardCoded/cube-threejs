@@ -111,11 +111,49 @@ export function createArena(env) {
     // Authored maps (jungle) bring their own rim / fence / pad from Blender on
     // level 0; keep the procedural furniture on upper platforms and other themes.
     const authoredDressing = level === 0 && theme.authoredArena && theme.createArenaDressing
+    const seamless = !!theme.seamlessFloor
+    const half = halfOf()
 
+    // Freefight: jungle meadow (backdrop) is the floor — skip raised pads / tiles.
+    if (theme.noArenaFloor) {
+      platforms[level] = {
+        group, pieces, tramp: null, trampKey: null, rimGone: 0, spot: null,
+      }
+      return
+    }
+
+    // Freeroam / test: one continuous grass pad — no per-cell sectors or grid.
+    if (seamless) {
+      const size = theme.floorSize || spanOf()
+      const bevel = s.tileBevel ?? 0.12
+      const padGeo = new RoundedBoxGeometry(size, 0.42, size, s.tileBevelSegs ?? 3, bevel)
+      const pad = new THREE.Mesh(padGeo, mats.tileA)
+      pad.position.y = -0.21
+      pad.receiveShadow = true
+      group.add(pad)
+      reg(0, 0, pad)
+
+      const under = new THREE.Mesh(boxGeo, mats.base)
+      under.scale.set(size * 0.96, 1.1, size * 0.96)
+      under.position.y = -0.3 - 1.1 / 2
+      group.add(under)
+      reg(0, 0, under)
+
+      // Soft moss blotches so the pad does not read as a flat plastic slab.
+      if (s.decalTex) {
+        const blotch = new THREE.Mesh(
+          new THREE.PlaneGeometry(size * 0.92, size * 0.92),
+          decalMat(s.decalTex, s.decal || '#A8D888', 0.35),
+        )
+        blotch.rotation.x = -Math.PI / 2
+        blotch.position.y = 0.01
+        group.add(blotch)
+        reg(0, 0, blotch)
+      }
+    } else {
     // tiles + ragged ground chunks underneath. Tiles never cast shadows: they are
     // a flat floor, so all it would buy is a few hundred extra shadow draws.
     // On authored floating arenas keep under-chunks short so holes read as void.
-    const half = halfOf()
     for (let x = -half; x <= half; x++) {
       for (let z = -half; z <= half; z++) {
         const tile = new THREE.Mesh(tileGeo, pickTileMat(x, z))
@@ -143,13 +181,14 @@ export function createArena(env) {
         reg(x, z, base)
       }
     }
+    }
 
     if (authoredDressing) {
       const dressing = theme.createArenaDressing()
       if (dressing) group.add(dressing)
     }
 
-    if (!authoredDressing && !bare) {
+    if (!authoredDressing && !bare && !seamless) {
       // faint grid over the tile seams: enough to read the cells, not a light show
       const span = spanOf()
       const edge = half + 0.55
@@ -181,7 +220,7 @@ export function createArena(env) {
       blockedSets[level].add(cellKey(o.x, o.z))
     }
 
-    if (!authoredDressing && !bare) {
+    if (!authoredDressing && !bare && !seamless) {
       // perimeter fence
       {
         const span = spanOf()
@@ -217,6 +256,7 @@ export function createArena(env) {
             const oz = Math.abs(z) === half ? Math.sign(z) : 0
 
             const spike = new THREE.Mesh(coneGeo, mats.rim[Math.random() < 0.5 ? 0 : 1])
+
             const spikeR = 0.2 + Math.random() * 0.16
             spike.scale.set(spikeR, 0.6 + Math.random() * 0.9, spikeR)
             spike.rotation.x = Math.PI
@@ -270,7 +310,8 @@ export function createArena(env) {
       }
 
       // Bare PvE floor: scatter jungle moss blotches across the wide sector grid.
-      if (bare && dMat && level === 0) {
+      // Seamless freeroam already has one pad blotch — skip cell-sized scatter.
+      if (bare && !seamless && dMat && level === 0) {
         const n = Math.min(120, Math.floor(spanOf() * spanOf() * 0.08))
         for (let i = 0; i < n; i++) {
           const x = ((Math.random() * 2 - 1) * half) | 0
@@ -284,7 +325,7 @@ export function createArena(env) {
         }
       }
 
-      if (level === 0 && s.padTex && !authoredDressing) {
+      if (level === 0 && s.padTex && !authoredDressing && !seamless) {
         const pad = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), decalMat(s.padTex, s.pad, 0.5))
         pad.rotation.x = -Math.PI / 2
         pad.position.set(0, 0.022, 0)
@@ -292,8 +333,10 @@ export function createArena(env) {
         reg(0, 0, pad)
       }
 
-      const debrisN = bare ? 36 : 12
-      const debrisSpan = bare ? half * 1.8 : 8.4
+      const debrisN = seamless ? 18 : bare ? 36 : 12
+      const debrisSpan = seamless
+        ? (theme.floorSize || spanOf()) * 0.7
+        : bare ? half * 1.8 : 8.4
       for (let i = 0; i < debrisN; i++) {
         const debris = new THREE.Mesh(rockGeo, mats.debris[i % mats.debris.length])
         const size = 0.05 + Math.random() * 0.06

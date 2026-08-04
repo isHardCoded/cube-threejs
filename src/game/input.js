@@ -17,11 +17,16 @@ const KEYS = {
 
 // Keyboard + swipe. Double tap in the same direction dashes, space jumps.
 export function createInput({ canvas, players: pm, send }) {
+  let blocked = false // free-combat PvP owns WASD / Enter / Space
   let moveGateAt = 0
   let lastDir = null
   let lastDirAt = 0
   let lastMoveDir = [0, -1] // direction the jump will use
   pm.local.moveDir = lastMoveDir
+
+  function setBlocked(v) {
+    blocked = !!v
+  }
 
   function setMoveDir(dx, dz) {
     lastMoveDir = [dx, dz]
@@ -99,10 +104,25 @@ export function createInput({ canvas, players: pm, send }) {
     send({ t: 'mine' })
   }
 
+  function inputPunch() {
+    // Cosmetic only — works whenever we have a visible cube (incl. spectate no).
+    const p = pm.me()
+    if (!p || p.gone || p.dead) return
+    // Don't steal Enter from text fields / chat.
+    const tag = document.activeElement?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return
+    pm.punch()
+  }
+
   function onKeyDown(e) {
-    if (e.repeat) return
+    if (blocked || e.repeat) return
     if (e.code === 'Space') { e.preventDefault(); inputJump(); return }
     if (e.code === 'KeyE') { e.preventDefault(); inputMine(); return }
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+      e.preventDefault()
+      inputPunch()
+      return
+    }
     const dir = KEYS[e.code]
     if (dir) { e.preventDefault(); inputDir(dir[0], dir[1]) }
   }
@@ -110,11 +130,11 @@ export function createInput({ canvas, players: pm, send }) {
   let touchStart = null
   function onPointerDown(e) {
     // Mouse must not drive movement — desktop uses the keyboard only.
-    if (e.pointerType === 'mouse') return
+    if (blocked || e.pointerType === 'mouse') return
     touchStart = { x: e.clientX, y: e.clientY, t: performance.now() }
   }
   function onPointerUp(e) {
-    if (e.pointerType === 'mouse' || !touchStart) return
+    if (blocked || e.pointerType === 'mouse' || !touchStart) return
     const dx = e.clientX - touchStart.x
     const dy = e.clientY - touchStart.y
     const dt = performance.now() - touchStart.t
@@ -146,5 +166,5 @@ export function createInput({ canvas, players: pm, send }) {
   }
 
   // exposed for the on-screen ability button, which mobile has no key for
-  return { dispose, placeMine: inputMine }
+  return { dispose, placeMine: inputMine, setBlocked }
 }

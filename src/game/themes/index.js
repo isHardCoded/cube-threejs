@@ -10,6 +10,8 @@ import jungle from './jungle.js'
 import ocean from './ocean.js'
 import arena from './arena.js'
 import duelrun from './duelrun.js'
+import freeroam from './freeroam.js'
+import freefight from './freefight.js'
 
 // A theme owns everything that makes one map look like itself. The arena
 // geometry, the rules and the animations are shared by all maps; only colours,
@@ -62,7 +64,7 @@ import duelrun from './duelrun.js'
 // Anything a theme animates itself belongs in its own update().
 // Polished maps share post/shadows/AO/godrays via themes/gfxPolish.js until
 // authored Blender backdrops replace procedural scenery.
-const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean, arena, duelrun }
+const THEMES = { cyberpunk, lava, desert, kawaii, jungle, ocean, arena, duelrun, freeroam, freefight }
 
 export function themeFor(id) {
   return THEMES[id] || cyberpunk
@@ -72,7 +74,8 @@ export function themeFor(id) {
 // clone synchronously. Safe to call for maps with no assets (no-op).
 export async function preloadThemeAssets(id) {
   const theme = themeFor(id)
-  if (id !== 'jungle') {
+  // Freefight reuses the jungle authored backdrop (minus lake).
+  if (id !== 'jungle' && id !== 'freefight') {
     return preloadGltf(theme.assets || [], {
       steps: theme.materialSteps || 4,
       palette: theme.materialPalette || null,

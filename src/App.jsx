@@ -6,6 +6,7 @@ import ModePage from './pages/ModePage.jsx'
 import TrainingMapPage from './pages/TrainingMapPage.jsx'
 import PvpHubPage from './pages/PvpHubPage.jsx'
 import PvpQuickPage from './pages/PvpQuickPage.jsx'
+import PvpFreePage from './pages/PvpFreePage.jsx'
 import PvpLobbiesPage from './pages/PvpLobbiesPage.jsx'
 import PvpLobbyPage from './pages/PvpLobbyPage.jsx'
 import PvpCreatePage from './pages/PvpCreatePage.jsx'
@@ -69,6 +70,7 @@ function GameRoutes() {
             <Route path="/play/training" element={<RequireAuth><TrainingMapPage /></RequireAuth>} />
             <Route path="/play/pvp" element={<RequireAuth><PvpHubPage /></RequireAuth>} />
             <Route path="/play/pvp/quick" element={<RequireAuth><PvpQuickPage /></RequireAuth>} />
+            <Route path="/play/pvp/free" element={<RequireAuth><PvpFreePage /></RequireAuth>} />
             <Route path="/play/pvp/lobbies" element={<RequireAuth><PvpLobbiesPage /></RequireAuth>} />
             <Route path="/play/pvp/lobby/:id" element={<RequireAuth><PvpLobbyPage /></RequireAuth>} />
             <Route path="/play/pvp/create" element={<RequireAuth><PvpCreatePage /></RequireAuth>} />

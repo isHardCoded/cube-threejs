@@ -15,20 +15,40 @@ import { MAX_HP } from './dice.js'
 import { createDuelRunRuntime } from './duelrun/index.js'
 import { WS_BASE } from '../config/env.js'
 import { t } from '../i18n/t.js'
+import { startFreeRoam } from './freeRoam.js'
+import { createFreeCombat } from './freeCombat.js'
+import { createVoiceChat, attachMicBadge, setMicBadge } from './voiceChat.js'
 
 // Boots the whole 3D game onto a canvas. onHud receives partial HUD updates
 // so React can render the overlay without touching Three.js.
 // onAuthLost fires when the server refuses the token or another session wins.
-export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {}, onAuthLost, onCubes }) {
+export function startGame({
+  canvas, token, mapId, mode, matchId, onHud = () => {}, onAuthLost, onCubes,
+  skin, hatId,
+}) {
   initTelegram()
 
   const env = createEnvironment(canvas, mapId)
   const isDuelRun = mapId === 'duelrun' || mode === 'duel_run'
-  const isArena = !isDuelRun && (mode === 'arena' || mapId === 'arena' || !!env.theme?.singleLevel)
+  const isFreeFight = mode === 'free' || mapId === 'freefight'
+  const isArena = !isDuelRun && !isFreeFight && (mode === 'arena' || mapId === 'arena' || !!env.theme?.singleLevel)
   // Movement bounds + HP bar scale must match the map before first input.
-  setPlayHalf(isArena || isDuelRun ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
+  setPlayHalf(isArena || isDuelRun || isFreeFight ? (env.theme?.gridHalf || ARENA_HALF) : HALF)
   setNameplateMaxHp(isArena || isDuelRun ? 100 : MAX_HP)
   const arena = createArena(env)
+
+  // Local free-roam test — no WebSocket / grid authority.
+  if (mode === 'freeroam' || mapId === 'freeroam') {
+    return startFreeRoam({
+      canvas,
+      env,
+      arena,
+      onHud,
+      skin,
+      hatId,
+    })
+  }
+
   // Flat PvE floor: show sectors immediately so a slow welcome does not leave
   // only the grass backdrop. Server layout still wins on welcome.
   if (isArena || isDuelRun) {
@@ -60,11 +80,40 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
 
   let duelRun = null
   const duelRef = { get current() { return duelRun } }
+  // Forward refs filled after net exists.
+  const netRef = { current: null }
+  const freeCombat = createFreeCombat({
+    canvas,
+    env,
+    arena,
+    players,
+    send: (msg) => netRef.current?.send(msg),
+  })
+
+  const voice = createVoiceChat({
+    send: (msg) => netRef.current?.send(msg),
+    getMyId: () => players.state.myId,
+    getPeerIds: () => [...players.players.keys()],
+  })
+
+  voice.setPeerMic = (id, on) => {
+    const p = players.players.get(id)
+    if (p) {
+      attachMicBadge(THREE, env.scene, p)
+      setMicBadge(p, on)
+      p.voiceOn = !!on
+    }
+    // Drive WebRTC even if the visual player row is briefly missing.
+    if (id !== players.state.myId) voice.onRemoteVoice?.(id, !!on)
+  }
 
   const protocol = createProtocol({
     env, arena, players, mines, enemies, popups, setStatus,
     initialMode: mode,
     duelRun: duelRef,
+    freeCombat,
+    voice,
+    onHud,
     onKicked: (reason) => {
       net.dispose()
       onAuthLost?.('kicked', reason)
@@ -90,6 +139,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
       players.clear()
       mines.clear()
       enemies.clear()
+      freeCombat.disable()
       pingShown = -1
       onHud({ ping: null })
     },
@@ -102,6 +152,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
       }
     },
   })
+  netRef.current = net
 
   if (isDuelRun) {
     duelRun = createDuelRunRuntime({ env, players, send: net.send, onHud })
@@ -289,6 +340,41 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   // Corridor forward is +Z (cam yaw 180). Default classic aim [0,-1] points backward.
   if (isDuelRun) players.local.moveDir = [0, 1]
 
+  // When free combat enables, block grid input.
+  const _enable = freeCombat.enable.bind(freeCombat)
+  freeCombat.enable = (opts) => {
+    _enable(opts)
+    input.setBlocked(true)
+    onHud({ hideMine: true, freeCombat: true })
+  }
+  const _disable = freeCombat.disable.bind(freeCombat)
+  freeCombat.disable = () => {
+    _disable()
+    input.setBlocked(false)
+    onHud({ freeCombat: false })
+  }
+
+  function onVoiceKey(e) {
+    if (e.repeat || e.code !== 'KeyK') return
+    if (!protocol.free && !freeCombat.enabled) return
+    const tag = document.activeElement?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return
+    e.preventDefault()
+    ensureAudio()
+    voice.toggle().then((on) => {
+      const me = players.me()
+      if (me) {
+        me.voiceOn = !!on
+        attachMicBadge(THREE, env.scene, me)
+        setMicBadge(me, on)
+      }
+      setStatus(on ? t('game.voiceOn') : t('game.voiceOff'), 1600)
+    }).catch(() => {
+      setStatus(t('game.voiceOff'), 1600)
+    })
+  }
+  window.addEventListener('keydown', onVoiceKey)
+
   const onResize = () => env.resize()
   window.addEventListener('resize', onResize)
   tg?.onEvent?.('viewportChanged', onResize)
@@ -316,7 +402,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
   const lastHud = {
     fps: 0,
     timer: '', timerKind: '', alive: '', banner: '', mine: '', mineReady: null, lives: null,
-    canStart: false, hideMine: false,
+    canStart: false, hideMine: false, freeCombat: false,
   }
 
   function resultText(r) {
@@ -378,7 +464,8 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     // ability button: countdown, or armed/out of max
     const cooling = Math.max(0, players.local.mineReadyAt - performance.now())
     const out = mines.countOwned(players.state.myId)
-    const hideMine = !!arenaHud.active
+    const hideMine = !!arenaHud.active || !!protocol.free
+    const freeCombatHud = !!protocol.free
     const mineReady = !hideMine && cooling === 0 && out < players.local.maxMines && players.canPlay()
     const mine = hideMine
       ? ''
@@ -398,7 +485,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
       || alive !== lastHud.alive || banner !== lastHud.banner
       || mine !== lastHud.mine || mineReady !== lastHud.mineReady
       || lives !== lastHud.lives || canStart !== lastHud.canStart
-      || hideMine !== lastHud.hideMine) {
+      || hideMine !== lastHud.hideMine || freeCombatHud !== lastHud.freeCombat) {
       lastHud.timer = timer
       lastHud.timerKind = timerKind
       lastHud.alive = alive
@@ -408,9 +495,11 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
       lastHud.lives = lives
       lastHud.canStart = canStart
       lastHud.hideMine = hideMine
+      lastHud.freeCombat = freeCombatHud
       onHud({
         timer, timerKind, timerDanger: danger, alive, banner, mine, mineReady,
         lives, maxLives: players.local.maxLives, canStart, hideMine,
+        freeCombat: freeCombatHud,
       })
     }
   }
@@ -478,11 +567,25 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     arena.update(dt, t, viewLevel)
     mines.update(dt, t, viewLevel)
     players.update(dt, viewLevel)
+    freeCombat.update(dt)
     enemies.update(dt, env.camera)
     if (duelRun) {
       duelRun.update(dt)
     } else {
       updateHud()
+    }
+    // Mic badges ride above nameplates
+    for (const p of players.players.values()) {
+      if (!p.micBadge) continue
+      const show = !!p.voiceOn && !p.dead && p.group.visible
+      p.micBadge.sprite.visible = show
+      if (!show) continue
+      const plateLift = p.hatId && p.hatId !== 'none' ? 1.45 : 1.15
+      p.micBadge.sprite.position.set(
+        p.group.position.x,
+        p.group.position.y + plateLift + 0.42,
+        p.group.position.z,
+      )
     }
     popups.update(dt)
     env.update(dt, t)
@@ -498,6 +601,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
         y: me.group.position.y - 0.5,
         follow: isDuelRun ? 1 : 0.55,
         lookFollow: isDuelRun ? 1 : 0.6,
+        tight: !!protocol.free,
       })
     env.render()
 
@@ -510,6 +614,7 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
     isDay: () => env.isDay(),
     placeMine: () => input.placeMine(),
     startMatch: () => net.send({ t: 'start' }),
+    sendEmote: (emote) => freeCombat.sendEmote?.(emote),
     setCameraYaw: (deg) => env.setCameraYaw?.(deg),
     getCameraYaw: () => env.getCameraYaw?.() ?? 0,
     setCameraElev: (deg) => env.setCameraElev?.(deg),
@@ -520,6 +625,9 @@ export function startGame({ canvas, token, mapId, mode, matchId, onHud = () => {
       cancelAnimationFrame(raf)
       clearTimeout(statusTimer)
       duelRun?.dispose?.()
+      window.removeEventListener('keydown', onVoiceKey)
+      freeCombat.dispose()
+      voice.dispose()
       input.dispose()
       net.dispose()
       enemies.clear()
