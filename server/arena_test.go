@@ -326,7 +326,14 @@ func TestLaterPlayersFillTheSameLobby(t *testing.T) {
 			t.Errorf("player %d got size %d", uid, m.Size)
 		}
 	}
-	if n := len(a.lobbies); n != 1 {
+	// Persistent freefight lobby is always present; only classic match lobbies count.
+	n := 0
+	for id := range a.lobbies {
+		if id != FreeFightLobbyID {
+			n++
+		}
+	}
+	if n != 1 {
 		t.Errorf("%d lobbies opened, want 1", n)
 	}
 

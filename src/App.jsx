@@ -18,6 +18,8 @@ import ProfilePage from './pages/ProfilePage.jsx'
 import RatingPage from './pages/RatingPage.jsx'
 import FriendsPage from './pages/FriendsPage.jsx'
 import QuestsPage from './pages/QuestsPage.jsx'
+import FarmPage from './pages/FarmPage.jsx'
+import DicePage from './pages/DicePage.jsx'
 import AdminShell from './components/AdminShell.jsx'
 import AdminPage from './pages/AdminPage.jsx'
 import AdminQuestsPage from './pages/AdminQuestsPage.jsx'
@@ -77,6 +79,7 @@ function GameRoutes() {
             <Route path="/play/pvp/duel-run" element={<RequireAuth><DuelRunHubPage /></RequireAuth>} />
             <Route path="/play/pvp/duel-run/quick" element={<RequireAuth><DuelRunQuickPage /></RequireAuth>} />
             <Route path="/play/pvp/duel-run/create" element={<RequireAuth><DuelRunCreatePage /></RequireAuth>} />
+            <Route path="/play/pvp/dice" element={<RequireAuth><DicePage /></RequireAuth>} />
             <Route path="/play/pve" element={<RequireAuth><PvePage /></RequireAuth>} />
             <Route path="/character" element={<RequireAuth><CharacterPage /></RequireAuth>} />
             <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
@@ -84,6 +87,7 @@ function GameRoutes() {
             <Route path="/rating" element={<RequireAuth><RatingPage /></RequireAuth>} />
             <Route path="/friends" element={<RequireAuth><FriendsPage /></RequireAuth>} />
             <Route path="/quests" element={<RequireAuth><QuestsPage /></RequireAuth>} />
+            <Route path="/farm" element={<RequireAuth><FarmPage /></RequireAuth>} />
           </Route>
           <Route path="/game" element={<RequireAuth><GamePage /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />

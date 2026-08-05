@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { ArrowLeft, List, Search, Swords, Zap } from 'lucide-react'
+import { ArrowLeft, Dices, List, Search, Swords, Zap } from 'lucide-react'
 import { useLocale } from '../i18n/LocaleContext.jsx'
 
 const RETURN_MESSAGES = {
@@ -76,6 +76,20 @@ export default function PvpHubPage() {
             <span className="mode__text">
               <span className="mode__name">{t('duelrun.title')}</span>
               <span className="mode__desc">{t('duelrun.hub.cardDesc')}</span>
+            </span>
+          </Link>
+
+          <Link
+            to="/play/pvp/dice"
+            className="mode mode--pvp"
+            style={{ animationDelay: '0.24s' }}
+          >
+            <span className="mode__icon" aria-hidden="true">
+              <Dices size={28} strokeWidth={2.4} />
+            </span>
+            <span className="mode__text">
+              <span className="mode__name">{t('dice.hub.name')}</span>
+              <span className="mode__desc">{t('dice.hub.desc')}</span>
             </span>
           </Link>
         </div>

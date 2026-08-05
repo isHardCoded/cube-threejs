@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Gamepad2, ScrollText, Settings, Shirt, Trophy, Users, Shield } from 'lucide-react'
+import { Gamepad2, ScrollText, Settings, Shirt, Sprout, Trophy, Users, Shield } from 'lucide-react'
 import LogoutIcon from '../components/LogoutIcon.jsx'
 import SettingsModal from '../components/SettingsModal.jsx'
 import Avatar from '../components/Avatar.jsx'
@@ -103,8 +103,18 @@ export default function MenuPage() {
           <span>{t('menu.play')}</span>
         </button>
 
-        <div className="menu-pair menu-rise" style={rise(2)}>
-          <button className="btn btn--alt btn--with-icon" type="button" onClick={() => navigate('/rating')}>
+        <button
+          className="btn btn--alt btn--with-icon menu-rise"
+          type="button"
+          style={rise(2)}
+          onClick={() => navigate('/farm')}
+        >
+          <Sprout className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
+          <span>{t('menu.farm')}</span>
+        </button>
+
+        <div className="menu-pair menu-rise" style={rise(3)}>
+          <button className="btn btn--ghost btn--with-icon" type="button" onClick={() => navigate('/rating')}>
             <Trophy className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
             <span>{t('menu.rating')}</span>
           </button>
@@ -118,7 +128,7 @@ export default function MenuPage() {
         <button
           className="btn btn--ghost btn--with-icon menu-btn--badge menu-rise"
           type="button"
-          style={rise(3)}
+          style={rise(4)}
           onClick={() => navigate('/quests')}
         >
           <ScrollText className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
@@ -130,7 +140,7 @@ export default function MenuPage() {
           <button
             className="btn btn--ghost btn--with-icon menu-rise"
             type="button"
-            style={rise(4)}
+            style={rise(5)}
             onClick={() => navigate('/admin')}
           >
             <Shield className="icon" size={22} strokeWidth={2.4} aria-hidden="true" />
